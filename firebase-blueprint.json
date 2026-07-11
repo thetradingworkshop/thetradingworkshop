@@ -1,0 +1,316 @@
+{
+  "entities": {
+    "broker_connections": {
+      "title": "Broker Connection",
+      "description": "A connection to a broker API or webhook source.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "brokerName": { "type": "string" },
+        "environment": { "type": "string", "enum": ["live", "paper"] },
+        "status": { "type": "string", "enum": ["connected", "syncing", "delayed", "paused", "error", "disconnected", "requires_reconnect", "not_configured", "manual_sync_active"] },
+        "authType": { "type": "string", "enum": ["API", "Webhook", "OAuth", "Manual"] },
+        "syncMode": { "type": "string", "enum": ["manual_csv", "api_live"] },
+        "externalUserId": { "type": "string" },
+        "accessToken": { "type": "string" },
+        "refreshToken": { "type": "string" },
+        "tokenExpiresAt": { "type": "string", "format": "date-time" },
+        "webhookSecret": { "type": "string" },
+        "lastSyncAt": { "type": "string", "format": "date-time" },
+        "lastImportAt": { "type": "string", "format": "date-time" },
+        "importCount": { "type": "number" },
+        "syncStatus": { "type": "string", "enum": ["idle", "syncing", "failed"] },
+        "syncStartedAt": { "type": "string", "format": "date-time" },
+        "syncLockExpiresAt": { "type": "string", "format": "date-time" },
+        "lastSuccessfulSyncAt": { "type": "string", "format": "date-time" },
+        "lastFailedSyncAt": { "type": "string", "format": "date-time" },
+        "lastSyncError": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "brokerName", "environment", "status", "authType", "createdAt", "updatedAt"]
+    },
+    "broker_accounts": {
+      "title": "Broker Account",
+      "description": "An account linked to a broker connection.",
+      "type": "object",
+      "properties": {
+        "connectionId": { "type": "string" },
+        "externalAccountId": { "type": "string" },
+        "displayName": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "inactive"] },
+        "selectedForSync": { "type": "boolean" }
+      },
+      "required": ["connectionId", "externalAccountId", "displayName", "status"]
+    },
+    "ingestion_events": {
+      "title": "Ingestion Event",
+      "description": "A raw event received from a broker.",
+      "type": "object",
+      "properties": {
+        "connectionId": { "type": "string" },
+        "accountId": { "type": "string" },
+        "externalEventId": { "type": "string" },
+        "eventType": { "type": "string" },
+        "orderId": { "type": "string" },
+        "fillId": { "type": "string" },
+        "symbol": { "type": "string" },
+        "side": { "type": "string", "enum": ["BUY", "SELL"] },
+        "quantity": { "type": "number" },
+        "price": { "type": "number" },
+        "avgFillPrice": { "type": "number" },
+        "eventTimestamp": { "type": "string", "format": "date-time" },
+        "rawPayload": { "type": "object" },
+        "normalizedPayload": { "type": "object" },
+        "dedupeHash": { "type": "string" },
+        "processingStatus": { "type": "string", "enum": ["pending", "processing", "processed", "failed"] },
+        "processedAt": { "type": "string", "format": "date-time" },
+        "processingRunId": { "type": "string" },
+        "importRunId": { "type": "string" }
+      },
+      "required": ["connectionId", "accountId", "externalEventId", "eventType", "symbol", "side", "quantity", "eventTimestamp", "dedupeHash", "processingStatus"]
+    },
+    "import_runs": {
+      "title": "Import Run",
+      "description": "A log of a CSV upload or API sync run.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "connectionId": { "type": "string" },
+        "accountIds": { "type": "array", "items": { "type": "string" } },
+        "sourceType": { "type": "string", "enum": ["csv", "api"] },
+        "startedAt": { "type": "string", "format": "date-time" },
+        "finishedAt": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["running", "success", "failed", "partial"] },
+        "rowsReceived": { "type": "number" },
+        "rowsParsed": { "type": "number" },
+        "rowsRejected": { "type": "number" },
+        "eventsCreated": { "type": "number" },
+        "eventsDeduped": { "type": "number" },
+        "eventsFailed": { "type": "number" },
+        "tradesOpened": { "type": "number" },
+        "tradesClosed": { "type": "number" },
+        "warnings": { "type": "array", "items": { "type": "string" } },
+        "errors": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["id", "connectionId", "sourceType", "startedAt", "status"]
+    },
+    "position_state": {
+      "title": "Position State",
+      "description": "The current state of a position for a specific connection, account, and symbol.",
+      "type": "object",
+      "properties": {
+        "connectionId": { "type": "string" },
+        "accountId": { "type": "string" },
+        "symbol": { "type": "string" },
+        "currentPosition": { "type": "number" },
+        "avgEntryPrice": { "type": "number" },
+        "openTradeId": { "type": "string" },
+        "openTradeDirection": { "type": "string", "enum": ["LONG", "SHORT"] },
+        "totalEntryQuantity": { "type": "number" },
+        "totalExitQuantity": { "type": "number" },
+        "entryValue": { "type": "number" },
+        "exitValue": { "type": "number" },
+        "entryTime": { "type": "string", "format": "date-time" },
+        "lastProcessedEventTimestamp": { "type": "string", "format": "date-time" },
+        "lastProcessedEventId": { "type": "string" },
+        "rawOrderIds": { "type": "array", "items": { "type": "string" } },
+        "fills": { "type": "array", "items": { "$ref": "trades.properties.fills" } },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["connectionId", "accountId", "symbol", "currentPosition", "avgEntryPrice", "totalEntryQuantity", "totalExitQuantity", "entryValue", "exitValue", "updatedAt"]
+    },
+    "ingestion_errors": {
+      "title": "Ingestion Error",
+      "description": "An error that occurred during ingestion.",
+      "type": "object",
+      "properties": {
+        "connectionId": { "type": "string" },
+        "eventId": { "type": "string" },
+        "errorType": { "type": "string" },
+        "errorMessage": { "type": "string" },
+        "payloadSnapshot": { "type": "object" },
+        "importRunId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "resolved": { "type": "boolean" }
+      },
+      "required": ["connectionId", "errorType", "errorMessage", "createdAt", "resolved"]
+    },
+    "sync_checkpoints": {
+      "title": "Sync Checkpoint",
+      "description": "A checkpoint for polling ingestion.",
+      "type": "object",
+      "properties": {
+        "connectionId": { "type": "string" },
+        "accountId": { "type": "string" },
+        "checkpointType": { "type": "string" },
+        "checkpointValue": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["connectionId", "checkpointType", "checkpointValue", "updatedAt"]
+    },
+    "trades": {
+      "title": "Trade",
+      "description": "A reconstructed trade consisting of one or more orders/fills.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "sessionDate": { "type": "string" },
+        "symbol": { "type": "string" },
+        "direction": { "type": "string", "enum": ["LONG", "SHORT"] },
+        "entryTime": { "type": "string", "format": "date-time" },
+        "exitTime": { "type": "string", "format": "date-time" },
+        "avgEntryPrice": { "type": "number" },
+        "avgExitPrice": { "type": "number" },
+        "pnlPoints": { "type": "number" },
+        "holdTimeSeconds": { "type": "number" },
+        "maxSize": { "type": "number" },
+        "totalQuantity": { "type": "number" },
+        "orderCount": { "type": "number" },
+        "isWinner": { "type": "boolean" },
+        "isFastLoser": { "type": "boolean" },
+        "isReentry": { "type": "boolean" },
+        "isScaled": { "type": "boolean" },
+        "rawOrderIds": { "type": "array", "items": { "type": "string" } },
+        "executionQuality": { "type": "number" },
+        "strategyQuality": { "type": "number" },
+        "tradeGrade": { "type": "string", "enum": ["A+", "B", "C"] },
+        "tradeScore": { "type": "number" },
+        "entryQuality": { "type": "number" },
+        "exitQuality": { "type": "number" },
+        "timingScore": { "type": "number" },
+        "behaviorFlags": { "type": "array", "items": { "type": "string" } },
+        "verdict": { "type": "string" },
+        "dedupeHash": { "type": "string" },
+        "importRunId": { "type": "string" },
+        "tags": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["userId", "sessionDate", "symbol", "direction", "entryTime", "exitTime", "avgEntryPrice", "avgExitPrice", "pnlPoints", "dedupeHash"]
+    },
+    "sessions": {
+      "title": "Session",
+      "description": "A trading session for a specific date, aggregating trades and metrics.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "date": { "type": "string" },
+        "sessionWindow": { "type": "string", "enum": ["Morning", "Afternoon", "Evening", "Full Day"] },
+        "netPnl": { "type": "number" },
+        "winRate": { "type": "number" },
+        "totalTrades": { "type": "number" },
+        "profitFactor": { "type": "number" },
+        "grossProfit": { "type": "number" },
+        "grossLoss": { "type": "number" },
+        "avgHoldTimeSeconds": { "type": "number" },
+        "fastLoserCount": { "type": "number" },
+        "reentryCount": { "type": "number" },
+        "largestWinner": { "type": "number" },
+        "largestLoser": { "type": "number" },
+        "maxLosingStreak": { "type": "number" },
+        "avgWinner": { "type": "number" },
+        "avgLoser": { "type": "number" },
+        "tags": { "type": "array", "items": { "type": "string" } },
+        "notes": { "type": "string" },
+        "sessionNotes": { "type": "string" },
+        "premarketPlan": { "type": "string" },
+        "whatWentWell": { "type": "string" },
+        "whatHurt": { "type": "string" },
+        "correctiveAction": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "date", "netPnl", "winRate", "totalTrades", "updatedAt"]
+    },
+    "trade_reviews": {
+      "title": "Trade Review",
+      "description": "A manual review of a trade, separate from the raw trade data.",
+      "type": "object",
+      "properties": {
+        "tradeId": { "type": "string" },
+        "userId": { "type": "string" },
+        "tradeGrade": { "type": "string", "enum": ["A+", "B", "C"] },
+        "executionQuality": { "type": "number" },
+        "strategyQuality": { "type": "number" },
+        "entryQuality": { "type": "number" },
+        "exitQuality": { "type": "number" },
+        "timingScore": { "type": "number" },
+        "behaviorFlags": { "type": "array", "items": { "type": "string" } },
+        "tags": { "type": "array", "items": { "type": "string" } },
+        "verdict": { "type": "string" },
+        "lessonLearned": { "type": "string" },
+        "notes": { "type": "string" },
+        "mentorComments": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["tradeId", "userId", "tradeGrade", "updatedAt"]
+    },
+    "trade_intents": {
+      "title": "Trade Intent",
+      "description": "A pre-trade checklist and intent declaration.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "symbol": { "type": "string" },
+        "checklist": {
+          "type": "object",
+          "properties": {
+            "displacement": { "type": "boolean" },
+            "reversal": { "type": "boolean" },
+            "imbalance": { "type": "boolean" },
+            "pullback": { "type": "boolean" }
+          }
+        },
+        "isManualOverride": { "type": "boolean" },
+        "confirmedAt": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["pending", "matched", "expired"] },
+        "matchedTradeId": { "type": "string" }
+      },
+      "required": ["userId", "symbol", "checklist", "confirmedAt", "status"]
+    }
+  },
+  "firestore": {
+    "/broker_connections/{connectionId}": {
+      "schema": "broker_connections",
+      "description": "User broker connections."
+    },
+    "/broker_connections/{connectionId}/accounts/{accountId}": {
+      "schema": "broker_accounts",
+      "description": "Accounts linked to a connection."
+    },
+    "/ingestion_events/{eventId}": {
+      "schema": "ingestion_events",
+      "description": "Raw ingestion events."
+    },
+    "/ingestion_errors/{errorId}": {
+      "schema": "ingestion_errors",
+      "description": "Ingestion errors."
+    },
+    "/sync_checkpoints/{checkpointId}": {
+      "schema": "sync_checkpoints",
+      "description": "Sync checkpoints."
+    },
+    "/position_state/{stateId}": {
+      "schema": "position_state",
+      "description": "Current position state for trade reconstruction."
+    },
+    "/import_runs/{runId}": {
+      "schema": "import_runs",
+      "description": "Logs of import and sync runs."
+    },
+    "/trades/{tradeId}": {
+      "schema": "trades",
+      "description": "Reconstructed trades."
+    },
+    "/sessions/{sessionId}": {
+      "schema": "sessions",
+      "description": "Daily trading sessions."
+    },
+    "/trade_reviews/{reviewId}": {
+      "schema": "trade_reviews",
+      "description": "Manual trade reviews."
+    },
+    "/trade_intents/{intentId}": {
+      "schema": "trade_intents",
+      "description": "Pre-trade checklists and intent declarations."
+    }
+  }
+}

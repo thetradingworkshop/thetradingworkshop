@@ -1,0 +1,234 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: broker_connections
+    // Document ID: auto-generated
+    // Fields:
+    //   - userId: string (required)
+    //   - brokerName: string (required)
+    //   - environment: string (required, live/paper)
+    //   - status: string (required)
+    //   - authType: string (required)
+    //   - lastSyncAt: string (optional)
+    //   - createdAt: string (required)
+    //   - updatedAt: string (required)
+    //
+    // Collection: broker_accounts (subcollection of broker_connections)
+    // Document ID: auto-generated
+    // Fields:
+    //   - connectionId: string (required)
+    //   - externalAccountId: string (required)
+    //   - displayName: string (required)
+    //   - status: string (required)
+    //
+    // Collection: ingestion_events
+    // Document ID: auto-generated
+    // Fields:
+    //   - connectionId: string (required)
+    //   - externalEventId: string (required)
+    //   - eventType: string (required)
+    //   - symbol: string (required)
+    //   - side: string (required)
+    //   - quantity: number (required)
+    //   - eventTimestamp: string (required)
+    //   - dedupeHash: string (required)
+    //   - processed: bool (required)
+    //
+    // ===============================================================
+
+    // Collection: trades
+    // Document ID: auto-generated
+    // Fields:
+    //   - userId: string (required)
+    //   - symbol: string (required)
+    //   - side: string (required, LONG/SHORT)
+    //   - quantity: number (required)
+    //   - entryPrice: number (required)
+    //   - exitPrice: number (required)
+    //   - pnl: number (required)
+    //   - entryTime: string (required)
+    //   - exitTime: string (required)
+    //   - dedupeHash: string (required)
+    //
+    // ===============================================================
+
+    // Helper Functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && 
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'Admin' ||
+         (request.auth.token.email == "jeanpaultru@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function isValidDiagnostics(data) {
+      return data.pnlResult in ['WIN', 'LOSS', 'BREAKEVEN'] &&
+             data.holdType in ['SCALP', 'INTRADAY', 'SWING'] &&
+             data.executionType in ['SINGLE_ENTRY', 'SCALED_IN', 'SCALED_OUT', 'FULL_SCALE'] &&
+             data.efficiency is number &&
+             data.dataInsight is string &&
+             (!('adverseExcursion' in data) || data.adverseExcursion is number);
+    }
+
+    function isValidModelValidation(data) {
+      return data.followsModel is bool &&
+             data.violations is list &&
+             (!('isManualOverride' in data) || data.isManualOverride is bool) &&
+             (!('isUnconfirmed' in data) || data.isUnconfirmed is bool);
+    }
+
+    function isValidTrade(data) {
+      return data.userId is string &&
+             data.sessionDate is string &&
+             data.symbol is string &&
+             data.direction in ['LONG', 'SHORT'] &&
+             data.entryTime is string &&
+             data.exitTime is string &&
+             data.avgEntryPrice is number &&
+             data.avgExitPrice is number &&
+             data.pnlPoints is number &&
+             data.pnlCurrency is number &&
+             data.isWinner is bool &&
+             data.holdTimeSeconds is number &&
+             data.totalQuantity is number &&
+             data.dedupeHash is string &&
+             data.createdAt is timestamp &&
+             data.updatedAt is timestamp &&
+             data.totalEntryValue is number &&
+             data.totalExitValue is number &&
+             data.realizedPnL is number &&
+             data.maxPositionSize is number &&
+             (!('diagnostics' in data) || isValidDiagnostics(data.diagnostics)) &&
+             (!('modelValidation' in data) || isValidModelValidation(data.modelValidation));
+    }
+
+    function isValidTradeReview(data) {
+      return data.userId is string &&
+             data.tradeId is string &&
+             (!('tradeGrade' in data) || data.tradeGrade in ['A+', 'A', 'B', 'C', 'D', 'F']) &&
+             (!('diagnostics' in data) || isValidDiagnostics(data.diagnostics)) &&
+             (!('modelValidation' in data) || isValidModelValidation(data.modelValidation));
+    }
+
+    function isValidTradeIntent(data) {
+      return data.userId is string &&
+             data.symbol is string &&
+             data.checklist is map &&
+             data.checklist.displacement is bool &&
+             data.checklist.reversal is bool &&
+             data.checklist.imbalance is bool &&
+             data.checklist.pullback is bool &&
+             data.confirmedAt is string &&
+             data.status in ['pending', 'matched', 'expired'] &&
+             (!('isManualOverride' in data) || data.isManualOverride is bool) &&
+             (!('matchedTradeId' in data) || data.matchedTradeId is string);
+    }
+
+    // Connection Test
+    match /test/connection {
+      allow read: if true;
+    }
+
+    // Broker Connections
+    match /broker_connections/{connectionId} {
+      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow update: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+
+      match /accounts/{accountId} {
+        allow read: if isAuthenticated() && (get(/databases/$(database)/documents/broker_connections/$(connectionId)).data.userId == request.auth.uid || isAdmin());
+        allow write: if isAuthenticated() && (get(/databases/$(database)/documents/broker_connections/$(connectionId)).data.userId == request.auth.uid || isAdmin());
+      }
+    }
+
+    // Trades
+    match /trades/{tradeId} {
+      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid && isValidTrade(request.resource.data);
+      allow update: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin()) && isValidTrade(request.resource.data);
+      allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+    }
+
+    // Ingestion Events
+    match /ingestion_events/{eventId} {
+      allow read: if isAuthenticated() && (get(/databases/$(database)/documents/broker_connections/$(resource.data.connectionId)).data.userId == request.auth.uid || isAdmin());
+      allow write: if isAdmin(); // Only backend/admin should write events directly
+    }
+
+    // Ingestion Errors
+    match /ingestion_errors/{errorId} {
+      allow read: if isAuthenticated() && (get(/databases/$(database)/documents/broker_connections/$(resource.data.connectionId)).data.userId == request.auth.uid || isAdmin());
+      allow write: if isAdmin();
+    }
+
+    // Sync Checkpoints
+    match /sync_checkpoints/{checkpointId} {
+      allow read, write: if isAdmin();
+    }
+
+    // Position State
+    match /position_state/{stateId} {
+      allow read, write: if isAdmin();
+    }
+    
+    // Import Runs
+    match /import_runs/{runId} {
+      allow read: if isAuthenticated() && (get(/databases/$(database)/documents/broker_connections/$(resource.data.connectionId)).data.userId == request.auth.uid || isAdmin());
+      allow write: if isAdmin();
+    }
+
+    // Sessions
+    match /sessions/{sessionId} {
+      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow update: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    // Trade Reviews
+    match /trade_reviews/{reviewId} {
+      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid && isValidTradeReview(request.resource.data);
+      allow update: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin()) && isValidTradeReview(request.resource.data);
+      allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+    }
+
+    // Trade Intents
+    match /trade_intents/{intentId} {
+      allow read: if isAuthenticated() && (isDocOwner() || isAdmin());
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid && isValidTradeIntent(request.resource.data);
+      allow update: if isAuthenticated() && (isDocOwner() || isAdmin()) && isValidTradeIntent(request.resource.data);
+      allow delete: if isAuthenticated() && (isDocOwner() || isAdmin());
+    }
+
+    // Journals
+    match /journals/{journalId} {
+      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow update: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+    }
+
+    // Users
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin() || isOwner(userId);
+    }
+  }
+}
