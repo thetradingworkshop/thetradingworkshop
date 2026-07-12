@@ -425,6 +425,9 @@ function createTradeFromState(state: PositionState, exitTime: string, exitPrice:
   const diagnostics = calculateDiagnostics(truth, metrics);
 
   const review: TradeReview = {
+    // Placeholder — overwritten by applyBatchDerivedGrading() once the full batch
+    // of trades from this import/sync has been reconstructed and can be compared
+    // against each other (large winner/loser, re-entries, etc).
     tradeGrade: 'C',
     executionQuality: 50,
     strategyQuality: 50,
@@ -477,6 +480,85 @@ export function reconstructTradesStatefully(connectionId: string, accountId: str
   return { trades, steps };
 }
 
+/**
+ * Deterministic, rules-based trade grading applied once a full batch of trades has
+ * been reconstructed (a CSV import or a live sync run). Runs across the whole batch —
+ * not a single trade in isolation — so relative metrics (large winner/loser, re-entries)
+ * can be measured against that batch's own averages, replacing the previous static "C"
+ * placeholder that every trade got regardless of quality or outcome.
+ *
+ * Also populates isLargeWinner / isLargeLoser / isReentry, which were previously
+ * hardcoded to false and never actually computed.
+ *
+ * Score starts at 50, is adjusted by the rules below, clamped to 0-100, then mapped
+ * to a letter grade:
+ *   +30 winner / -30 loser (breakeven trades are untouched)
+ *   +15 large winner  (pnl > 1.5x this batch's average winner)
+ *   -15 large loser   (|pnl| > 1.5x this batch's average loser)
+ *   -20 fast loser    (loss closed in under 60s — likely an impulsive exit)
+ *   -15 revenge re-entry (same symbol re-opened within 5 min of a losing exit)
+ *   +10 clean single-entry winner (no scaling in/out)
+ *   -10 added to a losing position (scaled in on a trade that lost)
+ *
+ *   score >= 95: A+   >= 85: A   >= 70: B   >= 55: C   >= 40: D   < 40: F
+ */
+function applyBatchDerivedGrading(trades: Trade[]): Trade[] {
+  if (trades.length === 0) return trades;
+
+  const winners = trades.filter(t => t.isWinner);
+  const losers = trades.filter(t => !t.isWinner && t.pnlPoints < 0);
+  const avgWinner = winners.length > 0 ? winners.reduce((sum, t) => sum + t.pnlPoints, 0) / winners.length : 0;
+  const avgLoser = losers.length > 0 ? Math.abs(losers.reduce((sum, t) => sum + t.pnlPoints, 0)) / losers.length : 0;
+
+  const sorted = [...trades].sort((a, b) => new Date(a.entryTime).getTime() - new Date(b.entryTime).getTime());
+
+  sorted.forEach((trade, idx) => {
+    const prev = idx > 0 ? sorted[idx - 1] : undefined;
+
+    const isLargeWinner = trade.isWinner && avgWinner > 0 && trade.pnlPoints > avgWinner * 1.5;
+    const isLargeLoser = !trade.isWinner && trade.pnlPoints < 0 && avgLoser > 0 && Math.abs(trade.pnlPoints) > avgLoser * 1.5;
+
+    let isReentry = false;
+    let isRevengeReentry = false;
+    if (prev && prev.symbol === trade.symbol) {
+      const gapSeconds = (new Date(trade.entryTime).getTime() - new Date(prev.exitTime).getTime()) / 1000;
+      if (gapSeconds >= 0 && gapSeconds < 300) {
+        isReentry = true;
+        if (!prev.isWinner) isRevengeReentry = true;
+      }
+    }
+
+    trade.isLargeWinner = isLargeWinner;
+    trade.isLargeLoser = isLargeLoser;
+    trade.isReentry = isReentry;
+
+    let score = 50;
+    if (trade.pnlPoints > 0) score += 30;
+    else if (trade.pnlPoints < 0) score -= 30;
+
+    if (isLargeWinner) score += 15;
+    if (isLargeLoser) score -= 15;
+    if (trade.isFastLoser) score -= 20;
+    if (isRevengeReentry) score -= 15;
+    if (trade.pnlPoints > 0 && trade.diagnostics?.executionType === 'SINGLE_ENTRY') score += 10;
+    if (trade.pnlPoints < 0 && (trade.diagnostics?.executionType === 'SCALED_IN' || trade.diagnostics?.executionType === 'FULL_SCALE')) score -= 10;
+
+    score = Math.min(100, Math.max(0, score));
+
+    let grade: Trade['tradeGrade'];
+    if (score >= 95) grade = 'A+';
+    else if (score >= 85) grade = 'A';
+    else if (score >= 70) grade = 'B';
+    else if (score >= 55) grade = 'C';
+    else if (score >= 40) grade = 'D';
+    else grade = 'F';
+
+    trade.tradeGrade = grade;
+  });
+
+  return trades;
+}
+
 export function reconstructTrades(orders: Order[]): { trades: Trade[], steps: ReconstructionStep[] } {
   if (orders.length === 0) return { trades: [], steps: [] };
   const ordersBySymbol: Record<string, Order[]> = {};
@@ -508,5 +590,6 @@ export function reconstructTrades(orders: Order[]): { trades: Trade[], steps: Re
     allTrades.push(...trades);
     allSteps.push(...steps);
   }
+  applyBatchDerivedGrading(allTrades);
   return { trades: allTrades, steps: allSteps };
 }

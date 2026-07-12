@@ -186,6 +186,26 @@ export function TradePerformanceLog({ trades, onAddJournal, title, subtitle }: T
         updatedAt: new Date().toISOString()
       };
       await setDoc(reviewRef, reviewData, { merge: true });
+
+      // Also merge the reviewable fields back onto the trade itself — otherwise a
+      // manual grade/score change here never shows up in the Trades table, the
+      // dashboard's grade breakdown chart, or anywhere else that reads `trades`,
+      // since those all read from the `trades` collection, not `trade_reviews`.
+      const tradeRef = doc(db, 'trades', selectedTrade.id);
+      await setDoc(tradeRef, {
+        tradeGrade: review.tradeGrade,
+        executionQuality: review.executionQuality,
+        strategyQuality: review.strategyQuality,
+        entryQuality: review.entryQuality,
+        exitQuality: review.exitQuality,
+        timingScore: review.timingScore,
+        behaviorFlags: review.behaviorFlags,
+        tags: review.tags,
+        verdict: review.verdict,
+        lessonLearned: review.lessonLearned,
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+
       setToast({ message: 'Trade review saved successfully', type: 'success' });
     } catch (error) {
       console.error('Error saving trade review:', error);
