@@ -1,11 +1,11 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { cn, gradeBadgeVariant } from '@/src/utils';
-import { Card, Badge, Button, Input, Toast } from './Shared';
-import { 
-  Search, 
-  Filter, 
-  ArrowUpDown, 
-  ChevronRight, 
+import { Card, Badge, Button, Input, Toast, Modal } from './Shared';
+import {
+  Search,
+  Filter,
+  ArrowUpDown,
+  ChevronRight,
   X,
   Zap,
   Clock,
@@ -18,12 +18,15 @@ import {
   CheckCircle2,
   AlertCircle,
   Tag,
-  Flag
+  Flag,
+  Trash2,
+  AlertTriangle
 } from 'lucide-react';
 import { Trade, TradeReview } from '../types';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../context/AuthContext';
+import { useTrades } from '../context/TradeContext';
 
 interface TradePerformanceLogProps {
   trades: Trade[];
@@ -34,10 +37,14 @@ interface TradePerformanceLogProps {
 
 export function TradePerformanceLog({ trades, onAddJournal, title, subtitle }: TradePerformanceLogProps) {
   const { user } = useAuth();
+  const { deleteTrades } = useTrades();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTrade, setSelectedTrade] = useState<Trade | null>(null);
   const [showFilters, setShowFilters] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [pendingDeleteIds, setPendingDeleteIds] = useState<string[] | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Review State
   const [review, setReview] = useState<Partial<TradeReview>>({
@@ -57,11 +64,77 @@ export function TradePerformanceLog({ trades, onAddJournal, title, subtitle }: T
   const [isLoadingReview, setIsLoadingReview] = useState(false);
 
   const filteredTrades = useMemo(() => {
-    return trades.filter(t => 
+    return trades.filter(t =>
       t.symbol.toLowerCase().includes(searchQuery.toLowerCase()) ||
       t.id.toLowerCase().includes(searchQuery.toLowerCase())
     ).sort((a, b) => new Date(b.entryTime).getTime() - new Date(a.entryTime).getTime());
   }, [trades, searchQuery]);
+
+  // Clear any selections that no longer exist (e.g. after a delete or filter change)
+  useEffect(() => {
+    const visibleIds = new Set(filteredTrades.map(t => t.id));
+    setSelectedIds(prev => {
+      const next = new Set(Array.from(prev).filter(id => visibleIds.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [filteredTrades]);
+
+  const isAllSelected = filteredTrades.length > 0 && filteredTrades.every(t => selectedIds.has(t.id));
+  const isSomeSelected = selectedIds.size > 0 && !isAllSelected;
+
+  const toggleSelectAll = () => {
+    setSelectedIds(prev => {
+      if (isAllSelected) return new Set();
+      return new Set(filteredTrades.map(t => t.id));
+    });
+  };
+
+  const toggleSelectOne = (id: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const requestDeleteOne = (id: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setPendingDeleteIds([id]);
+  };
+
+  const requestDeleteSelected = () => {
+    if (selectedIds.size === 0) return;
+    setPendingDeleteIds(Array.from(selectedIds));
+  };
+
+  const confirmDelete = async () => {
+    if (!pendingDeleteIds || pendingDeleteIds.length === 0) return;
+    setIsDeleting(true);
+    try {
+      await deleteTrades(pendingDeleteIds);
+      setToast({
+        message: pendingDeleteIds.length === 1 ? 'Trade deleted' : `${pendingDeleteIds.length} trades deleted`,
+        type: 'success'
+      });
+      if (selectedTrade && pendingDeleteIds.includes(selectedTrade.id)) {
+        setSelectedTrade(null);
+      }
+      setSelectedIds(prev => {
+        const next = new Set(prev);
+        pendingDeleteIds.forEach(id => next.delete(id));
+        return next;
+      });
+    } catch (error) {
+      console.error('Error deleting trades:', error);
+      setToast({ message: 'Failed to delete trade(s)', type: 'error' });
+    } finally {
+      setIsDeleting(false);
+      setPendingDeleteIds(null);
+      setTimeout(() => setToast(null), 3000);
+    }
+  };
 
   // Load review when trade is selected
   useEffect(() => {
@@ -173,11 +246,37 @@ export function TradePerformanceLog({ trades, onAddJournal, title, subtitle }: T
         </Card>
       )}
 
+      {selectedIds.size > 0 && (
+        <Card className="p-4 animate-in fade-in slide-in-from-top-2 duration-200 border-rose-500/20 bg-rose-500/5 flex items-center justify-between flex-wrap gap-3">
+          <span className="text-xs font-bold text-foreground">
+            {selectedIds.size} trade{selectedIds.size !== 1 ? 's' : ''} selected
+          </span>
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" size="sm" className="text-xs" onClick={() => setSelectedIds(new Set())}>
+              Clear Selection
+            </Button>
+            <Button variant="destructive" size="sm" icon={Trash2} className="text-xs" onClick={requestDeleteSelected}>
+              Delete Selected
+            </Button>
+          </div>
+        </Card>
+      )}
+
       <Card className="overflow-hidden border-border/50">
         <div className="overflow-x-auto">
           <table className="w-full text-sm border-collapse">
             <thead>
               <tr className="bg-accent/5 border-b border-border">
+                <th className="w-10 px-6 py-5">
+                  <input
+                    type="checkbox"
+                    className="w-4 h-4 rounded border-border accent-primary cursor-pointer"
+                    checked={isAllSelected}
+                    ref={(el) => { if (el) el.indeterminate = isSomeSelected; }}
+                    onChange={toggleSelectAll}
+                    aria-label="Select all trades"
+                  />
+                </th>
                 <th className="text-left px-6 py-5 font-bold text-[10px] uppercase tracking-widest text-muted-foreground">
                   <div className="flex items-center space-x-2">
                     <span>Date / Time</span>
@@ -192,15 +291,28 @@ export function TradePerformanceLog({ trades, onAddJournal, title, subtitle }: T
                 <th className="text-right px-6 py-5 font-bold text-[10px] uppercase tracking-widest text-muted-foreground">PnL (Pts)</th>
                 <th className="text-center px-6 py-5 font-bold text-[10px] uppercase tracking-widest text-muted-foreground">Grade</th>
                 <th className="px-6 py-5"></th>
+                <th className="px-6 py-5"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border/50">
               {filteredTrades.length > 0 ? filteredTrades.map((trade) => (
-                <tr 
-                  key={trade.id} 
-                  className="group hover:bg-accent/10 transition-colors cursor-pointer"
+                <tr
+                  key={trade.id}
+                  className={cn(
+                    "group hover:bg-accent/10 transition-colors cursor-pointer",
+                    selectedIds.has(trade.id) && "bg-primary/5"
+                  )}
                   onClick={() => setSelectedTrade(trade)}
                 >
+                  <td className="px-6 py-5" onClick={(e) => e.stopPropagation()}>
+                    <input
+                      type="checkbox"
+                      className="w-4 h-4 rounded border-border accent-primary cursor-pointer"
+                      checked={selectedIds.has(trade.id)}
+                      onChange={() => toggleSelectOne(trade.id)}
+                      aria-label={`Select trade ${trade.id}`}
+                    />
+                  </td>
                   <td className="px-6 py-5">
                     <div className="flex flex-col">
                       <span className="font-bold text-xs">{new Date(trade.entryTime).toLocaleDateString()}</span>
@@ -241,13 +353,22 @@ export function TradePerformanceLog({ trades, onAddJournal, title, subtitle }: T
                       {trade.tradeGrade}
                     </Badge>
                   </td>
+                  <td className="px-6 py-5" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      onClick={(e) => requestDeleteOne(trade.id, e)}
+                      className="p-2 rounded-lg text-muted-foreground hover:text-rose-600 hover:bg-rose-500/10 transition-colors"
+                      aria-label="Delete trade"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </td>
                   <td className="px-6 py-5 text-right">
                     <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-foreground transition-colors ml-auto" />
                   </td>
                 </tr>
               )) : (
                 <tr>
-                  <td colSpan={9} className="px-6 py-12 text-center text-muted-foreground">
+                  <td colSpan={11} className="px-6 py-12 text-center text-muted-foreground">
                     No trades found for this period.
                   </td>
                 </tr>
@@ -273,12 +394,21 @@ export function TradePerformanceLog({ trades, onAddJournal, title, subtitle }: T
                 </div>
                 <p className="text-sm text-muted-foreground">Reconstructed from {selectedTrade.fills.length} execution fills</p>
               </div>
-              <button 
-                onClick={() => setSelectedTrade(null)}
-                className="p-2 hover:bg-accent rounded-full transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={(e) => requestDeleteOne(selectedTrade.id, e)}
+                  className="p-2 hover:bg-rose-500/10 text-muted-foreground hover:text-rose-600 rounded-full transition-colors"
+                  aria-label="Delete trade"
+                >
+                  <Trash2 className="w-5 h-5" />
+                </button>
+                <button
+                  onClick={() => setSelectedTrade(null)}
+                  className="p-2 hover:bg-accent rounded-full transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
 
             <div className="flex-1 overflow-y-auto p-8 space-y-10">
@@ -519,12 +649,46 @@ export function TradePerformanceLog({ trades, onAddJournal, title, subtitle }: T
           </Card>
         </div>
       )}
+      {/* Delete Confirmation Modal */}
+      <Modal
+        isOpen={pendingDeleteIds !== null}
+        onClose={() => !isDeleting && setPendingDeleteIds(null)}
+        title={pendingDeleteIds && pendingDeleteIds.length > 1 ? `Delete ${pendingDeleteIds.length} Trades?` : "Delete Trade?"}
+        maxWidth="sm"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setPendingDeleteIds(null)} disabled={isDeleting}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              icon={isDeleting ? Loader2 : Trash2}
+              onClick={confirmDelete}
+              disabled={isDeleting}
+            >
+              {isDeleting ? 'Deleting...' : 'Delete'}
+            </Button>
+          </>
+        }
+      >
+        <div className="flex items-start space-x-3">
+          <div className="p-2 rounded-xl bg-rose-500/10 text-rose-600 shrink-0">
+            <AlertTriangle className="w-5 h-5" />
+          </div>
+          <p className="text-sm text-muted-foreground leading-relaxed">
+            {pendingDeleteIds && pendingDeleteIds.length > 1
+              ? `This will permanently remove ${pendingDeleteIds.length} trades from your history, including any associated fills. This cannot be undone.`
+              : "This will permanently remove this trade from your history, including its associated fills. This cannot be undone."}
+          </p>
+        </div>
+      </Modal>
+
       {/* Toast Notification */}
       {toast && (
-        <Toast 
-          message={toast.message} 
-          type={toast.type} 
-          onClose={() => setToast(null)} 
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
         />
       )}
     </div>

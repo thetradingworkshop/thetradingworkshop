@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 import { Trade, ReconstructionStep } from '../types';
 import { db, auth } from '../firebase';
-import { collection, query, where, onSnapshot, orderBy, addDoc, serverTimestamp, writeBatch, doc, getDocFromServer } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, orderBy, addDoc, serverTimestamp, writeBatch, doc, deleteDoc, getDocFromServer } from 'firebase/firestore';
 import { useAuth } from './AuthContext';
 
 enum OperationType {
@@ -58,6 +58,8 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
 interface TradeContextType {
   trades: Trade[];
   addTrades: (trades: Trade[], steps?: ReconstructionStep[]) => Promise<void>;
+  deleteTrade: (tradeId: string) => Promise<void>;
+  deleteTrades: (tradeIds: string[]) => Promise<void>;
   logTradeIntent: (symbol: string, checklist: any, isOverride: boolean) => Promise<void>;
   clearTrades: () => void;
   isLiveSyncing: boolean;
@@ -193,6 +195,42 @@ export function TradeProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const deleteTrades = async (tradeIds: string[]) => {
+    if (!user) return;
+    const uniqueIds = Array.from(new Set(tradeIds)).filter(Boolean);
+    if (uniqueIds.length === 0) return;
+
+    try {
+      console.log(`Deleting ${uniqueIds.length} trade(s) from Firestore...`);
+
+      // Optimistically remove from local state immediately for responsive UI
+      setTradesState(prev => prev.filter(t => !uniqueIds.includes(t.id)));
+
+      const batchSize = 500; // Firestore batch limit
+      for (let i = 0; i < uniqueIds.length; i += batchSize) {
+        const batch = writeBatch(db);
+        const chunk = uniqueIds.slice(i, i + batchSize);
+        chunk.forEach(id => {
+          batch.delete(doc(db, 'trades', id));
+        });
+        try {
+          await batch.commit();
+        } catch (err) {
+          handleFirestoreError(err, OperationType.DELETE, 'trades');
+        }
+      }
+
+      console.log("Successfully deleted trade(s).");
+    } catch (error) {
+      console.error("Error deleting trade(s):", error);
+      throw error;
+    }
+  };
+
+  const deleteTrade = async (tradeId: string) => {
+    await deleteTrades([tradeId]);
+  };
+
   const logTradeIntent = async (symbol: string, checklist: any, isOverride: boolean) => {
     if (!user) return;
     try {
@@ -219,11 +257,13 @@ export function TradeProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <TradeContext.Provider value={{ 
-      trades, 
-      addTrades, 
+    <TradeContext.Provider value={{
+      trades,
+      addTrades,
+      deleteTrade,
+      deleteTrades,
       logTradeIntent,
-      clearTrades, 
+      clearTrades,
       isLiveSyncing,
       selectedTradeForJournal,
       setSelectedTradeForJournal,
