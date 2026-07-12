@@ -41,8 +41,21 @@ export const CONTRACT_POINT_VALUES: Record<string, number> = {
   ZW: 50,      // Wheat
 };
 
+/**
+ * Commission cost, in USD, charged per contract per transaction (i.e. per fill —
+ * an entry fill and an exit fill are each a separate transaction), keyed by root
+ * symbol. Only fill in values you've actually confirmed with your broker; unknown
+ * symbols default to $0 rather than guessing, so P&L is never silently wrong.
+ */
+export const CONTRACT_COMMISSION_PER_CONTRACT: Record<string, number> = {
+  MNQ: 0.50,
+};
+
 /** Fallback multiplier used when a symbol isn't recognized. */
 const DEFAULT_POINT_VALUE = 1;
+
+/** Fallback commission used when a symbol's rate hasn't been configured. */
+const DEFAULT_COMMISSION_PER_CONTRACT = 0;
 
 /** Standard CME month codes: F,G,H,J,K,M,N,Q,U,V,X,Z */
 const MONTH_CODE_PATTERN = /^([A-Z]{1,3})([FGHJKMNQUVXZ])(\d{1,4})$/;
@@ -72,4 +85,15 @@ export function getPointValue(symbol: string): number {
     return DEFAULT_POINT_VALUE;
   }
   return value;
+}
+
+/**
+ * Returns the USD commission charged for a single fill (one contract) of the
+ * given symbol. Multiply by fill quantity to get that fill's total commission.
+ * Unknown symbols default to $0 — add them to CONTRACT_COMMISSION_PER_CONTRACT
+ * once you know the real rate, otherwise commission is simply not deducted.
+ */
+export function getCommissionPerContract(symbol: string): number {
+  const root = getRootSymbol(symbol);
+  return CONTRACT_COMMISSION_PER_CONTRACT[root] ?? DEFAULT_COMMISSION_PER_CONTRACT;
 }

@@ -125,6 +125,10 @@ export interface TradeTruth {
   totalExitValue: number;
   realizedPnL: number;
   maxPositionSize: number;
+
+  // Costs
+  grossPnlCurrency?: number;
+  totalCommission?: number;
   
   // Rule Enforcement
   intentId?: string;
@@ -321,6 +325,7 @@ export interface ReconstructionStep {
 
 export interface TradeStats {
   netPnl: number;
+  netPnlDollars: number;
   winRate: number;
   profitFactor: number;
   avgWinner: number;

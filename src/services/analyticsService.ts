@@ -5,6 +5,7 @@ import { SessionBuilder } from './SessionBuilder';
 export interface CalendarDay {
   day: number | null;
   date: Date;
+  /** Net dollar P&L (realizedPnL, after commission) for this day — not raw points. */
   pnl: number;
   trades: number;
   winRate: number;
@@ -14,6 +15,7 @@ export interface CalendarDay {
 
 export interface WeeklySummary {
   label: string;
+  /** Net dollar P&L (realizedPnL, after commission) for this week — not raw points. */
   pnl: number;
   activeDays: number;
   winRate: number;
@@ -99,6 +101,7 @@ export const buildTradeStats = (trades: Trade[]): TradeStats | null => {
   if (validTrades.length === 0) return null;
 
   const netPnl = validTrades.reduce((sum, t) => sum + (t.pnlPoints || 0), 0);
+  const netPnlDollars = validTrades.reduce((sum, t) => sum + (t.realizedPnL || 0), 0);
   const winners = validTrades.filter(t => (t.pnlPoints || 0) > 0);
   const losers = validTrades.filter(t => (t.pnlPoints || 0) < 0);
   const winRate = validTrades.length > 0 ? (winners.length / validTrades.length) * 100 : 0;
@@ -179,6 +182,7 @@ export const buildTradeStats = (trades: Trade[]): TradeStats | null => {
 
   return {
     netPnl: Number(netPnl.toFixed(2)) || 0,
+    netPnlDollars: Number(netPnlDollars.toFixed(2)) || 0,
     winRate: Number(winRate.toFixed(2)) || 0,
     profitFactor: Number(profitFactor.toFixed(2)) || 0,
     avgWinner: Number(avgWinner.toFixed(2)) || 0,
@@ -229,7 +233,9 @@ export const buildCalendarDays = (
       return d.getFullYear() === year && d.getMonth() === month && d.getDate() === i;
     });
 
-    const pnl = dayTrades.reduce((sum, t) => sum + (t.pnlPoints || 0), 0);
+    // Dollar-denominated (not raw points) so the "$" shown in the UI is accurate,
+    // and so aggregation is meaningful if trades ever span multiple symbols.
+    const pnl = dayTrades.reduce((sum, t) => sum + (t.realizedPnL || 0), 0);
     const winners = dayTrades.filter(t => t.isWinner);
     const winRate = dayTrades.length > 0 ? (winners.length / dayTrades.length) * 100 : 0;
 

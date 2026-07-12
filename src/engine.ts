@@ -1,7 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import Papa from 'papaparse';
 import { IngestionEvent, Order, Trade, TradeTruth, TradeDerivedMetrics, TradeReview, ReconstructionStep, ParseResult, PositionState, TradeDiagnostics } from './types.js';
-import { getPointValue } from './contractSpecs.js';
+import { getPointValue, getCommissionPerContract } from './contractSpecs.js';
 
 export type { ParseResult };
 
@@ -373,7 +373,12 @@ function calculateDiagnostics(truth: TradeTruth, metrics: TradeDerivedMetrics): 
 
 function createTradeFromState(state: PositionState, exitTime: string, exitPrice: number, userId: string = ''): Trade {
   const pnlPoints = (state.exitValue - state.entryValue) * (state.openTradeDirection === 'long' ? 1 : -1);
-  const realizedPnL = Number((pnlPoints * getPointValue(state.symbol)).toFixed(2));
+  const grossPnlCurrency = Number((pnlPoints * getPointValue(state.symbol)).toFixed(2));
+  // Commission is charged per contract per fill (each entry fill and each exit fill
+  // is its own transaction), so sum quantity across every fill that made up this trade.
+  const commissionRate = getCommissionPerContract(state.symbol);
+  const totalCommission = Number((state.fills.reduce((sum, f) => sum + f.quantity, 0) * commissionRate).toFixed(2));
+  const realizedPnL = Number((grossPnlCurrency - totalCommission).toFixed(2));
   const holdTimeSeconds = state.entryTime ? (new Date(exitTime).getTime() - new Date(state.entryTime).getTime()) / 1000 : 0;
   
   const sessionDate = state.entryTime ? state.entryTime.split('T')[0] : exitTime.split('T')[0];
@@ -400,7 +405,9 @@ function createTradeFromState(state: PositionState, exitTime: string, exitPrice:
     totalEntryValue: Number(state.entryValue.toFixed(2)),
     totalExitValue: Number(state.exitValue.toFixed(2)),
     realizedPnL: realizedPnL,
-    maxPositionSize: state.maxPositionSize
+    maxPositionSize: state.maxPositionSize,
+    grossPnlCurrency,
+    totalCommission
   };
 
   const metrics: TradeDerivedMetrics = {

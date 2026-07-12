@@ -346,8 +346,8 @@ export default function DashboardScreen() {
         <div className="flex items-center space-x-8 px-4">
           <div className="text-center">
             <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-0.5">Net PnL</p>
-            <p className={cn("text-sm font-black", (stats?.netPnl || 0) >= 0 ? "text-emerald-500" : "text-rose-500")}>
-              {(stats?.netPnl || 0) >= 0 ? '+' : ''}${(stats?.netPnl || 0).toLocaleString()}
+            <p className={cn("text-sm font-black", (stats?.netPnlDollars || 0) >= 0 ? "text-emerald-500" : "text-rose-500")}>
+              {(stats?.netPnlDollars || 0) >= 0 ? '+' : ''}${(stats?.netPnlDollars || 0).toLocaleString()}
             </p>
           </div>
           <div className="text-center">

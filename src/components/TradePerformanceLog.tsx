@@ -436,7 +436,7 @@ export function TradePerformanceLog({ trades, onAddJournal, title, subtitle }: T
                 </div>
                 <div className="grid grid-cols-3 gap-4">
                   <div className="p-4 rounded-2xl bg-accent/10 border border-border/50">
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">PnL</p>
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">PnL (Pts)</p>
                     <p className={cn(
                       "text-xl font-black",
                       selectedTrade.isWinner ? "text-emerald-500" : "text-rose-500"
@@ -447,8 +447,8 @@ export function TradePerformanceLog({ trades, onAddJournal, title, subtitle }: T
                   <div className="p-4 rounded-2xl bg-accent/10 border border-border/50">
                     <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Hold Time</p>
                     <p className="text-xl font-black text-slate-900">
-                      {selectedTrade.holdTimeSeconds < 60 
-                        ? `${selectedTrade.holdTimeSeconds.toFixed(0)}s` 
+                      {selectedTrade.holdTimeSeconds < 60
+                        ? `${selectedTrade.holdTimeSeconds.toFixed(0)}s`
                         : `${(selectedTrade.holdTimeSeconds / 60).toFixed(1)}m`}
                     </p>
                   </div>
@@ -457,6 +457,36 @@ export function TradePerformanceLog({ trades, onAddJournal, title, subtitle }: T
                     <p className="text-xl font-black text-indigo-600">{selectedTrade.tradeGrade}</p>
                   </div>
                 </div>
+
+                {typeof selectedTrade.realizedPnL === 'number' && (
+                  <div className="p-4 rounded-2xl bg-accent/10 border border-border/50">
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-3">Dollar P&amp;L Breakdown</p>
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-muted-foreground">Gross P&amp;L</span>
+                        <span className="font-bold font-mono">
+                          {(selectedTrade.grossPnlCurrency ?? selectedTrade.realizedPnL) >= 0 ? '+' : ''}
+                          ${(selectedTrade.grossPnlCurrency ?? selectedTrade.realizedPnL).toFixed(2)}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-muted-foreground">Commission</span>
+                        <span className="font-bold font-mono text-rose-500">
+                          -${(selectedTrade.totalCommission ?? 0).toFixed(2)}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-sm pt-1.5 border-t border-border/50">
+                        <span className="font-bold">Net P&amp;L</span>
+                        <span className={cn(
+                          "font-black font-mono",
+                          selectedTrade.realizedPnL >= 0 ? "text-emerald-500" : "text-rose-500"
+                        )}>
+                          {selectedTrade.realizedPnL >= 0 ? '+' : ''}${selectedTrade.realizedPnL.toFixed(2)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </section>
 
               {/* Execution Details */}
