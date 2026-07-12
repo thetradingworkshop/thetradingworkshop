@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { cn } from '@/src/utils';
+import { cn, gradeBadgeVariant } from '@/src/utils';
 import { Card, Badge, Button, Input, Toast } from './Shared';
 import { 
   Search, 
@@ -237,10 +237,7 @@ export function TradePerformanceLog({ trades, onAddJournal, title, subtitle }: T
                     {trade.isWinner ? '+' : ''}{trade.pnlPoints.toFixed(2)}
                   </td>
                   <td className="px-6 py-5 text-center">
-                    <Badge variant={
-                      trade.tradeGrade === 'A+' ? 'positive' : 
-                      trade.tradeGrade === 'B' ? 'warning' : 'negative'
-                    }>
+                    <Badge variant={gradeBadgeVariant(trade.tradeGrade)}>
                       {trade.tradeGrade}
                     </Badge>
                   </td>
@@ -382,7 +379,7 @@ export function TradePerformanceLog({ trades, onAddJournal, title, subtitle }: T
                   <div className="space-y-2">
                     <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Trade Grade</label>
                     <div className="flex space-x-2">
-                      {['A+', 'B', 'C'].map(grade => (
+                      {['A+', 'A', 'B', 'C', 'D', 'F'].map(grade => (
                         <button
                           key={grade}
                           onClick={() => setReview(prev => ({ ...prev, tradeGrade: grade as any }))}

@@ -138,10 +138,15 @@ export const buildTradeStats = (trades: Trade[]): TradeStats | null => {
     return acc;
   }, {} as Record<string, number>);
   
+  const gradePct = (grade: string) => validTrades.length > 0 ? Math.round((grades[grade] || 0) / validTrades.length * 100) : 0;
+
   const gradeData = [
-    { name: 'A+', value: validTrades.length > 0 ? Math.round((grades['A+'] || 0) / validTrades.length * 100) : 0, color: '#10b981' },
-    { name: 'B', value: validTrades.length > 0 ? Math.round((grades['B'] || 0) / validTrades.length * 100) : 0, color: '#f59e0b' },
-    { name: 'C', value: validTrades.length > 0 ? Math.round((grades['C'] || 0) / validTrades.length * 100) : 0, color: '#ef4444' },
+    { name: 'A+', value: gradePct('A+'), color: '#16a34a' },
+    { name: 'A', value: gradePct('A'), color: '#22c55e' },
+    { name: 'B', value: gradePct('B'), color: '#3b82f6' },
+    { name: 'C', value: gradePct('C'), color: '#eab308' },
+    { name: 'D', value: gradePct('D'), color: '#f97316' },
+    { name: 'F', value: gradePct('F'), color: '#ef4444' },
   ].filter(g => g.value > 0);
 
   const pnlByTrade = validTrades.slice(-10).map((t, i) => ({ 

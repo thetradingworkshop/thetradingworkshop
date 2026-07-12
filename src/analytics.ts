@@ -49,7 +49,7 @@ export function computeTradeStats(trades: Trade[]) {
     "30m-1h": 0,
     "1h+": 0
   };
-  const gradeMap: Record<string, number> = { "A+": 0, "B": 0, "C": 0, "D": 0, "F": 0 };
+  const gradeMap: Record<string, number> = { "A+": 0, "A": 0, "B": 0, "C": 0, "D": 0, "F": 0 };
 
   sortedTrades.forEach((trade, index) => {
     const pnl = trade.pnlPoints || 0;
@@ -113,9 +113,12 @@ export function computeTradeStats(trades: Trade[]) {
       .sort((a, b) => a.hour.localeCompare(b.hour)),
     holdData: Object.entries(holdBuckets).map(([range, count]) => ({ range, count })),
     gradeData: [
-      { name: "A+", value: gradeMap["A+"], color: "#22c55e" },
+      { name: "A+", value: gradeMap["A+"], color: "#16a34a" },
+      { name: "A", value: gradeMap["A"], color: "#22c55e" },
       { name: "B", value: gradeMap["B"], color: "#3b82f6" },
-      { name: "C", value: gradeMap["C"], color: "#eab308" }
+      { name: "C", value: gradeMap["C"], color: "#eab308" },
+      { name: "D", value: gradeMap["D"], color: "#f97316" },
+      { name: "F", value: gradeMap["F"], color: "#ef4444" }
     ].filter(g => g.value > 0)
   };
 }

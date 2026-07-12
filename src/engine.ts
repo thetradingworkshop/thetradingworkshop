@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import Papa from 'papaparse';
 import { IngestionEvent, Order, Trade, TradeTruth, TradeDerivedMetrics, TradeReview, ReconstructionStep, ParseResult, PositionState, TradeDiagnostics } from './types.js';
+import { getPointValue } from './contractSpecs.js';
 
 export type { ParseResult };
 
@@ -372,7 +373,7 @@ function calculateDiagnostics(truth: TradeTruth, metrics: TradeDerivedMetrics): 
 
 function createTradeFromState(state: PositionState, exitTime: string, exitPrice: number, userId: string = ''): Trade {
   const pnlPoints = (state.exitValue - state.entryValue) * (state.openTradeDirection === 'long' ? 1 : -1);
-  const realizedPnL = Number((pnlPoints * 50).toFixed(2));
+  const realizedPnL = Number((pnlPoints * getPointValue(state.symbol)).toFixed(2));
   const holdTimeSeconds = state.entryTime ? (new Date(exitTime).getTime() - new Date(state.entryTime).getTime()) / 1000 : 0;
   
   const sessionDate = state.entryTime ? state.entryTime.split('T')[0] : exitTime.split('T')[0];

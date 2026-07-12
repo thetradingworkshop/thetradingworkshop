@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect, useCallback } from 'react';
-import { cn } from '@/src/utils';
+import { cn, gradeBadgeVariant } from '@/src/utils';
 import { SectionHeader, Scorecard, Card, Badge, Button, Table, TableHeader, TableRow, TableHead, TableCell, Toast, Modal } from '../components/Shared';
 import { 
   EquityCurveChart, 
@@ -954,7 +954,7 @@ export default function DashboardScreen() {
                       </span>
                     </TableCell>
                     <TableCell>
-                      <Badge variant={trade.tradeGrade === 'A+' ? 'positive' : trade.tradeGrade === 'B' ? 'warning' : 'negative'}>
+                      <Badge variant={gradeBadgeVariant(trade.tradeGrade)}>
                         {trade.tradeGrade}
                       </Badge>
                     </TableCell>
