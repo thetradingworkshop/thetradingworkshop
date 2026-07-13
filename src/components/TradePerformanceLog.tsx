@@ -20,22 +20,26 @@ import {
   Tag,
   Flag,
   Trash2,
-  AlertTriangle
+  AlertTriangle,
+  Calendar
 } from 'lucide-react';
-import { Trade, TradeReview } from '../types';
-import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { Trade, TradeReview, TagCategory } from '../types';
+import { doc, getDoc, setDoc, serverTimestamp, collection, query, where, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../context/AuthContext';
 import { useTrades } from '../context/TradeContext';
+import { TagCategoriesPicker } from './TagCategoriesPicker';
+import { TradeCandleChart } from './TradeCandleChart';
 
 interface TradePerformanceLogProps {
   trades: Trade[];
   onAddJournal?: (trade: Trade) => void;
+  onAddDailyJournal?: (trade: Trade) => void;
   title?: string;
   subtitle?: string;
 }
 
-export function TradePerformanceLog({ trades, onAddJournal, title, subtitle }: TradePerformanceLogProps) {
+export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, title, subtitle }: TradePerformanceLogProps) {
   const { user } = useAuth();
   const { deleteTrades } = useTrades();
   const [searchQuery, setSearchQuery] = useState('');
@@ -45,6 +49,21 @@ export function TradePerformanceLog({ trades, onAddJournal, title, subtitle }: T
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [pendingDeleteIds, setPendingDeleteIds] = useState<string[] | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [tagCategories, setTagCategories] = useState<TagCategory[]>([]);
+
+  useEffect(() => {
+    if (!user) return;
+    const unsubscribe = onSnapshot(
+      query(collection(db, 'tagCategories'), where('userId', '==', user.uid)),
+      (snapshot) => {
+        const docs = snapshot.docs
+          .map(d => ({ id: d.id, ...d.data() } as TagCategory))
+          .sort((a, b) => a.order - b.order);
+        setTagCategories(docs);
+      }
+    );
+    return () => unsubscribe();
+  }, [user]);
 
   // Review State
   const [review, setReview] = useState<Partial<TradeReview>>({
@@ -58,7 +77,15 @@ export function TradePerformanceLog({ trades, onAddJournal, title, subtitle }: T
     tags: [],
     verdict: '',
     lessonLearned: '',
-    diagnostics: undefined
+    diagnostics: undefined,
+    strategy: '',
+    starRating: undefined,
+    initialTarget: undefined,
+    tradeRisk: undefined,
+    plannedRMultiple: undefined,
+    realizedRMultiple: undefined,
+    bestExitPrice: undefined,
+    bestExitTime: ''
   });
   const [isSavingReview, setIsSavingReview] = useState(false);
   const [isLoadingReview, setIsLoadingReview] = useState(false);
@@ -160,7 +187,15 @@ export function TradePerformanceLog({ trades, onAddJournal, title, subtitle }: T
             tags: selectedTrade.tags || [],
             verdict: selectedTrade.verdict || '',
             lessonLearned: selectedTrade.lessonLearned || '',
-            diagnostics: selectedTrade.diagnostics
+            diagnostics: selectedTrade.diagnostics,
+            strategy: selectedTrade.strategy || '',
+            starRating: selectedTrade.starRating,
+            initialTarget: selectedTrade.initialTarget,
+            tradeRisk: selectedTrade.tradeRisk,
+            plannedRMultiple: selectedTrade.plannedRMultiple,
+            realizedRMultiple: selectedTrade.realizedRMultiple,
+            bestExitPrice: selectedTrade.bestExitPrice,
+            bestExitTime: selectedTrade.bestExitTime || ''
           });
         }
       } catch (error) {
@@ -203,6 +238,14 @@ export function TradePerformanceLog({ trades, onAddJournal, title, subtitle }: T
         tags: review.tags,
         verdict: review.verdict,
         lessonLearned: review.lessonLearned,
+        strategy: review.strategy,
+        starRating: review.starRating,
+        initialTarget: review.initialTarget,
+        tradeRisk: review.tradeRisk,
+        plannedRMultiple: review.plannedRMultiple,
+        realizedRMultiple: review.realizedRMultiple,
+        bestExitPrice: review.bestExitPrice,
+        bestExitTime: review.bestExitTime,
         updatedAt: serverTimestamp()
       }, { merge: true });
 
@@ -507,6 +550,34 @@ export function TradePerformanceLog({ trades, onAddJournal, title, subtitle }: T
                     </div>
                   </div>
                 )}
+
+                {typeof selectedTrade.ticks === 'number' && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="p-3 rounded-2xl bg-accent/10 border border-border/50">
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Ticks / Per Contract</p>
+                      <p className="text-sm font-black font-mono">{selectedTrade.ticks} <span className="text-muted-foreground font-medium">/ {selectedTrade.ticksPerContract}</span></p>
+                    </div>
+                    <div className="p-3 rounded-2xl bg-accent/10 border border-border/50">
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Net ROI</p>
+                      <p className={cn("text-sm font-black font-mono", (selectedTrade.netRoi ?? 0) >= 0 ? "text-emerald-500" : "text-rose-500")}>
+                        {(selectedTrade.netRoi ?? 0) >= 0 ? '+' : ''}{selectedTrade.netRoi}%
+                      </p>
+                    </div>
+                    <div className="p-3 rounded-2xl bg-accent/10 border border-border/50 col-span-2">
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Adjusted Cost</p>
+                      <p className="text-sm font-black font-mono">${(selectedTrade.adjustedCost ?? 0).toLocaleString()}</p>
+                    </div>
+                  </div>
+                )}
+              </section>
+
+              {/* Chart */}
+              <section className="space-y-4">
+                <h3 className="text-sm font-bold flex items-center space-x-2">
+                  <TrendingUp className="w-4 h-4 text-indigo-500" />
+                  <span>Chart</span>
+                </h3>
+                <TradeCandleChart trade={selectedTrade} />
               </section>
 
               {/* Execution Details */}
@@ -648,15 +719,100 @@ export function TradePerformanceLog({ trades, onAddJournal, title, subtitle }: T
                   </div>
                 </div>
 
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Strategy</label>
+                    <Input
+                      className="h-10 text-xs"
+                      placeholder="e.g. ORB Breakout"
+                      value={review.strategy || ''}
+                      onChange={(e) => setReview(prev => ({ ...prev, strategy: e.target.value }))}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Trade Rating</label>
+                    <div className="flex items-center space-x-1 h-10">
+                      {[1, 2, 3, 4, 5].map(n => (
+                        <button
+                          key={n}
+                          onClick={() => setReview(prev => ({ ...prev, starRating: prev.starRating === n ? undefined : n }))}
+                          className={cn(
+                            "text-lg leading-none transition-colors",
+                            (review.starRating ?? 0) >= n ? "text-amber-400" : "text-border"
+                          )}
+                        >
+                          ★
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Initial Target</label>
+                    <Input
+                      type="number" className="h-10 text-xs" placeholder="--"
+                      value={review.initialTarget ?? ''}
+                      onChange={(e) => setReview(prev => ({ ...prev, initialTarget: e.target.value === '' ? undefined : parseFloat(e.target.value) }))}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Trade Risk</label>
+                    <Input
+                      type="number" className="h-10 text-xs" placeholder="--"
+                      value={review.tradeRisk ?? ''}
+                      onChange={(e) => setReview(prev => ({ ...prev, tradeRisk: e.target.value === '' ? undefined : parseFloat(e.target.value) }))}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Planned R</label>
+                    <Input
+                      type="number" className="h-10 text-xs" placeholder="--"
+                      value={review.plannedRMultiple ?? ''}
+                      onChange={(e) => setReview(prev => ({ ...prev, plannedRMultiple: e.target.value === '' ? undefined : parseFloat(e.target.value) }))}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Realized R</label>
+                    <Input
+                      type="number" className="h-10 text-xs" placeholder="--"
+                      value={review.realizedRMultiple ?? ''}
+                      onChange={(e) => setReview(prev => ({ ...prev, realizedRMultiple: e.target.value === '' ? undefined : parseFloat(e.target.value) }))}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Best Exit Price</label>
+                    <Input
+                      type="number" className="h-10 text-xs" placeholder="--"
+                      value={review.bestExitPrice ?? ''}
+                      onChange={(e) => setReview(prev => ({ ...prev, bestExitPrice: e.target.value === '' ? undefined : parseFloat(e.target.value) }))}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Best Exit Time</label>
+                    <Input
+                      className="h-10 text-xs" placeholder="e.g. 14:20:00"
+                      value={review.bestExitTime || ''}
+                      onChange={(e) => setReview(prev => ({ ...prev, bestExitTime: e.target.value }))}
+                    />
+                  </div>
+                </div>
+
                 <div className="space-y-4">
                   <div className="space-y-2">
-                    <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Tags (comma separated)</label>
-                    <Input 
-                      className="h-10 text-xs"
-                      placeholder="e.g. Trend, Reversal, Breakout"
-                      value={review.tags?.join(', ')}
-                      onChange={(e) => setReview(prev => ({ ...prev, tags: e.target.value.split(',').map(t => t.trim()).filter(t => t !== '') }))}
-                    />
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Tags</label>
+                    {user && (
+                      <TagCategoriesPicker
+                        categories={tagCategories}
+                        selectedTags={review.tags || []}
+                        onChange={(tags) => setReview(prev => ({ ...prev, tags }))}
+                        userId={user.uid}
+                      />
+                    )}
                   </div>
                   <div className="space-y-2">
                     <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Verdict / Summary</label>
@@ -680,19 +836,34 @@ export function TradePerformanceLog({ trades, onAddJournal, title, subtitle }: T
               </section>
 
               {/* Actions */}
-              {onAddJournal && (
-                <div className="pt-8 border-t border-border">
-                  <Button 
-                    variant="primary" 
-                    className="w-full py-4 rounded-2xl flex items-center justify-center space-x-2"
-                    onClick={() => {
-                      onAddJournal(selectedTrade);
-                      setSelectedTrade(null);
-                    }}
-                  >
-                    <BookOpen className="w-4 h-4" />
-                    <span>Create Journal Entry for this Trade</span>
-                  </Button>
+              {(onAddJournal || onAddDailyJournal) && (
+                <div className="pt-8 border-t border-border space-y-3">
+                  {onAddJournal && (
+                    <Button
+                      variant="primary"
+                      className="w-full py-4 rounded-2xl flex items-center justify-center space-x-2"
+                      onClick={() => {
+                        onAddJournal(selectedTrade);
+                        setSelectedTrade(null);
+                      }}
+                    >
+                      <BookOpen className="w-4 h-4" />
+                      <span>Trade Note</span>
+                    </Button>
+                  )}
+                  {onAddDailyJournal && (
+                    <Button
+                      variant="outline"
+                      className="w-full py-4 rounded-2xl flex items-center justify-center space-x-2"
+                      onClick={() => {
+                        onAddDailyJournal(selectedTrade);
+                        setSelectedTrade(null);
+                      }}
+                    >
+                      <Calendar className="w-4 h-4" />
+                      <span>Daily Journal</span>
+                    </Button>
+                  )}
                 </div>
               )}
             </div>

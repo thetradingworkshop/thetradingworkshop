@@ -129,7 +129,13 @@ export interface TradeTruth {
   // Costs
   grossPnlCurrency?: number;
   totalCommission?: number;
-  
+
+  // Derived instrument economics (computed at reconstruction time)
+  ticks?: number;
+  ticksPerContract?: number;
+  netRoi?: number; // percent
+  adjustedCost?: number; // $ notional cost basis at entry (avgEntryPrice * pointValue * quantity)
+
   // Rule Enforcement
   intentId?: string;
   wasValidAtEntry?: boolean;
@@ -187,6 +193,16 @@ export interface TradeReview {
   lessonLearned?: string;
   diagnostics?: TradeDiagnostics;
   modelValidation?: ModelValidation;
+
+  // Manual trade-plan fields, set by the trader (not derived)
+  strategy?: string;
+  starRating?: number; // 1-5
+  initialTarget?: number;
+  tradeRisk?: number;
+  plannedRMultiple?: number;
+  realizedRMultiple?: number;
+  bestExitPrice?: number;
+  bestExitTime?: string;
 }
 
 export type Trade = TradeTruth & TradeDerivedMetrics & TradeReview;
@@ -293,15 +309,29 @@ export interface UserProfile {
   };
 }
 
+export interface TagCategory {
+  id: string;
+  userId: string;
+  name: string;
+  tags: string[];
+  order: number;
+  createdAt: string;
+}
+
 export interface JournalEntry {
   id: string;
   userId: string;
   sessionId: string;
   tradeId?: string;
   title: string;
+  date: string; // yyyy-MM-dd
   content: string;
   tags: string[];
   mood?: 'happy' | 'neutral' | 'frustrated' | 'angry' | 'focused';
+  entryReason?: string;
+  followedPlan?: boolean;
+  improvements?: string;
+  status?: 'private' | 'shared';
   createdAt: string;
   updatedAt: string;
 }

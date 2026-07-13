@@ -1,7 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import Papa from 'papaparse';
 import { IngestionEvent, Order, Trade, TradeTruth, TradeDerivedMetrics, TradeReview, ReconstructionStep, ParseResult, PositionState, TradeDiagnostics } from './types.js';
-import { getPointValue, getCommissionPerContract } from './contractSpecs.js';
+import { getPointValue, getCommissionPerContract, getTickSize } from './contractSpecs.js';
 
 export type { ParseResult };
 
@@ -380,9 +380,20 @@ function createTradeFromState(state: PositionState, exitTime: string, exitPrice:
   const totalCommission = Number((state.fills.reduce((sum, f) => sum + f.quantity, 0) * commissionRate).toFixed(2));
   const realizedPnL = Number((grossPnlCurrency - totalCommission).toFixed(2));
   const holdTimeSeconds = state.entryTime ? (new Date(exitTime).getTime() - new Date(state.entryTime).getTime()) / 1000 : 0;
-  
+
   const sessionDate = state.entryTime ? state.entryTime.split('T')[0] : exitTime.split('T')[0];
   const sessionId = userId ? `${userId}_${sessionDate}` : uuidv4();
+
+  // Derived instrument economics. `pnlPoints` here is already the total price
+  // move across all contracts (avgExit - avgEntry) * totalQuantity, not a
+  // per-contract average — so ticks = pnlPoints / tickSize directly, and
+  // dividing that by totalQuantity gives the per-contract figure.
+  const avgEntryPriceValue = state.entryValue / state.totalEntryQuantity;
+  const tickSize = getTickSize(state.symbol);
+  const ticks = Number((pnlPoints / tickSize).toFixed(2));
+  const ticksPerContract = state.totalEntryQuantity > 0 ? Number((ticks / state.totalEntryQuantity).toFixed(2)) : 0;
+  const adjustedCost = Number((avgEntryPriceValue * getPointValue(state.symbol) * state.totalEntryQuantity).toFixed(2));
+  const netRoi = adjustedCost !== 0 ? Number(((realizedPnL / adjustedCost) * 100).toFixed(2)) : 0;
 
   const truth: TradeTruth = {
     id: state.openTradeId || uuidv4(),
@@ -407,7 +418,11 @@ function createTradeFromState(state: PositionState, exitTime: string, exitPrice:
     realizedPnL: realizedPnL,
     maxPositionSize: state.maxPositionSize,
     grossPnlCurrency,
-    totalCommission
+    totalCommission,
+    ticks,
+    ticksPerContract,
+    adjustedCost,
+    netRoi
   };
 
   const metrics: TradeDerivedMetrics = {

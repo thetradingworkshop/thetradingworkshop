@@ -51,8 +51,53 @@ export const CONTRACT_COMMISSION_PER_CONTRACT: Record<string, number> = {
   MNQ: 0.50,
 };
 
+/**
+ * Minimum price increment ("tick size"), in points, for common CME/CBOT/NYMEX/COMEX
+ * futures contracts, keyed by root symbol. Unlike commissions these are fixed,
+ * exchange-published contract specs — not broker-dependent — so it's safe to
+ * pre-populate the full table rather than leaving unknowns at $0.
+ */
+export const CONTRACT_TICK_SIZES: Record<string, number> = {
+  // Equity Index - CME
+  ES: 0.25,
+  MES: 0.25,
+  NQ: 0.25,
+  MNQ: 0.25,
+  YM: 1,
+  MYM: 1,
+  RTY: 0.1,
+  M2K: 0.1,
+
+  // Energy - NYMEX
+  CL: 0.01,
+  MCL: 0.01,
+  NG: 0.001,
+  RB: 0.0001,
+
+  // Metals - COMEX
+  GC: 0.1,
+  MGC: 0.1,
+  SI: 0.005,
+  SIL: 0.005,
+  HG: 0.0005,
+
+  // Rates - CBOT (quoted in points; 1 tick = 1/32 for the notes/bond, 1/8 of 1/32 for ZT)
+  ZB: 0.03125,
+  ZN: 0.015625,
+  ZF: 0.0078125,
+  ZT: 0.00390625,
+
+  // Grains - CBOT
+  ZC: 0.25,
+  ZS: 0.25,
+  ZW: 0.25,
+};
+
 /** Fallback multiplier used when a symbol isn't recognized. */
 const DEFAULT_POINT_VALUE = 1;
+
+/** Fallback tick size used when a symbol isn't recognized. */
+const DEFAULT_TICK_SIZE = 0.01;
 
 /** Fallback commission used when a symbol's rate hasn't been configured. */
 const DEFAULT_COMMISSION_PER_CONTRACT = 0;
@@ -96,4 +141,19 @@ export function getPointValue(symbol: string): number {
 export function getCommissionPerContract(symbol: string): number {
   const root = getRootSymbol(symbol);
   return CONTRACT_COMMISSION_PER_CONTRACT[root] ?? DEFAULT_COMMISSION_PER_CONTRACT;
+}
+
+/**
+ * Returns the minimum price increment (in points) for the given symbol. Used to
+ * convert a point-based P&L into ticks. Unrecognized symbols fall back to 0.01
+ * and log a warning, same policy as getPointValue.
+ */
+export function getTickSize(symbol: string): number {
+  const root = getRootSymbol(symbol);
+  const value = CONTRACT_TICK_SIZES[root];
+  if (value === undefined) {
+    console.warn(`[contractSpecs] Unrecognized symbol "${symbol}" (root "${root}") — defaulting to ${DEFAULT_TICK_SIZE} tick size. Add it to CONTRACT_TICK_SIZES for correct ticks.`);
+    return DEFAULT_TICK_SIZE;
+  }
+  return value;
 }

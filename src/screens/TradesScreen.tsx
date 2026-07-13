@@ -20,7 +20,7 @@ import { useTrades } from '../context/TradeContext';
 import { TradePerformanceLog } from '../components/TradePerformanceLog';
 
 export default function TradesScreen({ setActivePage }: { setActivePage: (page: string) => void }) {
-  const { trades, setSelectedTradeForJournal } = useTrades();
+  const { trades, setSelectedTradeForJournal, setSelectedSessionForJournal } = useTrades();
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   const handleAddJournal = (trade: any) => {
@@ -28,16 +28,22 @@ export default function TradesScreen({ setActivePage }: { setActivePage: (page: 
     setActivePage('journal');
   };
 
+  const handleAddDailyJournal = (trade: any) => {
+    setSelectedSessionForJournal({ sessionId: trade.sessionId, sessionDate: trade.sessionDate });
+    setActivePage('journal');
+  };
+
   return (
     <div className="max-w-[1600px] mx-auto space-y-8 pb-12">
-      <SectionHeader 
-        title="Trade Performance Log" 
+      <SectionHeader
+        title="Trade Performance Log"
         subtitle="Detailed audit trail of all reconstructed trades and executions"
       />
 
-      <TradePerformanceLog 
-        trades={trades} 
+      <TradePerformanceLog
+        trades={trades}
         onAddJournal={handleAddJournal}
+        onAddDailyJournal={handleAddDailyJournal}
       />
 
       {toast && (

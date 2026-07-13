@@ -1,19 +1,44 @@
 import React, { useState, useEffect } from 'react';
 import { cn } from '@/src/utils';
-import { SectionHeader, Card, Button, Badge, Toast } from '../components/Shared';
-import { Search, Plus, Calendar, Share2, MessageSquare, ExternalLink, RotateCcw, Trash2, BookOpen, Edit3, Link as LinkIcon, Zap, X, TrendingUp, TrendingDown, BrainCircuit } from 'lucide-react';
-import { collection, query, where, onSnapshot, orderBy } from 'firebase/firestore';
+import { SectionHeader, Card, Button, Badge, Toast, Modal, Input } from '../components/Shared';
+import { Search, Plus, Calendar, Share2, MessageSquare, ExternalLink, RotateCcw, Trash2, BookOpen, Edit3, Link as LinkIcon, Zap, X, TrendingUp, TrendingDown, BrainCircuit, Save, Loader2 } from 'lucide-react';
+import { collection, query, where, onSnapshot, orderBy, addDoc, updateDoc, deleteDoc, doc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useTrades } from '../context/TradeContext';
 import { useAuth } from '../context/AuthContext';
+import { JournalEntry } from '../types';
+
+type JournalDraft = Partial<JournalEntry>;
+
+function emptyDraft(overrides: Partial<JournalEntry> = {}): JournalDraft {
+  return {
+    title: '',
+    date: new Date().toISOString().slice(0, 10),
+    content: '',
+    tags: [],
+    entryReason: '',
+    followedPlan: undefined,
+    improvements: '',
+    status: 'private',
+    sessionId: '',
+    ...overrides,
+  };
+}
 
 export default function JournalScreen() {
   const { user } = useAuth();
-  const { selectedTradeForJournal, setSelectedTradeForJournal } = useTrades();
+  const {
+    selectedTradeForJournal, setSelectedTradeForJournal,
+    selectedSessionForJournal, setSelectedSessionForJournal,
+  } = useTrades();
   const [selectedJournal, setSelectedJournal] = useState<any>(null);
   const [journals, setJournals] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [draft, setDraft] = useState<JournalDraft | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [isPublicPreview, setIsPublicPreview] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -21,32 +46,113 @@ export default function JournalScreen() {
     const unsubscribe = onSnapshot(
       query(collection(db, 'journals'), where('userId', '==', userId), orderBy('date', 'desc')),
       (snapshot) => {
-        const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        const docs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
         setJournals(docs);
         setIsLoading(false);
-        if (docs.length > 0 && !selectedJournal) {
-          setSelectedJournal(docs[0]);
-        }
+        setSelectedJournal((prev: any) => {
+          if (prev) {
+            const stillExists = docs.find(d => d.id === prev.id);
+            if (stillExists) return stillExists;
+          }
+          return docs.length > 0 ? docs[0] : null;
+        });
       }
     );
     return () => unsubscribe();
-  }, [selectedJournal, user]);
+  }, [user]);
 
+  // Trade note: open the existing note for this trade, or start a new one pre-filled from it.
   useEffect(() => {
-    if (selectedTradeForJournal) {
-      // Pre-fill logic or show "New Journal" with trade context
-      setToast({ 
-        message: `Creating new journal for trade ${selectedTradeForJournal.id} (${selectedTradeForJournal.symbol})`, 
-        type: 'success' 
-      });
-      // In a real app, we'd open a "New Journal" form here
-      // For now, let's just clear it after showing the toast
-      const timer = setTimeout(() => setSelectedTradeForJournal(null), 5000);
-      return () => clearTimeout(timer);
+    if (!selectedTradeForJournal) return;
+    const trade: any = selectedTradeForJournal;
+    const existing = journals.find(j => j.tradeId === trade.id);
+    if (existing) {
+      setSelectedJournal(existing);
+      setDraft(null);
+    } else {
+      setDraft(emptyDraft({
+        title: `Trade Note — ${trade.symbol} ${trade.direction}`,
+        date: trade.sessionDate || (trade.entryTime ? trade.entryTime.slice(0, 10) : new Date().toISOString().slice(0, 10)),
+        sessionId: trade.sessionId,
+        tradeId: trade.id,
+      }));
     }
-  }, [selectedTradeForJournal, setSelectedTradeForJournal]);
+    setSelectedTradeForJournal(null);
+  }, [selectedTradeForJournal]);
 
-  const [isPublicPreview, setIsPublicPreview] = useState(false);
+  // Daily journal: open the existing entry for this session/day, or start a new one.
+  useEffect(() => {
+    if (!selectedSessionForJournal) return;
+    const { sessionId, sessionDate } = selectedSessionForJournal;
+    const existing = journals.find(j => j.sessionId === sessionId && !j.tradeId);
+    if (existing) {
+      setSelectedJournal(existing);
+      setDraft(null);
+    } else {
+      setDraft(emptyDraft({
+        title: `Daily Journal — ${sessionDate}`,
+        date: sessionDate,
+        sessionId,
+      }));
+    }
+    setSelectedSessionForJournal(null);
+  }, [selectedSessionForJournal]);
+
+  const openNew = () => setDraft(emptyDraft());
+  const openEdit = () => selectedJournal && setDraft({ ...selectedJournal });
+  const closeDraft = () => setDraft(null);
+
+  const saveDraft = async () => {
+    if (!draft || !user) return;
+    if (!draft.title?.trim() || !draft.content?.trim()) {
+      setToast({ message: 'Title and content are required', type: 'error' });
+      setTimeout(() => setToast(null), 3000);
+      return;
+    }
+    setIsSaving(true);
+    try {
+      const now = new Date().toISOString();
+      if (draft.id) {
+        const { id, ...rest } = draft;
+        await updateDoc(doc(db, 'journals', id), { ...rest, updatedAt: now } as any);
+        setToast({ message: 'Journal updated', type: 'success' });
+      } else {
+        const docRef = await addDoc(collection(db, 'journals'), {
+          ...draft,
+          userId: user.uid,
+          sessionId: draft.sessionId || '',
+          tags: draft.tags || [],
+          status: draft.status || 'private',
+          createdAt: now,
+          updatedAt: now,
+        });
+        setSelectedJournal({ id: docRef.id, ...draft, userId: user.uid, createdAt: now, updatedAt: now });
+        setToast({ message: 'Journal created', type: 'success' });
+      }
+      setDraft(null);
+    } catch (error) {
+      console.error('Error saving journal:', error);
+      setToast({ message: 'Failed to save journal', type: 'error' });
+    } finally {
+      setIsSaving(false);
+      setTimeout(() => setToast(null), 3000);
+    }
+  };
+
+  const confirmDelete = async () => {
+    if (!pendingDeleteId) return;
+    try {
+      await deleteDoc(doc(db, 'journals', pendingDeleteId));
+      if (selectedJournal?.id === pendingDeleteId) setSelectedJournal(null);
+      setToast({ message: 'Journal deleted', type: 'success' });
+    } catch (error) {
+      console.error('Error deleting journal:', error);
+      setToast({ message: 'Failed to delete journal', type: 'error' });
+    } finally {
+      setPendingDeleteId(null);
+      setTimeout(() => setToast(null), 3000);
+    }
+  };
 
   const handleAction = (action: string) => {
     setToast({ message: `${action} action performed (Simulated)`, type: 'success' });
@@ -194,7 +300,7 @@ export default function JournalScreen() {
               </div>
             </div>
           </div>
-          
+
           <div className="text-center py-12">
             <p className="text-sm font-bold text-slate-400 uppercase tracking-widest">Shared via Trading Workshop OS</p>
           </div>
@@ -210,36 +316,38 @@ export default function JournalScreen() {
       <div className="w-[360px] flex flex-col gap-4">
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-bold">Journals</h2>
-          <Button variant="primary" icon={Plus} className="px-3 py-1.5 h-auto" onClick={() => handleAction('New Journal')}>New</Button>
+          <Button variant="primary" icon={Plus} className="px-3 py-1.5 h-auto" onClick={openNew}>New</Button>
         </div>
 
         <Card className="p-3">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <input 
-              type="text" 
-              placeholder="Search journals..." 
+            <input
+              type="text"
+              placeholder="Search journals..."
               className="w-full pl-10 pr-4 py-2 bg-accent/50 border border-border rounded-xl text-sm focus:outline-none"
             />
           </div>
         </Card>
 
         <div className="flex-1 overflow-y-auto space-y-3 pr-2">
-          {journals.length > 0 ? journals.map((j) => (
+          {isLoading ? (
+            <div className="text-center py-12 text-muted-foreground italic text-sm">Loading...</div>
+          ) : journals.length > 0 ? journals.map((j) => (
             <button
               key={j.id}
               onClick={() => setSelectedJournal(j)}
               className={cn(
                 "w-full text-left p-4 rounded-2xl border transition-all",
-                selectedJournal?.id === j.id 
-                  ? "bg-primary text-primary-foreground border-primary" 
+                selectedJournal?.id === j.id
+                  ? "bg-primary text-primary-foreground border-primary"
                   : "bg-card border-border hover:bg-accent"
               )}
             >
               <div className="flex items-center justify-between mb-2">
                 <span className="text-[10px] font-bold uppercase opacity-70">{j.date}</span>
                 <Badge variant={j.status === 'shared' ? 'positive' : 'neutral'}>
-                  {j.status}
+                  {j.status || 'private'}
                 </Badge>
               </div>
               <h4 className="font-bold text-sm mb-1">{j.title}</h4>
@@ -247,7 +355,7 @@ export default function JournalScreen() {
                 "text-xs truncate",
                 selectedJournal?.id === j.id ? "text-primary-foreground/70" : "text-muted-foreground"
               )}>
-                {j.preview}
+                {j.content ? j.content.slice(0, 80) : j.preview}
               </p>
             </button>
           )) : (
@@ -272,8 +380,8 @@ export default function JournalScreen() {
                   </div>
                 </div>
                 <div className="flex items-center space-x-2">
-                  <Button variant="outline" icon={Trash2} className="text-rose-500 hover:text-rose-500" onClick={() => handleAction('Delete Journal')} />
-                  <Button variant="outline" icon={Edit3} onClick={() => handleAction('Edit Journal')}>Edit</Button>
+                  <Button variant="outline" icon={Trash2} className="text-rose-500 hover:text-rose-500" onClick={() => setPendingDeleteId(selectedJournal.id)} />
+                  <Button variant="outline" icon={Edit3} onClick={openEdit}>Edit</Button>
                 </div>
               </div>
 
@@ -288,10 +396,16 @@ export default function JournalScreen() {
                   <div className="space-y-2">
                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Did you follow your plan?</label>
                     <div className="flex items-center space-x-2">
-                      <div className={cn("w-2 h-2 rounded-full", selectedJournal.followedPlan ? "bg-emerald-500" : "bg-rose-500")} />
-                      <span className={cn("text-sm font-bold", selectedJournal.followedPlan ? "text-emerald-600" : "text-rose-600")}>
-                        {selectedJournal.followedPlan ? "Yes, perfectly" : "No, deviated"}
-                      </span>
+                      {selectedJournal.followedPlan === undefined ? (
+                        <span className="text-sm font-bold text-slate-400">Not specified</span>
+                      ) : (
+                        <>
+                          <div className={cn("w-2 h-2 rounded-full", selectedJournal.followedPlan ? "bg-emerald-500" : "bg-rose-500")} />
+                          <span className={cn("text-sm font-bold", selectedJournal.followedPlan ? "text-emerald-600" : "text-rose-600")}>
+                            {selectedJournal.followedPlan ? "Yes, perfectly" : "No, deviated"}
+                          </span>
+                        </>
+                      )}
                     </div>
                   </div>
                   <div className="space-y-2">
@@ -307,6 +421,14 @@ export default function JournalScreen() {
                     {selectedJournal.content || "No detailed content provided."}
                   </p>
                 </div>
+
+                {selectedJournal.tags && selectedJournal.tags.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {selectedJournal.tags.map((tag: string) => (
+                      <Badge key={tag} variant="neutral">{tag}</Badge>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="mt-12 pt-8 border-t border-border grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -322,19 +444,21 @@ export default function JournalScreen() {
                       </div>
                       <Button variant="ghost" icon={ExternalLink} onClick={() => handleAction('View Linked Session')} />
                     </div>
+                  ) : selectedJournal.sessionId ? (
+                    <div className="p-4 bg-accent/30 rounded-2xl">
+                      <p className="text-sm font-bold font-mono">{selectedJournal.sessionId}</p>
+                    </div>
                   ) : (
                     <p className="text-xs text-muted-foreground italic">No session linked.</p>
                   )}
                 </section>
                 <section>
-                  <h4 className="text-xs font-bold uppercase text-muted-foreground mb-4">Linked Trades</h4>
-                  <div className="flex flex-wrap gap-2">
-                    {selectedJournal.linkedTrades && selectedJournal.linkedTrades.length > 0 ? selectedJournal.linkedTrades.map((t: any, idx: number) => (
-                      <Badge key={idx} variant="neutral" className="cursor-pointer hover:bg-accent transition-colors" onClick={() => handleAction(`View Trade ${t.id}`)}>{t.id}</Badge>
-                    )) : (
-                      <p className="text-xs text-muted-foreground italic">No trades linked.</p>
-                    )}
-                  </div>
+                  <h4 className="text-xs font-bold uppercase text-muted-foreground mb-4">Linked Trade</h4>
+                  {selectedJournal.tradeId ? (
+                    <Badge variant="neutral" className="font-mono">{selectedJournal.tradeId}</Badge>
+                  ) : (
+                    <p className="text-xs text-muted-foreground italic">No trade linked.</p>
+                  )}
                 </section>
               </div>
             </Card>
@@ -358,9 +482,9 @@ export default function JournalScreen() {
                       <span className="text-emerald-500 font-bold">{selectedJournal.access || 0} views</span>
                     </div>
                     <div className="flex items-center space-x-2">
-                      <input 
-                        readOnly 
-                        value={selectedJournal.shareUrl || "No share URL generated"} 
+                      <input
+                        readOnly
+                        value={selectedJournal.shareUrl || "No share URL generated"}
                         className="flex-1 bg-background border border-border rounded-lg px-3 py-1.5 text-xs font-mono"
                       />
                       <Button variant="outline" className="h-auto py-1.5 text-xs" onClick={() => handleAction('Link Copied')}>Copy</Button>
@@ -415,12 +539,130 @@ export default function JournalScreen() {
     </div>
 
       {toast && (
-        <Toast 
-          message={toast.message} 
-          type={toast.type} 
-          onClose={() => setToast(null)} 
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
         />
       )}
+
+      {/* Create/Edit Modal */}
+      <Modal
+        isOpen={draft !== null}
+        onClose={closeDraft}
+        title={draft?.id ? 'Edit Journal' : 'New Journal'}
+        maxWidth="lg"
+        footer={
+          <>
+            <Button variant="outline" onClick={closeDraft} disabled={isSaving}>Cancel</Button>
+            <Button variant="primary" icon={isSaving ? Loader2 : Save} onClick={saveDraft} disabled={isSaving}>
+              {isSaving ? 'Saving...' : 'Save Journal'}
+            </Button>
+          </>
+        }
+      >
+        {draft && (
+          <div className="space-y-5">
+            <div className="grid grid-cols-1 md:grid-cols-[1fr_160px] gap-4">
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Title</label>
+                <Input
+                  value={draft.title || ''}
+                  onChange={(e) => setDraft(prev => prev && ({ ...prev, title: e.target.value }))}
+                  placeholder="e.g. Monday Recap"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Date</label>
+                <Input
+                  type="date"
+                  value={draft.date || ''}
+                  onChange={(e) => setDraft(prev => prev && ({ ...prev, date: e.target.value }))}
+                />
+              </div>
+            </div>
+
+            {(draft.tradeId || draft.sessionId) && (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                {draft.tradeId && <Badge variant="neutral" className="font-mono">Trade: {draft.tradeId}</Badge>}
+                {draft.sessionId && <Badge variant="neutral" className="font-mono">Session: {draft.sessionId}</Badge>}
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Content</label>
+              <textarea
+                className="w-full h-32 p-4 bg-accent/30 border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
+                placeholder="Write your notes..."
+                value={draft.content || ''}
+                onChange={(e) => setDraft(prev => prev && ({ ...prev, content: e.target.value }))}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Why did you enter?</label>
+              <textarea
+                className="w-full h-16 p-4 bg-accent/30 border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
+                value={draft.entryReason || ''}
+                onChange={(e) => setDraft(prev => prev && ({ ...prev, entryReason: e.target.value }))}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Did you follow your plan?</label>
+              <div className="flex gap-2">
+                {[{ label: 'Yes', value: true }, { label: 'No', value: false }].map(opt => (
+                  <button
+                    key={opt.label}
+                    onClick={() => setDraft(prev => prev && ({ ...prev, followedPlan: opt.value }))}
+                    className={cn(
+                      "flex-1 py-2 rounded-xl text-xs font-bold border transition-all",
+                      draft.followedPlan === opt.value
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-accent/30 border-border hover:border-primary/50"
+                    )}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">What would you change?</label>
+              <textarea
+                className="w-full h-16 p-4 bg-accent/30 border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
+                value={draft.improvements || ''}
+                onChange={(e) => setDraft(prev => prev && ({ ...prev, improvements: e.target.value }))}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Tags (comma separated)</label>
+              <Input
+                placeholder="e.g. Discipline, Overtrading"
+                value={(draft.tags || []).join(', ')}
+                onChange={(e) => setDraft(prev => prev && ({ ...prev, tags: e.target.value.split(',').map(t => t.trim()).filter(t => t !== '') }))}
+              />
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Delete Confirmation Modal */}
+      <Modal
+        isOpen={pendingDeleteId !== null}
+        onClose={() => setPendingDeleteId(null)}
+        title="Delete Journal"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setPendingDeleteId(null)}>Cancel</Button>
+            <Button variant="destructive" icon={Trash2} onClick={confirmDelete}>Delete</Button>
+          </>
+        }
+      >
+        <p className="text-sm text-muted-foreground">This journal entry will be permanently deleted. This can't be undone.</p>
+      </Modal>
     </div>
   );
 }

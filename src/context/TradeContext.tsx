@@ -65,6 +65,8 @@ interface TradeContextType {
   isLiveSyncing: boolean;
   selectedTradeForJournal: Trade | null;
   setSelectedTradeForJournal: (trade: Trade | null) => void;
+  selectedSessionForJournal: { sessionId: string; sessionDate: string } | null;
+  setSelectedSessionForJournal: (session: { sessionId: string; sessionDate: string } | null) => void;
   isLoading: boolean;
   error: string | null;
 }
@@ -76,6 +78,7 @@ export function TradeProvider({ children }: { children: ReactNode }) {
   const [trades, setTradesState] = useState<Trade[]>([]);
   const [isLiveSyncing, setIsLiveSyncing] = useState(false);
   const [selectedTradeForJournal, setSelectedTradeForJournal] = useState<Trade | null>(null);
+  const [selectedSessionForJournal, setSelectedSessionForJournal] = useState<{ sessionId: string; sessionDate: string } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -267,6 +270,8 @@ export function TradeProvider({ children }: { children: ReactNode }) {
       isLiveSyncing,
       selectedTradeForJournal,
       setSelectedTradeForJournal,
+      selectedSessionForJournal,
+      setSelectedSessionForJournal,
       isLoading,
       error
     }}>

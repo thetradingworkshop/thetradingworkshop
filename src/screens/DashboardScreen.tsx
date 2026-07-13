@@ -41,7 +41,7 @@ import { useDateRange } from '../context/DateContext';
 import { useAuth } from '../context/AuthContext';
 
 import { MentorService, StructuredInsight } from '../services/mentorService';
-import { GeminiProvider } from '../services/aiProviders';
+import { AnthropicProvider } from '../services/aiProviders';
 import { buildDashboardModel, buildSessionMetrics } from '../services/analyticsService';
 import { RuleBasedMentorService, RuleBasedInsight } from '../services/RuleBasedMentorService';
 import { RuleBasedMentor } from '../components/RuleBasedMentor';
@@ -80,11 +80,7 @@ export default function DashboardScreen() {
   const { logTradeIntent } = useTrades();
 
   // Memoize mentor service to avoid re-instantiation
-  const mentorService = useMemo(() => {
-    const apiKey = process.env.GEMINI_API_KEY;
-    const provider = apiKey ? new GeminiProvider(apiKey) : undefined;
-    return new MentorService(provider);
-  }, []);
+  const mentorService = useMemo(() => new MentorService(new AnthropicProvider()), []);
 
   const handleAction = (action: string) => {
     setToast({ message: `${action} action performed (Simulated)`, type: 'success' });

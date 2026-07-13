@@ -1,3 +1,4 @@
+import "dotenv/config";
 import express from "express";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -6,6 +7,7 @@ import admin from "firebase-admin";
 import firebaseConfig from "./firebase-applet-config.json";
 import { v4 as uuidv4 } from "uuid";
 import crypto from "crypto";
+import Anthropic from "@anthropic-ai/sdk";
 import { TradovateService } from "./tradovate-service.js";
 import { reconstructTrades } from "./src/engine.js";
 import { IngestionEvent, Order, Trade, Session } from "./src/types.js";
@@ -22,6 +24,24 @@ if (admin.apps.length === 0) {
 
 const db = getFirestore(firebaseConfig.firestoreDatabaseId || "(default)");
 const tradovate = new TradovateService();
+// Reads ANTHROPIC_API_KEY from the environment. Kept server-side only — never
+// sent to the client, unlike the old GEMINI_API_KEY which was baked into the
+// browser bundle via vite.config.ts.
+const anthropic = new Anthropic();
+
+const MENTOR_INSIGHT_SCHEMA = {
+  type: "object",
+  properties: {
+    sessionSummary: { type: "string" },
+    whatWorked: { type: "array", items: { type: "string" } },
+    whatHurt: { type: "array", items: { type: "string" } },
+    coreProblem: { type: "string" },
+    executionVsStrategy: { type: "string" },
+    actionPlan: { type: "array", items: { type: "string" } },
+  },
+  required: ["sessionSummary", "whatWorked", "whatHurt", "coreProblem", "executionVsStrategy", "actionPlan"],
+  additionalProperties: false,
+} as const;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -220,6 +240,87 @@ async function startServer() {
     } catch (error) {
       console.error("Upload processing error:", error);
       res.status(500).json({ error: "Failed to process upload" });
+    }
+  });
+
+  // --- AI Mentor ---
+
+  app.post("/api/mentor/enhance", async (req, res) => {
+    const { insight, trades, stats } = req.body as {
+      insight: {
+        sessionSummary: string;
+        whatWorked: string[];
+        whatHurt: string[];
+        coreProblem: string;
+        executionVsStrategy: string;
+        actionPlan: string[];
+      };
+      trades: Trade[];
+      stats: { winRate: number; profitFactor: number; avgWinner: number; avgLoser: number } | null;
+    };
+
+    if (!insight || !Array.isArray(trades)) {
+      return res.status(400).json({ error: "insight and trades are required" });
+    }
+
+    const tradeSummary = trades.slice(0, 10).map(t =>
+      `- ${t.symbol} ${t.direction}: ${t.isWinner ? 'WIN' : 'LOSS'} ($${(t.pnlPoints ?? 0).toFixed(0)}), Grade: ${t.tradeGrade}, Hold: ${Math.round((t.holdTimeSeconds ?? 0) / 60)}m`
+    ).join('\n');
+
+    const prompt = `
+      You are an expert trading performance coach. I will provide you with a structured trading insight and the underlying trade data.
+      Your goal is to enhance the natural language parts of this insight while maintaining the core data and structure.
+
+      UNDERLYING DATA:
+      - Total Trades: ${trades.length}
+      - Win Rate: ${stats?.winRate?.toFixed(1)}%
+      - Profit Factor: ${stats?.profitFactor?.toFixed(2)}
+      - Avg Winner: $${stats?.avgWinner?.toFixed(0)}
+      - Avg Loser: $${stats?.avgLoser?.toFixed(0)}
+      - Sample Trades:
+      ${tradeSummary}
+
+      STRUCTURED INSIGHT (DETERMINISTIC):
+      - Session Summary: ${insight.sessionSummary}
+      - What Worked: ${insight.whatWorked.join(", ")}
+      - What Hurt: ${insight.whatHurt.join(", ")}
+      - Core Problem: ${insight.coreProblem}
+      - Execution vs Strategy: ${insight.executionVsStrategy}
+      - Action Plan: ${insight.actionPlan.join(", ")}
+
+      INSTRUCTIONS:
+      1. Be precise and data-driven.
+      2. Use measurable cause-effect statements (e.g., "Re-entries reduced expectancy by 0.6R").
+      3. Ensure the Core Problem is singular and specific.
+      4. Action Plan must be max 3 bullets and directly map to detected issues.
+      5. Maintain the exact structure.
+    `;
+
+    try {
+      const response = await anthropic.messages.create({
+        model: "claude-opus-4-8",
+        max_tokens: 2048,
+        output_config: { format: { type: "json_schema", schema: MENTOR_INSIGHT_SCHEMA } },
+        messages: [{ role: "user", content: prompt }],
+      });
+
+      const textBlock = response.content.find((b): b is Anthropic.TextBlock => b.type === "text");
+      if (!textBlock) throw new Error("No text response from Claude");
+      const enhanced = JSON.parse(textBlock.text);
+
+      res.json({
+        ...insight,
+        ...enhanced,
+        actionPlan: (enhanced.actionPlan || insight.actionPlan).slice(0, 3),
+      });
+    } catch (error: any) {
+      const isRateLimited = error?.status === 429;
+      if (isRateLimited) {
+        console.warn("Claude API rate limited.");
+        return res.status(429).json(insight);
+      }
+      console.error("Mentor enhancement failed:", error);
+      res.json(insight);
     }
   });
 

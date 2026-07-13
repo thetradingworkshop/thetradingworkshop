@@ -12,7 +12,7 @@ import { TradePerformanceLog } from '../components/TradePerformanceLog';
 import { MentorService, StructuredInsight } from '../services/mentorService';
 import { RuleBasedMentorService, RuleBasedInsight } from '../services/RuleBasedMentorService';
 import { RuleBasedMentor } from '../components/RuleBasedMentor';
-import { GeminiProvider } from '../services/aiProviders';
+import { AnthropicProvider } from '../services/aiProviders';
 import { Session, TradeIntent } from '../types';
 import { doc, getDoc, setDoc, collection, query, where, getDocs, serverTimestamp } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -39,11 +39,7 @@ export default function SessionDetailScreen() {
   const [intents, setIntents] = useState<TradeIntent[]>([]);
 
   // Memoize mentor service to avoid re-instantiation
-  const mentorService = useMemo(() => {
-    const apiKey = process.env.GEMINI_API_KEY;
-    const provider = apiKey ? new GeminiProvider(apiKey) : undefined;
-    return new MentorService(provider);
-  }, []);
+  const mentorService = useMemo(() => new MentorService(new AnthropicProvider()), []);
 
   const sessionDateStr = format(effectiveRange.from, 'yyyy-MM-dd');
 
@@ -166,7 +162,7 @@ export default function SessionDetailScreen() {
       return;
     }
 
-    const remaining = GeminiProvider.getCooldownRemaining();
+    const remaining = AnthropicProvider.getCooldownRemaining();
     if (remaining > 0 && !isManual) {
       setCooldownRemaining(remaining);
       return;
