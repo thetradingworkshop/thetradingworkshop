@@ -136,6 +136,10 @@ export interface TradeTruth {
   netRoi?: number; // percent
   adjustedCost?: number; // $ notional cost basis at entry (avgEntryPrice * pointValue * quantity)
 
+  // Auto-computed by applyBatchDerivedGrading() at reconstruction time from
+  // P&L, execution pattern, and re-entry timing — not user-editable.
+  tradeGrade?: 'A+' | 'A' | 'B' | 'C' | 'D' | 'F';
+
   // Rule Enforcement
   intentId?: string;
   wasValidAtEntry?: boolean;
@@ -181,7 +185,6 @@ export interface ModelValidation {
 }
 
 export interface TradeReview {
-  tradeGrade?: 'A+' | 'A' | 'B' | 'C' | 'D' | 'F';
   executionQuality?: number;
   strategyQuality?: number;
   entryQuality?: number;

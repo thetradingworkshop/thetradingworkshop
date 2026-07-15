@@ -122,7 +122,6 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
 
   // Review State
   const [review, setReview] = useState<Partial<TradeReview>>({
-    tradeGrade: 'B',
     executionQuality: 50,
     strategyQuality: 50,
     entryQuality: 50,
@@ -232,7 +231,6 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
         } else {
           // Initialize with trade data if available
           setReview({
-            tradeGrade: selectedTrade.tradeGrade || 'B',
             executionQuality: selectedTrade.executionQuality || 50,
             strategyQuality: selectedTrade.strategyQuality || 50,
             entryQuality: selectedTrade.entryQuality || 50,
@@ -286,12 +284,13 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
       await setDoc(reviewRef, reviewData, { merge: true });
 
       // Also merge the reviewable fields back onto the trade itself — otherwise a
-      // manual grade/score change here never shows up in the Trades table, the
-      // dashboard's grade breakdown chart, or anywhere else that reads `trades`,
-      // since those all read from the `trades` collection, not `trade_reviews`.
+      // manual score change here never shows up in the Trades table or anywhere
+      // else that reads `trades`, since those all read from the `trades`
+      // collection, not `trade_reviews`. tradeGrade is deliberately excluded —
+      // it's auto-computed by applyBatchDerivedGrading() at reconstruction time,
+      // not user-editable, so it must never be overwritten here.
       const tradeRef = doc(db, 'trades', selectedTrade.id);
       await setDoc(tradeRef, omitUndefined({
-        tradeGrade: review.tradeGrade,
         executionQuality: review.executionQuality,
         strategyQuality: review.strategyQuality,
         entryQuality: review.entryQuality,
@@ -729,21 +728,13 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
 
                       <div className="space-y-2">
                         <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Trade Grade</label>
-                        <div className="flex space-x-2">
-                          {['A+', 'A', 'B', 'C', 'D', 'F'].map(grade => (
-                            <button
-                              key={grade}
-                              onClick={() => setReview(prev => ({ ...prev, tradeGrade: grade as any }))}
-                              className={cn(
-                                "flex-1 py-2 rounded-xl text-xs font-bold border transition-all",
-                                review.tradeGrade === grade
-                                  ? "bg-primary text-primary-foreground border-primary shadow-lg shadow-primary/20"
-                                  : "bg-accent/30 border-border hover:border-primary/50"
-                              )}
-                            >
-                              {grade}
-                            </button>
-                          ))}
+                        <div className="flex items-center gap-3 p-3 rounded-xl bg-accent/30 border border-border">
+                          <Badge variant={gradeBadgeVariant(selectedTrade.tradeGrade)} className="text-sm px-3 py-1 font-mono">
+                            {selectedTrade.tradeGrade || '—'}
+                          </Badge>
+                          <p className="text-[10px] text-muted-foreground">
+                            Auto-computed from P&amp;L, execution pattern, and re-entry timing — not manually set.
+                          </p>
                         </div>
                       </div>
 

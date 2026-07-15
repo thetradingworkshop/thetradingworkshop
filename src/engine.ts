@@ -422,7 +422,11 @@ function createTradeFromState(state: PositionState, exitTime: string, exitPrice:
     ticks,
     ticksPerContract,
     adjustedCost,
-    netRoi
+    netRoi,
+    // Placeholder — overwritten by applyBatchDerivedGrading() once the full batch
+    // of trades from this import/sync has been reconstructed and can be compared
+    // against each other (large winner/loser, re-entries, etc).
+    tradeGrade: 'C'
   };
 
   const metrics: TradeDerivedMetrics = {
@@ -440,10 +444,6 @@ function createTradeFromState(state: PositionState, exitTime: string, exitPrice:
   const diagnostics = calculateDiagnostics(truth, metrics);
 
   const review: TradeReview = {
-    // Placeholder — overwritten by applyBatchDerivedGrading() once the full batch
-    // of trades from this import/sync has been reconstructed and can be compared
-    // against each other (large winner/loser, re-entries, etc).
-    tradeGrade: 'C',
     executionQuality: 50,
     strategyQuality: 50,
     entryQuality: 50,
