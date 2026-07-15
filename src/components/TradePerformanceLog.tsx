@@ -605,6 +605,11 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
                               : `${(selectedTrade.holdTimeSeconds / 60).toFixed(1)}m`}
                           </StatRow>
                           <StatRow label="Contracts Traded">{selectedTrade.totalQuantity}</StatRow>
+                          <StatRow label="Contracts Bought / Sold">
+                            <span className="text-emerald-500">{selectedTrade.fills.filter(f => f.side === 'BUY').reduce((sum, f) => sum + f.quantity, 0)}</span>
+                            <span className="text-muted-foreground"> / </span>
+                            <span className="text-rose-500">{selectedTrade.fills.filter(f => f.side === 'SELL').reduce((sum, f) => sum + f.quantity, 0)}</span>
+                          </StatRow>
                           <StatRow label="Points">
                             <span className={selectedTrade.pnlPoints >= 0 ? 'text-emerald-500' : 'text-rose-500'}>
                               {selectedTrade.pnlPoints >= 0 ? '+' : ''}{selectedTrade.pnlPoints.toFixed(2)}
