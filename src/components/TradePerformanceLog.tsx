@@ -35,6 +35,8 @@ import { TagCategoriesPicker } from './TagCategoriesPicker';
 import { TradeCandleChart } from './TradeCandleChart';
 import { RunningPnlChart } from './RunningPnlChart';
 import { RichTextEditor, stripHtml } from './RichTextEditor';
+import { useMarketBars } from '../hooks/useMarketBars';
+import { getPointValue } from '../contractSpecs';
 
 interface TradePerformanceLogProps {
   trades: Trade[];
@@ -44,11 +46,57 @@ interface TradePerformanceLogProps {
   subtitle?: string;
 }
 
+// Maximum Adverse/Favorable Excursion — the worst and best unrealized price
+// move that occurred *during* the trade, before it was closed. Only
+// meaningful against real intrabar price action (Yahoo market bars), since
+// fill-based/synthetic chart paths aren't real price history — so this
+// returns null unless real market bars covering the trade window are
+// available. Bar-level (not tick-level) granularity slightly understates the
+// true extremes, same caveat as the candlestick chart itself.
+function computeExcursion(trade: Trade, market: ReturnType<typeof useMarketBars>['market']): { maeDollars: number; mfeDollars: number } | null {
+  if (!market || market.bars.length === 0) return null;
+  const entryEpoch = Math.floor(new Date(trade.entryTime).getTime() / 1000);
+  const exitEpoch = Math.floor(new Date(trade.exitTime).getTime() / 1000);
+  const windowBars = market.bars.filter(b => b.time >= entryEpoch && b.time <= exitEpoch);
+  if (windowBars.length === 0) return null;
+
+  const maxHigh = Math.max(...windowBars.map(b => b.high));
+  const minLow = Math.min(...windowBars.map(b => b.low));
+  const isLong = trade.direction === 'LONG';
+  const adversePriceMove = isLong ? Math.max(0, trade.avgEntryPrice - minLow) : Math.max(0, maxHigh - trade.avgEntryPrice);
+  const favorablePriceMove = isLong ? Math.max(0, maxHigh - trade.avgEntryPrice) : Math.max(0, trade.avgEntryPrice - minLow);
+  const dollarsPerPoint = getPointValue(trade.symbol) * trade.totalQuantity;
+
+  return {
+    maeDollars: Number((adversePriceMove * dollarsPerPoint).toFixed(2)),
+    mfeDollars: Number((favorablePriceMove * dollarsPerPoint).toFixed(2)),
+  };
+}
+
+function StatRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between py-2.5 border-b border-border/40 last:border-b-0">
+      <span className="text-xs font-medium text-muted-foreground">{label}</span>
+      <span className="text-sm font-bold font-mono text-right">{children}</span>
+    </div>
+  );
+}
+
 export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, title, subtitle }: TradePerformanceLogProps) {
   const { user } = useAuth();
   const { deleteTrades } = useTrades();
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedTrade, setSelectedTrade] = useState<Trade | null>(null);
+  // Holds only the id, not a snapshot of the trade object — deriving
+  // selectedTrade from the live `trades` prop below means it automatically
+  // reflects Firestore updates (e.g. right after saveReview writes new
+  // fields), instead of showing stale data until the drawer is reopened.
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selectedTrade = useMemo(() => trades.find(t => t.id === selectedId) ?? null, [trades, selectedId]);
+  const { market, isLoading: isLoadingMarket } = useMarketBars(selectedTrade);
+  const excursion = useMemo(
+    () => (selectedTrade ? computeExcursion(selectedTrade, market) : null),
+    [selectedTrade, market]
+  );
   const [showFilters, setShowFilters] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -153,7 +201,7 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
         type: 'success'
       });
       if (selectedTrade && pendingDeleteIds.includes(selectedTrade.id)) {
-        setSelectedTrade(null);
+        setSelectedId(null);
       }
       setSelectedIds(prev => {
         const next = new Set(prev);
@@ -380,7 +428,7 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
                     "group hover:bg-accent/10 transition-colors cursor-pointer",
                     selectedIds.has(trade.id) && "bg-primary/5"
                   )}
-                  onClick={() => setSelectedTrade(trade)}
+                  onClick={() => setSelectedId(trade.id)}
                 >
                   <td className="px-6 py-5" onClick={(e) => e.stopPropagation()}>
                     <input
@@ -461,7 +509,7 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
         <div className="fixed inset-0 z-[60] flex justify-end">
           <div 
             className="absolute inset-0 bg-background/80 backdrop-blur-sm"
-            onClick={() => setSelectedTrade(null)}
+            onClick={() => setSelectedId(null)}
           />
           <Card className="relative w-full max-w-[1600px] h-full rounded-none border-l border-border shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
             <div className="p-8 border-b border-border flex items-center justify-between">
@@ -481,7 +529,7 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
                   <Trash2 className="w-5 h-5" />
                 </button>
                 <button
-                  onClick={() => setSelectedTrade(null)}
+                  onClick={() => setSelectedId(null)}
                   className="p-2 hover:bg-accent rounded-full transition-colors"
                 >
                   <X className="w-5 h-5" />
@@ -525,90 +573,133 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
                         </p>
                       </div>
 
-                      {/* Instant Summary */}
+                      {/* Trade Details */}
                       <section className="space-y-6">
                         <div className="flex items-center justify-between">
                           <h3 className="text-sm font-bold flex items-center space-x-2">
                             <Zap className="w-4 h-4 text-indigo-500" />
-                            <span>Instant Summary</span>
+                            <span>Trade Details</span>
                           </h3>
                           <Badge variant={selectedTrade.isWinner ? 'positive' : 'negative'} className="font-mono">
                             {selectedTrade.isWinner ? 'WINNER' : 'LOSER'}
                           </Badge>
                         </div>
-                        <div className="grid grid-cols-3 gap-4">
-                          <div className="p-4 rounded-2xl bg-accent/10 border border-border/50">
-                            <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">P&amp;L</p>
-                            <p className={cn(
-                              "text-xl font-black",
-                              selectedTrade.realizedPnL >= 0 ? "text-emerald-500" : "text-rose-500"
-                            )}>
-                              {selectedTrade.realizedPnL >= 0 ? '+' : ''}${selectedTrade.realizedPnL.toFixed(2)}
-                            </p>
-                          </div>
-                          <div className="p-4 rounded-2xl bg-accent/10 border border-border/50">
-                            <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Hold Time</p>
-                            <p className="text-xl font-black text-slate-900">
-                              {selectedTrade.holdTimeSeconds < 60
-                                ? `${selectedTrade.holdTimeSeconds.toFixed(0)}s`
-                                : `${(selectedTrade.holdTimeSeconds / 60).toFixed(1)}m`}
-                            </p>
-                          </div>
-                          <div className="p-4 rounded-2xl bg-accent/10 border border-border/50">
-                            <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Grade</p>
-                            <p className="text-xl font-black text-indigo-600">{selectedTrade.tradeGrade}</p>
-                          </div>
+
+                        <div className="p-5 rounded-2xl bg-accent/10 border border-border/50">
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Net P&amp;L</p>
+                          <p className={cn("text-3xl font-black", selectedTrade.realizedPnL >= 0 ? "text-emerald-500" : "text-rose-500")}>
+                            {selectedTrade.realizedPnL >= 0 ? '+' : ''}${selectedTrade.realizedPnL.toFixed(2)}
+                          </p>
                         </div>
 
-                        {typeof selectedTrade.realizedPnL === 'number' && (
-                          <div className="p-4 rounded-2xl bg-accent/10 border border-border/50">
-                            <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-3">Dollar P&amp;L Breakdown</p>
-                            <div className="space-y-1.5">
-                              <div className="flex items-center justify-between text-xs">
-                                <span className="text-muted-foreground">Gross P&amp;L</span>
-                                <span className="font-bold font-mono">
-                                  {(selectedTrade.grossPnlCurrency ?? selectedTrade.realizedPnL) >= 0 ? '+' : ''}
-                                  ${(selectedTrade.grossPnlCurrency ?? selectedTrade.realizedPnL).toFixed(2)}
-                                </span>
-                              </div>
-                              <div className="flex items-center justify-between text-xs">
-                                <span className="text-muted-foreground">Commission</span>
-                                <span className="font-bold font-mono text-rose-500">
-                                  -${(selectedTrade.totalCommission ?? 0).toFixed(2)}
-                                </span>
-                              </div>
-                              <div className="flex items-center justify-between text-sm pt-1.5 border-t border-border/50">
-                                <span className="font-bold">Net P&amp;L</span>
-                                <span className={cn(
-                                  "font-black font-mono",
-                                  selectedTrade.realizedPnL >= 0 ? "text-emerald-500" : "text-rose-500"
-                                )}>
-                                  {selectedTrade.realizedPnL >= 0 ? '+' : ''}${selectedTrade.realizedPnL.toFixed(2)}
-                                </span>
-                              </div>
-                            </div>
-                          </div>
-                        )}
+                        <div className="px-4 rounded-2xl bg-accent/10 border border-border/50">
+                          <StatRow label="Side">
+                            <span className={selectedTrade.direction === 'LONG' ? 'text-emerald-500' : 'text-rose-500'}>
+                              {selectedTrade.direction}
+                            </span>
+                          </StatRow>
+                          <StatRow label="Grade"><span className="text-indigo-600">{selectedTrade.tradeGrade || '—'}</span></StatRow>
+                          <StatRow label="Hold Time">
+                            {selectedTrade.holdTimeSeconds < 60
+                              ? `${selectedTrade.holdTimeSeconds.toFixed(0)}s`
+                              : `${(selectedTrade.holdTimeSeconds / 60).toFixed(1)}m`}
+                          </StatRow>
+                          <StatRow label="Contracts Traded">{selectedTrade.totalQuantity}</StatRow>
+                          <StatRow label="Points">
+                            <span className={selectedTrade.pnlPoints >= 0 ? 'text-emerald-500' : 'text-rose-500'}>
+                              {selectedTrade.pnlPoints >= 0 ? '+' : ''}{selectedTrade.pnlPoints.toFixed(2)}
+                            </span>
+                          </StatRow>
+                          {typeof selectedTrade.ticks === 'number' && (
+                            <>
+                              <StatRow label="Ticks">{selectedTrade.ticks}</StatRow>
+                              <StatRow label="Ticks Per Contract">{selectedTrade.ticksPerContract}</StatRow>
+                            </>
+                          )}
+                          <StatRow label="Gross P&amp;L">
+                            <span className={(selectedTrade.grossPnlCurrency ?? selectedTrade.realizedPnL) >= 0 ? 'text-emerald-500' : 'text-rose-500'}>
+                              {(selectedTrade.grossPnlCurrency ?? selectedTrade.realizedPnL) >= 0 ? '+' : ''}
+                              ${(selectedTrade.grossPnlCurrency ?? selectedTrade.realizedPnL).toFixed(2)}
+                            </span>
+                          </StatRow>
+                          <StatRow label="Commissions &amp; Fees">
+                            <span className="text-rose-500">-${(selectedTrade.totalCommission ?? 0).toFixed(2)}</span>
+                          </StatRow>
+                          {typeof selectedTrade.netRoi === 'number' && (
+                            <StatRow label="Return on Notional">
+                              <span className={selectedTrade.netRoi >= 0 ? 'text-emerald-500' : 'text-rose-500'}>
+                                {selectedTrade.netRoi >= 0 ? '+' : ''}{selectedTrade.netRoi}%
+                              </span>
+                            </StatRow>
+                          )}
+                          {typeof selectedTrade.adjustedCost === 'number' && (
+                            <StatRow label="Notional Exposure">${selectedTrade.adjustedCost.toLocaleString()}</StatRow>
+                          )}
+                          <StatRow label="Strategy">
+                            {selectedTrade.strategy || <span className="text-muted-foreground font-medium">Not set</span>}
+                          </StatRow>
+                        </div>
 
-                        {typeof selectedTrade.ticks === 'number' && (
-                          <div className="grid grid-cols-2 gap-3">
-                            <div className="p-3 rounded-2xl bg-accent/10 border border-border/50">
-                              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Ticks / Per Contract</p>
-                              <p className="text-sm font-black font-mono">{selectedTrade.ticks} <span className="text-muted-foreground font-medium">/ {selectedTrade.ticksPerContract}</span></p>
+                        {typeof selectedTrade.executionQuality === 'number' && (() => {
+                          const scores = [
+                            selectedTrade.executionQuality,
+                            selectedTrade.strategyQuality,
+                            selectedTrade.entryQuality,
+                            selectedTrade.exitQuality,
+                            selectedTrade.timingScore,
+                          ].filter((n): n is number => typeof n === 'number');
+                          const avg = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
+                          return (
+                            <div className="p-4 rounded-2xl bg-accent/10 border border-border/50 space-y-2">
+                              <div className="flex items-center justify-between">
+                                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Trade Quality Score</p>
+                                <span className="text-xs font-bold font-mono">{avg.toFixed(0)}/100</span>
+                              </div>
+                              <div className="h-2 rounded-full bg-border/50 overflow-hidden">
+                                <div
+                                  className={cn("h-full rounded-full", avg >= 70 ? "bg-emerald-500" : avg >= 40 ? "bg-amber-500" : "bg-rose-500")}
+                                  style={{ width: `${Math.min(100, Math.max(0, avg))}%` }}
+                                />
+                              </div>
                             </div>
-                            <div className="p-3 rounded-2xl bg-accent/10 border border-border/50">
-                              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Return on Notional</p>
-                              <p className={cn("text-sm font-black font-mono", (selectedTrade.netRoi ?? 0) >= 0 ? "text-emerald-500" : "text-rose-500")}>
-                                {(selectedTrade.netRoi ?? 0) >= 0 ? '+' : ''}{selectedTrade.netRoi}%
-                              </p>
+                          );
+                        })()}
+
+                        <div className="p-4 rounded-2xl bg-accent/10 border border-border/50 space-y-2">
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Price MAE / MFE</p>
+                          {isLoadingMarket ? (
+                            <p className="text-xs text-muted-foreground">Loading market data...</p>
+                          ) : excursion ? (
+                            <div className="flex items-center gap-2">
+                              <span className="px-2.5 py-1 rounded-lg bg-rose-500/10 text-rose-500 text-xs font-bold font-mono">
+                                -${excursion.maeDollars.toLocaleString()}
+                              </span>
+                              <span className="text-muted-foreground text-xs">/</span>
+                              <span className="px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-500 text-xs font-bold font-mono">
+                                +${excursion.mfeDollars.toLocaleString()}
+                              </span>
                             </div>
-                            <div className="p-3 rounded-2xl bg-accent/10 border border-border/50 col-span-2">
-                              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Notional Exposure</p>
-                              <p className="text-sm font-black font-mono">${(selectedTrade.adjustedCost ?? 0).toLocaleString()}</p>
-                              <p className="text-[10px] text-muted-foreground mt-1">Position value at entry (price × point value × qty) — not your actual margin at risk.</p>
+                          ) : (
+                            <p className="text-xs text-muted-foreground">Not available — no real market data for this trade's window.</p>
+                          )}
+                          <p className="text-[10px] text-muted-foreground">Worst / best unrealized move during the trade, from real market bars.</p>
+                        </div>
+
+                        <div className="px-4 rounded-2xl bg-accent/10 border border-border/50">
+                          <StatRow label="Trade Rating">
+                            <div className="flex items-center gap-0.5">
+                              {[1, 2, 3, 4, 5].map(n => (
+                                <span key={n} className={cn("text-base leading-none", (selectedTrade.starRating ?? 0) >= n ? "text-amber-400" : "text-border")}>★</span>
+                              ))}
                             </div>
-                          </div>
-                        )}
+                          </StatRow>
+                          <StatRow label="Initial Target">{selectedTrade.initialTarget ?? '--'}</StatRow>
+                          <StatRow label="Trade Risk">{selectedTrade.tradeRisk ?? '--'}</StatRow>
+                          <StatRow label="Planned R Multiple">{selectedTrade.plannedRMultiple ?? '--'}</StatRow>
+                          <StatRow label="Realized R Multiple">{selectedTrade.realizedRMultiple ?? '--'}</StatRow>
+                          <StatRow label="Best Exit Price">{selectedTrade.bestExitPrice ?? '--'}</StatRow>
+                          <StatRow label="Best Exit Time">{selectedTrade.bestExitTime || '--'}</StatRow>
+                        </div>
                       </section>
                     </>
                   )}
@@ -898,7 +989,7 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
                 </div>
 
                 <div className="flex-1 overflow-hidden p-6">
-                  {rightTab === 'chart' && <TradeCandleChart trade={selectedTrade} />}
+                  {rightTab === 'chart' && <TradeCandleChart trade={selectedTrade} market={market} isLoadingMarket={isLoadingMarket} />}
                   {rightTab === 'pnl' && <RunningPnlChart trade={selectedTrade} />}
                   {rightTab === 'notes' && (
                     <div className="h-full flex flex-col items-center justify-center space-y-3 max-w-md mx-auto">
@@ -908,7 +999,7 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
                           className="w-full py-4 rounded-2xl flex items-center justify-center space-x-2"
                           onClick={() => {
                             onAddJournal(selectedTrade);
-                            setSelectedTrade(null);
+                            setSelectedId(null);
                           }}
                         >
                           <BookOpen className="w-4 h-4" />
@@ -921,7 +1012,7 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
                           className="w-full py-4 rounded-2xl flex items-center justify-center space-x-2"
                           onClick={() => {
                             onAddDailyJournal(selectedTrade);
-                            setSelectedTrade(null);
+                            setSelectedId(null);
                           }}
                         >
                           <Calendar className="w-4 h-4" />
