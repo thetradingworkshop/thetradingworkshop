@@ -217,18 +217,18 @@ export function Modal({ isOpen, onClose, title, children, footer, maxWidth = 'md
   
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-background/60 backdrop-blur-md animate-in fade-in duration-300">
-      <div className={cn("bg-card border border-border/60 rounded-3xl shadow-2xl w-full overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-4 duration-300", maxWidths[maxWidth])}>
-        <div className="px-8 py-6 border-b border-border/40 flex items-center justify-between">
+      <div className={cn("bg-card border border-border/60 rounded-3xl shadow-2xl w-full max-h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-4 duration-300", maxWidths[maxWidth])}>
+        <div className="px-8 py-6 border-b border-border/40 flex items-center justify-between shrink-0">
           <h3 className="text-2xl font-bold tracking-tight">{title}</h3>
           <button onClick={onClose} className="p-2 hover:bg-accent rounded-xl transition-all text-muted-foreground hover:text-foreground active:scale-90">
             <X className="w-5 h-5" />
           </button>
         </div>
-        <div className="px-8 py-8">
+        <div className="px-8 py-8 overflow-y-auto flex-1 min-h-0">
           {children}
         </div>
         {footer && (
-          <div className="px-8 py-6 border-t border-border/40 bg-muted/10 flex items-center justify-end gap-3">
+          <div className="px-8 py-6 border-t border-border/40 bg-muted/10 flex items-center justify-end gap-3 shrink-0">
             {footer}
           </div>
         )}
