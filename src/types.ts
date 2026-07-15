@@ -362,6 +362,7 @@ export interface TradeStats {
   avgLoser: number;
   totalTrades: number;
   equityData: { name: string; value: number }[];
+  equityDataDollars: { name: string; value: number }[];
   pnlByTrade: { id: string; pnl: number }[];
   hourlyData: { hour: string; pnl: number }[];
   holdData: { range: string; count: number }[];

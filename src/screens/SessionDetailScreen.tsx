@@ -284,7 +284,7 @@ export default function SessionDetailScreen() {
       {/* Row 3: Equity Curve + Bias/Quality */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         <div className="lg:col-span-8">
-          <EquityCurveChart className="h-full" data={stats?.equityData} />
+          <EquityCurveChart className="h-full" data={stats?.equityDataDollars} />
         </div>
         <div className="lg:col-span-4 space-y-6">
           <div className="relative group">

@@ -134,6 +134,19 @@ export const buildTradeStats = (trades: Trade[]): TradeStats | null => {
   });
   equityData.unshift({ name: 'Start', value: 0 });
 
+  // Dollar equivalent of equityData above — EquityCurveChart always renders
+  // its values with a "$" prefix, so it needs realizedPnL (actual currency),
+  // not pnlPoints (raw price movement, meaningless summed across symbols
+  // with different point values).
+  let cumulativeDollars = 0;
+  const equityDataDollars = sortedTrades.map((t) => {
+    cumulativeDollars += (t.realizedPnL || 0);
+    const date = new Date(t.entryTime);
+    const label = format(date, 'MMM d');
+    return { name: label, value: Number(cumulativeDollars.toFixed(2)) || 0 };
+  });
+  equityDataDollars.unshift({ name: 'Start', value: 0 });
+
   const grades = validTrades.reduce((acc, t) => {
     if (t.tradeGrade) {
       acc[t.tradeGrade] = (acc[t.tradeGrade] || 0) + 1;
@@ -188,6 +201,7 @@ export const buildTradeStats = (trades: Trade[]): TradeStats | null => {
     avgWinner: Number(avgWinner.toFixed(2)) || 0,
     avgLoser: Number(avgLoser.toFixed(2)) || 0,
     equityData,
+    equityDataDollars,
     gradeData,
     pnlByTrade,
     hourlyData,

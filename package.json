@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
+    "dev:emulated": "USE_FIREBASE_EMULATOR=true VITE_USE_FIREBASE_EMULATOR=true tsx server.ts",
+    "emulators": "firebase emulators:start --only auth,firestore",
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist",

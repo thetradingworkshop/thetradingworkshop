@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { cn, gradeBadgeVariant } from '@/src/utils';
+import { cn, gradeBadgeVariant, omitUndefined } from '@/src/utils';
 import { Card, Badge, Button, Input, Toast, Modal } from './Shared';
 import {
   Search,
@@ -21,7 +21,10 @@ import {
   Flag,
   Trash2,
   AlertTriangle,
-  Calendar
+  Calendar,
+  BarChart3,
+  MessageSquare,
+  LineChart
 } from 'lucide-react';
 import { Trade, TradeReview, TagCategory } from '../types';
 import { doc, getDoc, setDoc, serverTimestamp, collection, query, where, onSnapshot } from 'firebase/firestore';
@@ -30,6 +33,8 @@ import { useAuth } from '../context/AuthContext';
 import { useTrades } from '../context/TradeContext';
 import { TagCategoriesPicker } from './TagCategoriesPicker';
 import { TradeCandleChart } from './TradeCandleChart';
+import { RunningPnlChart } from './RunningPnlChart';
+import { RichTextEditor, stripHtml } from './RichTextEditor';
 
 interface TradePerformanceLogProps {
   trades: Trade[];
@@ -50,6 +55,8 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
   const [pendingDeleteIds, setPendingDeleteIds] = useState<string[] | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [tagCategories, setTagCategories] = useState<TagCategory[]>([]);
+  const [leftTab, setLeftTab] = useState<'stats' | 'strategy' | 'executions'>('stats');
+  const [rightTab, setRightTab] = useState<'chart' | 'notes' | 'pnl'>('chart');
 
   useEffect(() => {
     if (!user) return;
@@ -208,18 +215,26 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
     loadReview();
   }, [selectedTrade, user]);
 
+  // Reset drawer tabs whenever a different trade is opened
+  useEffect(() => {
+    if (selectedTrade) {
+      setLeftTab('stats');
+      setRightTab('chart');
+    }
+  }, [selectedTrade?.id]);
+
   const saveReview = async () => {
     if (!selectedTrade || !user) return;
     setIsSavingReview(true);
     try {
       const reviewRef = doc(db, 'trade_reviews', selectedTrade.id);
-      const reviewData = {
+      const reviewData = omitUndefined({
         ...review,
         tradeId: selectedTrade.id,
         sessionId: selectedTrade.sessionId,
         userId: user.uid,
         updatedAt: new Date().toISOString()
-      };
+      });
       await setDoc(reviewRef, reviewData, { merge: true });
 
       // Also merge the reviewable fields back onto the trade itself — otherwise a
@@ -227,7 +242,7 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
       // dashboard's grade breakdown chart, or anywhere else that reads `trades`,
       // since those all read from the `trades` collection, not `trade_reviews`.
       const tradeRef = doc(db, 'trades', selectedTrade.id);
-      await setDoc(tradeRef, {
+      await setDoc(tradeRef, omitUndefined({
         tradeGrade: review.tradeGrade,
         executionQuality: review.executionQuality,
         strategyQuality: review.strategyQuality,
@@ -247,7 +262,7 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
         bestExitPrice: review.bestExitPrice,
         bestExitTime: review.bestExitTime,
         updatedAt: serverTimestamp()
-      }, { merge: true });
+      }), { merge: true });
 
       setToast({ message: 'Trade review saved successfully', type: 'success' });
     } catch (error) {
@@ -448,7 +463,7 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
             className="absolute inset-0 bg-background/80 backdrop-blur-sm"
             onClick={() => setSelectedTrade(null)}
           />
-          <Card className="relative w-full max-w-2xl h-full rounded-none border-l border-border shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
+          <Card className="relative w-full max-w-[1600px] h-full rounded-none border-l border-border shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
             <div className="p-8 border-b border-border flex items-center justify-between">
               <div>
                 <div className="flex items-center space-x-3 mb-1">
@@ -474,398 +489,452 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-8 space-y-10">
-              {/* Trade Verdict */}
-              <div className="p-6 rounded-3xl bg-indigo-500/5 border border-indigo-500/20 relative overflow-hidden">
-                <div className="absolute top-0 right-0 p-4 opacity-5">
-                  <Zap className="w-12 h-12 text-indigo-500" />
-                </div>
-                <p className="text-[10px] font-bold uppercase tracking-widest text-indigo-600 mb-2">Data Insight</p>
-                <p className="text-sm font-medium text-slate-900 leading-relaxed italic">
-                  "{selectedTrade.verdict}"
-                </p>
-              </div>
-
-              {/* Instant Summary */}
-              <section className="space-y-6">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-bold flex items-center space-x-2">
-                    <Zap className="w-4 h-4 text-indigo-500" />
-                    <span>Instant Summary</span>
-                  </h3>
-                  <Badge variant={selectedTrade.isWinner ? 'positive' : 'negative'} className="font-mono">
-                    {selectedTrade.isWinner ? 'WINNER' : 'LOSER'}
-                  </Badge>
-                </div>
-                <div className="grid grid-cols-3 gap-4">
-                  <div className="p-4 rounded-2xl bg-accent/10 border border-border/50">
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">PnL (Pts)</p>
-                    <p className={cn(
-                      "text-xl font-black",
-                      selectedTrade.isWinner ? "text-emerald-500" : "text-rose-500"
-                    )}>
-                      {selectedTrade.isWinner ? '+' : ''}{selectedTrade.pnlPoints.toFixed(2)}
-                    </p>
-                  </div>
-                  <div className="p-4 rounded-2xl bg-accent/10 border border-border/50">
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Hold Time</p>
-                    <p className="text-xl font-black text-slate-900">
-                      {selectedTrade.holdTimeSeconds < 60
-                        ? `${selectedTrade.holdTimeSeconds.toFixed(0)}s`
-                        : `${(selectedTrade.holdTimeSeconds / 60).toFixed(1)}m`}
-                    </p>
-                  </div>
-                  <div className="p-4 rounded-2xl bg-accent/10 border border-border/50">
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Grade</p>
-                    <p className="text-xl font-black text-indigo-600">{selectedTrade.tradeGrade}</p>
-                  </div>
-                </div>
-
-                {typeof selectedTrade.realizedPnL === 'number' && (
-                  <div className="p-4 rounded-2xl bg-accent/10 border border-border/50">
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-3">Dollar P&amp;L Breakdown</p>
-                    <div className="space-y-1.5">
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="text-muted-foreground">Gross P&amp;L</span>
-                        <span className="font-bold font-mono">
-                          {(selectedTrade.grossPnlCurrency ?? selectedTrade.realizedPnL) >= 0 ? '+' : ''}
-                          ${(selectedTrade.grossPnlCurrency ?? selectedTrade.realizedPnL).toFixed(2)}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="text-muted-foreground">Commission</span>
-                        <span className="font-bold font-mono text-rose-500">
-                          -${(selectedTrade.totalCommission ?? 0).toFixed(2)}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between text-sm pt-1.5 border-t border-border/50">
-                        <span className="font-bold">Net P&amp;L</span>
-                        <span className={cn(
-                          "font-black font-mono",
-                          selectedTrade.realizedPnL >= 0 ? "text-emerald-500" : "text-rose-500"
-                        )}>
-                          {selectedTrade.realizedPnL >= 0 ? '+' : ''}${selectedTrade.realizedPnL.toFixed(2)}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {typeof selectedTrade.ticks === 'number' && (
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="p-3 rounded-2xl bg-accent/10 border border-border/50">
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Ticks / Per Contract</p>
-                      <p className="text-sm font-black font-mono">{selectedTrade.ticks} <span className="text-muted-foreground font-medium">/ {selectedTrade.ticksPerContract}</span></p>
-                    </div>
-                    <div className="p-3 rounded-2xl bg-accent/10 border border-border/50">
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Net ROI</p>
-                      <p className={cn("text-sm font-black font-mono", (selectedTrade.netRoi ?? 0) >= 0 ? "text-emerald-500" : "text-rose-500")}>
-                        {(selectedTrade.netRoi ?? 0) >= 0 ? '+' : ''}{selectedTrade.netRoi}%
-                      </p>
-                    </div>
-                    <div className="p-3 rounded-2xl bg-accent/10 border border-border/50 col-span-2">
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Adjusted Cost</p>
-                      <p className="text-sm font-black font-mono">${(selectedTrade.adjustedCost ?? 0).toLocaleString()}</p>
-                    </div>
-                  </div>
-                )}
-              </section>
-
-              {/* Chart */}
-              <section className="space-y-4">
-                <h3 className="text-sm font-bold flex items-center space-x-2">
-                  <TrendingUp className="w-4 h-4 text-indigo-500" />
-                  <span>Chart</span>
-                </h3>
-                <TradeCandleChart trade={selectedTrade} />
-              </section>
-
-              {/* Execution Details */}
-              <section className="space-y-6">
-                <h3 className="text-sm font-bold flex items-center space-x-2">
-                  <Clock className="w-4 h-4 text-indigo-500" />
-                  <span>Execution Timeline</span>
-                </h3>
-                <div className="space-y-4">
-                  {selectedTrade.fills.map((fill, idx) => (
-                    <div key={fill.order_id} className="flex items-start space-x-4">
-                      <div className="flex flex-col items-center">
-                        <div className={cn(
-                          "w-3 h-3 rounded-full border-2 border-background",
-                          fill.side === 'BUY' ? "bg-emerald-500" : "bg-rose-500"
-                        )} />
-                        {idx < selectedTrade.fills.length - 1 && <div className="w-px h-12 bg-border" />}
-                      </div>
-                      <div className="flex-1">
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="text-xs font-bold">{fill.side} {fill.quantity} @ {fill.avg_price.toFixed(2)}</span>
-                          <span className="text-[10px] text-muted-foreground">{new Date(fill.fill_time).toLocaleTimeString()}</span>
-                        </div>
-                        <p className="text-[10px] text-muted-foreground">Execution ID: {fill.order_id}</p>
-                      </div>
-                    </div>
+            <div className="flex-1 flex overflow-hidden">
+              {/* Left Pane: Stats / Strategy / Executions */}
+              <div className="w-[420px] shrink-0 border-r border-border flex flex-col overflow-hidden">
+                <div className="flex items-center gap-1 p-4 border-b border-border shrink-0">
+                  {([
+                    { id: 'stats', label: 'Stats' },
+                    { id: 'strategy', label: 'Strategy' },
+                    { id: 'executions', label: 'Executions' },
+                  ] as const).map(tab => (
+                    <button
+                      key={tab.id}
+                      onClick={() => setLeftTab(tab.id)}
+                      className={cn(
+                        "flex-1 py-2 rounded-xl text-xs font-bold transition-all",
+                        leftTab === tab.id ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent/40"
+                      )}
+                    >
+                      {tab.label}
+                    </button>
                   ))}
                 </div>
-              </section>
 
-              {/* Manual Review Section */}
-              <section className="space-y-6 pt-8 border-t border-border">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-bold flex items-center space-x-2">
-                    <BookOpen className="w-4 h-4 text-indigo-500" />
-                    <span>Manual Review</span>
-                  </h3>
-                  <Button 
-                    variant="primary" 
-                    size="sm" 
-                    icon={isSavingReview ? Loader2 : Save}
-                    onClick={saveReview}
-                    disabled={isSavingReview}
-                  >
-                    {isSavingReview ? 'Saving...' : 'Save Review'}
-                  </Button>
-                </div>
+                <div className="flex-1 overflow-y-auto p-6 space-y-8">
+                  {leftTab === 'stats' && (
+                    <>
+                      {/* Trade Verdict */}
+                      <div className="p-6 rounded-3xl bg-indigo-500/5 border border-indigo-500/20 relative overflow-hidden">
+                        <div className="absolute top-0 right-0 p-4 opacity-5">
+                          <Zap className="w-12 h-12 text-indigo-500" />
+                        </div>
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-indigo-600 mb-2">Data Insight</p>
+                        <p className="text-sm font-medium text-slate-900 leading-relaxed italic">
+                          "{stripHtml(selectedTrade.verdict)}"
+                        </p>
+                      </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Trade Grade</label>
-                    <div className="flex space-x-2">
-                      {['A+', 'A', 'B', 'C', 'D', 'F'].map(grade => (
-                        <button
-                          key={grade}
-                          onClick={() => setReview(prev => ({ ...prev, tradeGrade: grade as any }))}
-                          className={cn(
-                            "flex-1 py-2 rounded-xl text-xs font-bold border transition-all",
-                            review.tradeGrade === grade 
-                              ? "bg-primary text-primary-foreground border-primary shadow-lg shadow-primary/20" 
-                              : "bg-accent/30 border-border hover:border-primary/50"
-                          )}
-                        >
-                          {grade}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+                      {/* Instant Summary */}
+                      <section className="space-y-6">
+                        <div className="flex items-center justify-between">
+                          <h3 className="text-sm font-bold flex items-center space-x-2">
+                            <Zap className="w-4 h-4 text-indigo-500" />
+                            <span>Instant Summary</span>
+                          </h3>
+                          <Badge variant={selectedTrade.isWinner ? 'positive' : 'negative'} className="font-mono">
+                            {selectedTrade.isWinner ? 'WINNER' : 'LOSER'}
+                          </Badge>
+                        </div>
+                        <div className="grid grid-cols-3 gap-4">
+                          <div className="p-4 rounded-2xl bg-accent/10 border border-border/50">
+                            <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">P&amp;L</p>
+                            <p className={cn(
+                              "text-xl font-black",
+                              selectedTrade.realizedPnL >= 0 ? "text-emerald-500" : "text-rose-500"
+                            )}>
+                              {selectedTrade.realizedPnL >= 0 ? '+' : ''}${selectedTrade.realizedPnL.toFixed(2)}
+                            </p>
+                          </div>
+                          <div className="p-4 rounded-2xl bg-accent/10 border border-border/50">
+                            <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Hold Time</p>
+                            <p className="text-xl font-black text-slate-900">
+                              {selectedTrade.holdTimeSeconds < 60
+                                ? `${selectedTrade.holdTimeSeconds.toFixed(0)}s`
+                                : `${(selectedTrade.holdTimeSeconds / 60).toFixed(1)}m`}
+                            </p>
+                          </div>
+                          <div className="p-4 rounded-2xl bg-accent/10 border border-border/50">
+                            <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Grade</p>
+                            <p className="text-xl font-black text-indigo-600">{selectedTrade.tradeGrade}</p>
+                          </div>
+                        </div>
 
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Behavior Flags</label>
-                    <div className="flex flex-wrap gap-2">
-                      {['FOMO', 'Revenge', 'Early Exit', 'Late Entry', 'Over-sized'].map(flag => (
-                        <button
-                          key={flag}
-                          onClick={() => handleFlagToggle(flag)}
-                          className={cn(
-                            "px-3 py-1.5 rounded-lg text-[10px] font-bold border transition-all",
-                            review.behaviorFlags?.includes(flag)
-                              ? "bg-rose-500 text-white border-rose-500"
-                              : "bg-accent/30 border-border hover:border-rose-500/30"
-                          )}
-                        >
-                          {flag}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
+                        {typeof selectedTrade.realizedPnL === 'number' && (
+                          <div className="p-4 rounded-2xl bg-accent/10 border border-border/50">
+                            <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-3">Dollar P&amp;L Breakdown</p>
+                            <div className="space-y-1.5">
+                              <div className="flex items-center justify-between text-xs">
+                                <span className="text-muted-foreground">Gross P&amp;L</span>
+                                <span className="font-bold font-mono">
+                                  {(selectedTrade.grossPnlCurrency ?? selectedTrade.realizedPnL) >= 0 ? '+' : ''}
+                                  ${(selectedTrade.grossPnlCurrency ?? selectedTrade.realizedPnL).toFixed(2)}
+                                </span>
+                              </div>
+                              <div className="flex items-center justify-between text-xs">
+                                <span className="text-muted-foreground">Commission</span>
+                                <span className="font-bold font-mono text-rose-500">
+                                  -${(selectedTrade.totalCommission ?? 0).toFixed(2)}
+                                </span>
+                              </div>
+                              <div className="flex items-center justify-between text-sm pt-1.5 border-t border-border/50">
+                                <span className="font-bold">Net P&amp;L</span>
+                                <span className={cn(
+                                  "font-black font-mono",
+                                  selectedTrade.realizedPnL >= 0 ? "text-emerald-500" : "text-rose-500"
+                                )}>
+                                  {selectedTrade.realizedPnL >= 0 ? '+' : ''}${selectedTrade.realizedPnL.toFixed(2)}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        )}
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Execution Quality ({review.executionQuality}%)</label>
-                    <input 
-                      type="range" min="0" max="100" step="10"
-                      className="w-full accent-primary"
-                      value={review.executionQuality}
-                      onChange={(e) => setReview(prev => ({ ...prev, executionQuality: parseInt(e.target.value) }))}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Strategy Quality ({review.strategyQuality}%)</label>
-                    <input 
-                      type="range" min="0" max="100" step="10"
-                      className="w-full accent-primary"
-                      value={review.strategyQuality}
-                      onChange={(e) => setReview(prev => ({ ...prev, strategyQuality: parseInt(e.target.value) }))}
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-3 gap-4">
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Entry ({review.entryQuality}%)</label>
-                    <input 
-                      type="range" min="0" max="100" step="10"
-                      className="w-full accent-primary"
-                      value={review.entryQuality}
-                      onChange={(e) => setReview(prev => ({ ...prev, entryQuality: parseInt(e.target.value) }))}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Exit ({review.exitQuality}%)</label>
-                    <input 
-                      type="range" min="0" max="100" step="10"
-                      className="w-full accent-primary"
-                      value={review.exitQuality}
-                      onChange={(e) => setReview(prev => ({ ...prev, exitQuality: parseInt(e.target.value) }))}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Timing ({review.timingScore}%)</label>
-                    <input 
-                      type="range" min="0" max="100" step="10"
-                      className="w-full accent-primary"
-                      value={review.timingScore}
-                      onChange={(e) => setReview(prev => ({ ...prev, timingScore: parseInt(e.target.value) }))}
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Strategy</label>
-                    <Input
-                      className="h-10 text-xs"
-                      placeholder="e.g. ORB Breakout"
-                      value={review.strategy || ''}
-                      onChange={(e) => setReview(prev => ({ ...prev, strategy: e.target.value }))}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Trade Rating</label>
-                    <div className="flex items-center space-x-1 h-10">
-                      {[1, 2, 3, 4, 5].map(n => (
-                        <button
-                          key={n}
-                          onClick={() => setReview(prev => ({ ...prev, starRating: prev.starRating === n ? undefined : n }))}
-                          className={cn(
-                            "text-lg leading-none transition-colors",
-                            (review.starRating ?? 0) >= n ? "text-amber-400" : "text-border"
-                          )}
-                        >
-                          ★
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Initial Target</label>
-                    <Input
-                      type="number" className="h-10 text-xs" placeholder="--"
-                      value={review.initialTarget ?? ''}
-                      onChange={(e) => setReview(prev => ({ ...prev, initialTarget: e.target.value === '' ? undefined : parseFloat(e.target.value) }))}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Trade Risk</label>
-                    <Input
-                      type="number" className="h-10 text-xs" placeholder="--"
-                      value={review.tradeRisk ?? ''}
-                      onChange={(e) => setReview(prev => ({ ...prev, tradeRisk: e.target.value === '' ? undefined : parseFloat(e.target.value) }))}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Planned R</label>
-                    <Input
-                      type="number" className="h-10 text-xs" placeholder="--"
-                      value={review.plannedRMultiple ?? ''}
-                      onChange={(e) => setReview(prev => ({ ...prev, plannedRMultiple: e.target.value === '' ? undefined : parseFloat(e.target.value) }))}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Realized R</label>
-                    <Input
-                      type="number" className="h-10 text-xs" placeholder="--"
-                      value={review.realizedRMultiple ?? ''}
-                      onChange={(e) => setReview(prev => ({ ...prev, realizedRMultiple: e.target.value === '' ? undefined : parseFloat(e.target.value) }))}
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Best Exit Price</label>
-                    <Input
-                      type="number" className="h-10 text-xs" placeholder="--"
-                      value={review.bestExitPrice ?? ''}
-                      onChange={(e) => setReview(prev => ({ ...prev, bestExitPrice: e.target.value === '' ? undefined : parseFloat(e.target.value) }))}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Best Exit Time</label>
-                    <Input
-                      className="h-10 text-xs" placeholder="e.g. 14:20:00"
-                      value={review.bestExitTime || ''}
-                      onChange={(e) => setReview(prev => ({ ...prev, bestExitTime: e.target.value }))}
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Tags</label>
-                    {user && (
-                      <TagCategoriesPicker
-                        categories={tagCategories}
-                        selectedTags={review.tags || []}
-                        onChange={(tags) => setReview(prev => ({ ...prev, tags }))}
-                        userId={user.uid}
-                      />
-                    )}
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Verdict / Summary</label>
-                    <textarea 
-                      className="w-full h-20 p-4 bg-accent/30 border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
-                      placeholder="What happened in this trade?"
-                      value={review.verdict}
-                      onChange={(e) => setReview(prev => ({ ...prev, verdict: e.target.value }))}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Lesson Learned</label>
-                    <textarea 
-                      className="w-full h-20 p-4 bg-accent/30 border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
-                      placeholder="What is the key takeaway?"
-                      value={review.lessonLearned}
-                      onChange={(e) => setReview(prev => ({ ...prev, lessonLearned: e.target.value }))}
-                    />
-                  </div>
-                </div>
-              </section>
-
-              {/* Actions */}
-              {(onAddJournal || onAddDailyJournal) && (
-                <div className="pt-8 border-t border-border space-y-3">
-                  {onAddJournal && (
-                    <Button
-                      variant="primary"
-                      className="w-full py-4 rounded-2xl flex items-center justify-center space-x-2"
-                      onClick={() => {
-                        onAddJournal(selectedTrade);
-                        setSelectedTrade(null);
-                      }}
-                    >
-                      <BookOpen className="w-4 h-4" />
-                      <span>Trade Note</span>
-                    </Button>
+                        {typeof selectedTrade.ticks === 'number' && (
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="p-3 rounded-2xl bg-accent/10 border border-border/50">
+                              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Ticks / Per Contract</p>
+                              <p className="text-sm font-black font-mono">{selectedTrade.ticks} <span className="text-muted-foreground font-medium">/ {selectedTrade.ticksPerContract}</span></p>
+                            </div>
+                            <div className="p-3 rounded-2xl bg-accent/10 border border-border/50">
+                              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Return on Notional</p>
+                              <p className={cn("text-sm font-black font-mono", (selectedTrade.netRoi ?? 0) >= 0 ? "text-emerald-500" : "text-rose-500")}>
+                                {(selectedTrade.netRoi ?? 0) >= 0 ? '+' : ''}{selectedTrade.netRoi}%
+                              </p>
+                            </div>
+                            <div className="p-3 rounded-2xl bg-accent/10 border border-border/50 col-span-2">
+                              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Notional Exposure</p>
+                              <p className="text-sm font-black font-mono">${(selectedTrade.adjustedCost ?? 0).toLocaleString()}</p>
+                              <p className="text-[10px] text-muted-foreground mt-1">Position value at entry (price × point value × qty) — not your actual margin at risk.</p>
+                            </div>
+                          </div>
+                        )}
+                      </section>
+                    </>
                   )}
-                  {onAddDailyJournal && (
-                    <Button
-                      variant="outline"
-                      className="w-full py-4 rounded-2xl flex items-center justify-center space-x-2"
-                      onClick={() => {
-                        onAddDailyJournal(selectedTrade);
-                        setSelectedTrade(null);
-                      }}
-                    >
-                      <Calendar className="w-4 h-4" />
-                      <span>Daily Journal</span>
-                    </Button>
+
+                  {leftTab === 'strategy' && (
+                    <section className="space-y-6">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-sm font-bold flex items-center space-x-2">
+                          <BookOpen className="w-4 h-4 text-indigo-500" />
+                          <span>Manual Review</span>
+                        </h3>
+                        <Button
+                          variant="primary"
+                          size="sm"
+                          icon={isSavingReview ? Loader2 : Save}
+                          onClick={saveReview}
+                          disabled={isSavingReview}
+                        >
+                          {isSavingReview ? 'Saving...' : 'Save Review'}
+                        </Button>
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Trade Grade</label>
+                        <div className="flex space-x-2">
+                          {['A+', 'A', 'B', 'C', 'D', 'F'].map(grade => (
+                            <button
+                              key={grade}
+                              onClick={() => setReview(prev => ({ ...prev, tradeGrade: grade as any }))}
+                              className={cn(
+                                "flex-1 py-2 rounded-xl text-xs font-bold border transition-all",
+                                review.tradeGrade === grade
+                                  ? "bg-primary text-primary-foreground border-primary shadow-lg shadow-primary/20"
+                                  : "bg-accent/30 border-border hover:border-primary/50"
+                              )}
+                            >
+                              {grade}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Behavior Flags</label>
+                        <div className="flex flex-wrap gap-2">
+                          {['FOMO', 'Revenge', 'Early Exit', 'Late Entry', 'Over-sized'].map(flag => (
+                            <button
+                              key={flag}
+                              onClick={() => handleFlagToggle(flag)}
+                              className={cn(
+                                "px-3 py-1.5 rounded-lg text-[10px] font-bold border transition-all",
+                                review.behaviorFlags?.includes(flag)
+                                  ? "bg-rose-500 text-white border-rose-500"
+                                  : "bg-accent/30 border-border hover:border-rose-500/30"
+                              )}
+                            >
+                              {flag}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Execution Quality ({review.executionQuality}%)</label>
+                          <input
+                            type="range" min="0" max="100" step="10"
+                            className="w-full accent-primary"
+                            value={review.executionQuality}
+                            onChange={(e) => setReview(prev => ({ ...prev, executionQuality: parseInt(e.target.value) }))}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Strategy Quality ({review.strategyQuality}%)</label>
+                          <input
+                            type="range" min="0" max="100" step="10"
+                            className="w-full accent-primary"
+                            value={review.strategyQuality}
+                            onChange={(e) => setReview(prev => ({ ...prev, strategyQuality: parseInt(e.target.value) }))}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-4">
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Entry ({review.entryQuality}%)</label>
+                          <input
+                            type="range" min="0" max="100" step="10"
+                            className="w-full accent-primary"
+                            value={review.entryQuality}
+                            onChange={(e) => setReview(prev => ({ ...prev, entryQuality: parseInt(e.target.value) }))}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Exit ({review.exitQuality}%)</label>
+                          <input
+                            type="range" min="0" max="100" step="10"
+                            className="w-full accent-primary"
+                            value={review.exitQuality}
+                            onChange={(e) => setReview(prev => ({ ...prev, exitQuality: parseInt(e.target.value) }))}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Timing ({review.timingScore}%)</label>
+                          <input
+                            type="range" min="0" max="100" step="10"
+                            className="w-full accent-primary"
+                            value={review.timingScore}
+                            onChange={(e) => setReview(prev => ({ ...prev, timingScore: parseInt(e.target.value) }))}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-4">
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Strategy</label>
+                          <Input
+                            className="h-10 text-xs"
+                            placeholder="e.g. ORB Breakout"
+                            value={review.strategy || ''}
+                            onChange={(e) => setReview(prev => ({ ...prev, strategy: e.target.value }))}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Trade Rating</label>
+                          <div className="flex items-center space-x-1 h-10">
+                            {[1, 2, 3, 4, 5].map(n => (
+                              <button
+                                key={n}
+                                onClick={() => setReview(prev => ({ ...prev, starRating: prev.starRating === n ? undefined : n }))}
+                                className={cn(
+                                  "text-lg leading-none transition-colors",
+                                  (review.starRating ?? 0) >= n ? "text-amber-400" : "text-border"
+                                )}
+                              >
+                                ★
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Initial Target</label>
+                          <Input
+                            type="number" className="h-10 text-xs" placeholder="--"
+                            value={review.initialTarget ?? ''}
+                            onChange={(e) => setReview(prev => ({ ...prev, initialTarget: e.target.value === '' ? undefined : parseFloat(e.target.value) }))}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Trade Risk</label>
+                          <Input
+                            type="number" className="h-10 text-xs" placeholder="--"
+                            value={review.tradeRisk ?? ''}
+                            onChange={(e) => setReview(prev => ({ ...prev, tradeRisk: e.target.value === '' ? undefined : parseFloat(e.target.value) }))}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Planned R</label>
+                          <Input
+                            type="number" className="h-10 text-xs" placeholder="--"
+                            value={review.plannedRMultiple ?? ''}
+                            onChange={(e) => setReview(prev => ({ ...prev, plannedRMultiple: e.target.value === '' ? undefined : parseFloat(e.target.value) }))}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Realized R</label>
+                          <Input
+                            type="number" className="h-10 text-xs" placeholder="--"
+                            value={review.realizedRMultiple ?? ''}
+                            onChange={(e) => setReview(prev => ({ ...prev, realizedRMultiple: e.target.value === '' ? undefined : parseFloat(e.target.value) }))}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-4">
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Best Exit Price</label>
+                          <Input
+                            type="number" className="h-10 text-xs" placeholder="--"
+                            value={review.bestExitPrice ?? ''}
+                            onChange={(e) => setReview(prev => ({ ...prev, bestExitPrice: e.target.value === '' ? undefined : parseFloat(e.target.value) }))}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Best Exit Time</label>
+                          <Input
+                            className="h-10 text-xs" placeholder="e.g. 14:20:00"
+                            value={review.bestExitTime || ''}
+                            onChange={(e) => setReview(prev => ({ ...prev, bestExitTime: e.target.value }))}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Tags</label>
+                        {user && (
+                          <TagCategoriesPicker
+                            categories={tagCategories}
+                            selectedTags={review.tags || []}
+                            onChange={(tags) => setReview(prev => ({ ...prev, tags }))}
+                            userId={user.uid}
+                          />
+                        )}
+                      </div>
+                      <div className="p-4 rounded-2xl bg-accent/10 border border-border/50 space-y-5">
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Verdict / Summary</label>
+                          <RichTextEditor
+                            key={`verdict-${selectedTrade.id}`}
+                            initialValue={review.verdict || ''}
+                            onChange={(html) => setReview(prev => ({ ...prev, verdict: html }))}
+                            placeholder="What happened in this trade?"
+                            minHeightClass="min-h-[96px]"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Lesson Learned</label>
+                          <RichTextEditor
+                            key={`lesson-${selectedTrade.id}`}
+                            initialValue={review.lessonLearned || ''}
+                            onChange={(html) => setReview(prev => ({ ...prev, lessonLearned: html }))}
+                            placeholder="What is the key takeaway?"
+                            minHeightClass="min-h-[96px]"
+                          />
+                        </div>
+                      </div>
+                    </section>
+                  )}
+
+                  {leftTab === 'executions' && (
+                    <section className="space-y-6">
+                      <h3 className="text-sm font-bold flex items-center space-x-2">
+                        <Clock className="w-4 h-4 text-indigo-500" />
+                        <span>Execution Timeline</span>
+                      </h3>
+                      <div className="space-y-4">
+                        {selectedTrade.fills.map((fill, idx) => (
+                          <div key={fill.order_id} className="flex items-start space-x-4">
+                            <div className="flex flex-col items-center">
+                              <div className={cn(
+                                "w-3 h-3 rounded-full border-2 border-background",
+                                fill.side === 'BUY' ? "bg-emerald-500" : "bg-rose-500"
+                              )} />
+                              {idx < selectedTrade.fills.length - 1 && <div className="w-px h-12 bg-border" />}
+                            </div>
+                            <div className="flex-1">
+                              <div className="flex items-center justify-between mb-1">
+                                <span className="text-xs font-bold">{fill.side} {fill.quantity} @ {fill.avg_price.toFixed(2)}</span>
+                                <span className="text-[10px] text-muted-foreground">{new Date(fill.fill_time).toLocaleTimeString()}</span>
+                              </div>
+                              <p className="text-[10px] text-muted-foreground">Execution ID: {fill.order_id}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </section>
                   )}
                 </div>
-              )}
+              </div>
+
+              {/* Right Pane: Chart / Notes / Running P&L */}
+              <div className="flex-1 flex flex-col overflow-hidden">
+                <div className="flex items-center gap-1 p-4 border-b border-border shrink-0">
+                  {([
+                    { id: 'chart', label: 'Chart', icon: BarChart3 },
+                    { id: 'notes', label: 'Notes', icon: MessageSquare },
+                    { id: 'pnl', label: 'Running P&L', icon: LineChart },
+                  ] as const).map(tab => {
+                    const Icon = tab.icon;
+                    return (
+                      <button
+                        key={tab.id}
+                        onClick={() => setRightTab(tab.id)}
+                        className={cn(
+                          "flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold transition-all",
+                          rightTab === tab.id ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent/40"
+                        )}
+                      >
+                        <Icon className="w-4 h-4" />
+                        <span>{tab.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="flex-1 overflow-hidden p-6">
+                  {rightTab === 'chart' && <TradeCandleChart trade={selectedTrade} />}
+                  {rightTab === 'pnl' && <RunningPnlChart trade={selectedTrade} />}
+                  {rightTab === 'notes' && (
+                    <div className="h-full flex flex-col items-center justify-center space-y-3 max-w-md mx-auto">
+                      {onAddJournal && (
+                        <Button
+                          variant="primary"
+                          className="w-full py-4 rounded-2xl flex items-center justify-center space-x-2"
+                          onClick={() => {
+                            onAddJournal(selectedTrade);
+                            setSelectedTrade(null);
+                          }}
+                        >
+                          <BookOpen className="w-4 h-4" />
+                          <span>Trade Note</span>
+                        </Button>
+                      )}
+                      {onAddDailyJournal && (
+                        <Button
+                          variant="outline"
+                          className="w-full py-4 rounded-2xl flex items-center justify-center space-x-2"
+                          onClick={() => {
+                            onAddDailyJournal(selectedTrade);
+                            setSelectedTrade(null);
+                          }}
+                        >
+                          <Calendar className="w-4 h-4" />
+                          <span>Daily Journal</span>
+                        </Button>
+                      )}
+                      {!onAddJournal && !onAddDailyJournal && (
+                        <p className="text-xs text-muted-foreground italic">Journal linking not available here.</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           </Card>
         </div>

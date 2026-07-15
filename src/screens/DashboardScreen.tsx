@@ -432,10 +432,10 @@ export default function DashboardScreen() {
       {/* Section 1: Key Metrics & Equity */}
       <section className="space-y-8">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-          <Scorecard 
-            label="Net P&L (Pts)" 
-            value={stats && !isNaN(stats.netPnl) ? `${stats.netPnl >= 0 ? '+' : ''}${stats.netPnl.toFixed(2)}` : "0.00"} 
-            trend={undefined} 
+          <Scorecard
+            label="Net P&L"
+            value={stats && !isNaN(stats.netPnlDollars) ? `${stats.netPnlDollars >= 0 ? '+' : ''}$${stats.netPnlDollars.toLocaleString()}` : "$0.00"}
+            trend={undefined}
             className="border-emerald-500/20 bg-emerald-500/5 hover:bg-emerald-500/10 transition-colors"
           />
           <Scorecard 
@@ -457,7 +457,7 @@ export default function DashboardScreen() {
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           <div className="lg:col-span-8">
-            <EquityCurveChart className="h-full" data={stats?.equityData} />
+            <EquityCurveChart className="h-full" data={stats?.equityDataDollars} />
           </div>
           <div className="lg:col-span-4 flex flex-col gap-6">
             <Scorecard 

@@ -12,8 +12,18 @@ import { TradovateService } from "./tradovate-service.js";
 import { reconstructTrades } from "./src/engine.js";
 import { IngestionEvent, Order, Trade, Session } from "./src/types.js";
 import { computeSessionFromTrades, determineSessionWindow } from './src/analytics.js';
+import { getRootSymbol } from './src/contractSpecs.js';
 
 import { getFirestore } from "firebase-admin/firestore";
+
+// Local dev/testing only — never touches production. Opt in with
+// USE_FIREBASE_EMULATOR=true (set by `npm run dev:emulated`), which points
+// the Admin SDK at the Firebase Local Emulator Suite's Firestore instance
+// instead of the real project, so local testing never reads/writes real data.
+if (process.env.USE_FIREBASE_EMULATOR === "true") {
+  process.env.FIRESTORE_EMULATOR_HOST = "127.0.0.1:8085";
+  console.warn("[server] Connected to LOCAL FIRESTORE EMULATOR — not production.");
+}
 
 // Initialize Firebase Admin
 if (admin.apps.length === 0) {
@@ -23,6 +33,21 @@ if (admin.apps.length === 0) {
 }
 
 const db = getFirestore(firebaseConfig.firestoreDatabaseId || "(default)");
+// CSV-sourced fills never set `fillId` (only live Tradovate API fills do —
+// see normalizeFill in tradovate-service.ts), so a reconstructed trade's
+// `fills` array routinely contains an undefined fillId. The Admin SDK
+// throws on writing that, so processEventsForConnectionInternal silently
+// marked the event `processingStatus: "failed"` while the upload endpoint
+// still reported `{status: "success"}` to the client — CSV imports appeared
+// to work but produced zero trades. `ignoreUndefinedProperties` alone
+// didn't cover this (nested array-element fields on this SDK version), so
+// also strip undefined recursively at the actual write site below.
+db.settings({ ignoreUndefinedProperties: true });
+
+function stripUndefined<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value));
+}
+
 const tradovate = new TradovateService();
 // Reads ANTHROPIC_API_KEY from the environment. Kept server-side only — never
 // sent to the client, unlike the old GEMINI_API_KEY which was baked into the
@@ -321,6 +346,75 @@ async function startServer() {
       }
       console.error("Mentor enhancement failed:", error);
       res.json(insight);
+    }
+  });
+
+  // Proxies Yahoo Finance's public (unauthenticated) chart endpoint for the
+  // futures root matching a trade's symbol, e.g. "MNQU6" -> "MNQ" -> "MNQ=F".
+  // Proxying server-side avoids the browser CORS restriction on Yahoo's API
+  // and keeps the User-Agent handling in one place. Data is real but delayed
+  // (Yahoo's free feed, not a paid real-time subscription) — fine for
+  // after-the-fact trade study, not for live trading decisions.
+  app.get("/api/market/candles", async (req, res) => {
+    const { symbol, start, end } = req.query as { symbol?: string; start?: string; end?: string };
+    if (!symbol || !start || !end) {
+      return res.status(400).json({ error: "symbol, start, and end are required" });
+    }
+
+    const startMs = Date.parse(start);
+    const endMs = Date.parse(end);
+    if (isNaN(startMs) || isNaN(endMs) || endMs <= startMs) {
+      return res.status(400).json({ error: "Invalid start/end" });
+    }
+
+    const root = getRootSymbol(symbol);
+    const yahooSymbol = `${root}=F`;
+    const durationSec = (endMs - startMs) / 1000;
+    const padSec = Math.min(30 * 60, Math.max(5 * 60, durationSec * 0.25));
+    const period1 = Math.floor(startMs / 1000 - padSec);
+    const period2 = Math.ceil(endMs / 1000 + padSec);
+    const spanSec = period2 - period1;
+    const daysAgo = (Date.now() / 1000 - period1) / 86400;
+
+    let interval = "1d";
+    if (daysAgo <= 30) {
+      interval = spanSec <= 2 * 3600 ? "1m" : spanSec <= 24 * 3600 ? "5m" : "15m";
+    } else if (daysAgo <= 60) {
+      interval = spanSec <= 5 * 24 * 3600 ? "15m" : "1h";
+    }
+
+    try {
+      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?interval=${interval}&period1=${period1}&period2=${period2}`;
+      const upstream = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" } });
+      if (!upstream.ok) {
+        return res.status(502).json({ error: `Market data provider returned ${upstream.status}` });
+      }
+      const data: any = await upstream.json();
+      const result = data?.chart?.result?.[0];
+      if (!result?.timestamp?.length) {
+        return res.status(404).json({ error: `No market data for ${yahooSymbol} in this window` });
+      }
+
+      const quote = result.indicators.quote[0];
+      const bars = result.timestamp
+        .map((t: number, i: number) => ({
+          time: t,
+          open: quote.open[i],
+          high: quote.high[i],
+          low: quote.low[i],
+          close: quote.close[i],
+          volume: quote.volume[i] ?? 0,
+        }))
+        .filter((b: any) => b.open != null && b.high != null && b.low != null && b.close != null);
+
+      if (bars.length === 0) {
+        return res.status(404).json({ error: `No usable market data for ${yahooSymbol} in this window` });
+      }
+
+      res.json({ symbol: root, yahooSymbol, interval, delayed: true, bars });
+    } catch (error) {
+      console.error("Market data fetch failed:", error);
+      res.status(502).json({ error: "Failed to fetch market data" });
     }
   });
 
@@ -633,7 +727,7 @@ async function startServer() {
             for (const trade of result.closedTrades) {
               const tradeRef = db.collection("trades").doc(trade.id);
               tradeBatch.set(tradeRef, {
-                ...trade,
+                ...stripUndefined(trade),
                 userId: conn.userId,
                 connectionId,
                 accountId,

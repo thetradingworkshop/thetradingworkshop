@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { cn } from '@/src/utils';
+import { cn, omitUndefined } from '@/src/utils';
 import { SectionHeader, Card, Button, Badge, Toast, Modal, Input } from '../components/Shared';
 import { Search, Plus, Calendar, Share2, MessageSquare, ExternalLink, RotateCcw, Trash2, BookOpen, Edit3, Link as LinkIcon, Zap, X, TrendingUp, TrendingDown, BrainCircuit, Save, Loader2 } from 'lucide-react';
 import { collection, query, where, onSnapshot, orderBy, addDoc, updateDoc, deleteDoc, doc } from 'firebase/firestore';
@@ -7,6 +7,7 @@ import { db } from '../firebase';
 import { useTrades } from '../context/TradeContext';
 import { useAuth } from '../context/AuthContext';
 import { JournalEntry } from '../types';
+import { RichTextEditor, isContentEmpty, stripHtml } from '../components/RichTextEditor';
 
 type JournalDraft = Partial<JournalEntry>;
 
@@ -104,7 +105,7 @@ export default function JournalScreen() {
 
   const saveDraft = async () => {
     if (!draft || !user) return;
-    if (!draft.title?.trim() || !draft.content?.trim()) {
+    if (!draft.title?.trim() || isContentEmpty(draft.content)) {
       setToast({ message: 'Title and content are required', type: 'error' });
       setTimeout(() => setToast(null), 3000);
       return;
@@ -114,10 +115,10 @@ export default function JournalScreen() {
       const now = new Date().toISOString();
       if (draft.id) {
         const { id, ...rest } = draft;
-        await updateDoc(doc(db, 'journals', id), { ...rest, updatedAt: now } as any);
+        await updateDoc(doc(db, 'journals', id), omitUndefined({ ...rest, updatedAt: now }) as any);
         setToast({ message: 'Journal updated', type: 'success' });
       } else {
-        const docRef = await addDoc(collection(db, 'journals'), {
+        const docRef = await addDoc(collection(db, 'journals'), omitUndefined({
           ...draft,
           userId: user.uid,
           sessionId: draft.sessionId || '',
@@ -125,7 +126,7 @@ export default function JournalScreen() {
           status: draft.status || 'private',
           createdAt: now,
           updatedAt: now,
-        });
+        }));
         setSelectedJournal({ id: docRef.id, ...draft, userId: user.uid, createdAt: now, updatedAt: now });
         setToast({ message: 'Journal created', type: 'success' });
       }
@@ -207,10 +208,15 @@ export default function JournalScreen() {
             </div>
 
             <div className="p-10 rounded-[40px] bg-white border border-slate-100 shadow-xl shadow-slate-200/50 space-y-8">
-              <div className="prose prose-slate max-w-none">
-                <p className="text-lg leading-relaxed text-slate-600 font-medium whitespace-pre-wrap">
-                  {selectedJournal.content || "No content provided."}
-                </p>
+              <div className="max-w-none">
+                {selectedJournal.content ? (
+                  <div
+                    className="rich-content text-lg leading-relaxed text-slate-600 font-medium"
+                    dangerouslySetInnerHTML={{ __html: selectedJournal.content }}
+                  />
+                ) : (
+                  <p className="text-lg leading-relaxed text-slate-600 font-medium">No content provided.</p>
+                )}
               </div>
 
               {selectedJournal.linkedTrades && selectedJournal.linkedTrades.length > 0 && (
@@ -355,7 +361,7 @@ export default function JournalScreen() {
                 "text-xs truncate",
                 selectedJournal?.id === j.id ? "text-primary-foreground/70" : "text-muted-foreground"
               )}>
-                {j.content ? j.content.slice(0, 80) : j.preview}
+                {j.content ? stripHtml(j.content).slice(0, 80) : j.preview}
               </p>
             </button>
           )) : (
@@ -416,10 +422,15 @@ export default function JournalScreen() {
                   </div>
                 </div>
 
-                <div className="prose prose-invert max-w-none">
-                  <p className="text-muted-foreground leading-relaxed whitespace-pre-wrap">
-                    {selectedJournal.content || "No detailed content provided."}
-                  </p>
+                <div className="max-w-none">
+                  {selectedJournal.content ? (
+                    <div
+                      className="rich-content text-muted-foreground leading-relaxed"
+                      dangerouslySetInnerHTML={{ __html: selectedJournal.content }}
+                    />
+                  ) : (
+                    <p className="text-muted-foreground leading-relaxed">No detailed content provided.</p>
+                  )}
                 </div>
 
                 {selectedJournal.tags && selectedJournal.tags.length > 0 && (
@@ -591,11 +602,12 @@ export default function JournalScreen() {
 
             <div className="space-y-2">
               <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Content</label>
-              <textarea
-                className="w-full h-32 p-4 bg-accent/30 border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
+              <RichTextEditor
+                key={draft.id || 'new'}
+                initialValue={draft.content || ''}
+                onChange={(html) => setDraft(prev => prev && ({ ...prev, content: html }))}
                 placeholder="Write your notes..."
-                value={draft.content || ''}
-                onChange={(e) => setDraft(prev => prev && ({ ...prev, content: e.target.value }))}
+                minHeightClass="min-h-[160px]"
               />
             </div>
 

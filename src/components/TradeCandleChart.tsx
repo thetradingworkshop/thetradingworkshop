@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   createChart,
   createSeriesMarkers,
@@ -129,14 +129,44 @@ function nearestBarTime(bars: Bar[], epochSeconds: number): number {
   return closest;
 }
 
+interface MarketData {
+  yahooSymbol: string;
+  interval: string;
+  bars: Bar[];
+}
+
 export function TradeCandleChart({ trade }: { trade: Trade }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const [market, setMarket] = useState<MarketData | null>(null);
+  const [isLoadingMarket, setIsLoadingMarket] = useState(true);
+
+  // Real, delayed NASDAQ/CME futures data for this trade's own time window
+  // (via Yahoo Finance, proxied server-side) — falls back to the fill-based
+  // or synthetic path below if the symbol/window isn't available upstream.
+  useEffect(() => {
+    let cancelled = false;
+    setIsLoadingMarket(true);
+    setMarket(null);
+
+    const params = new URLSearchParams({ symbol: trade.symbol, start: trade.entryTime, end: trade.exitTime });
+    fetch(`/api/market/candles?${params}`)
+      .then(r => (r.ok ? r.json() : Promise.reject(r)))
+      .then(data => {
+        if (cancelled || !Array.isArray(data.bars) || data.bars.length === 0) return;
+        setMarket({ yahooSymbol: data.yahooSymbol, interval: data.interval, bars: data.bars });
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setIsLoadingMarket(false); });
+
+    return () => { cancelled = true; };
+  }, [trade.id]);
+
   const realBars = buildBarsFromFills(trade);
-  const bars = realBars.length > 0 ? realBars : buildFallbackBars(trade);
-  const isReal = realBars.length > 0;
+  const bars = market?.bars ?? (realBars.length > 0 ? realBars : buildFallbackBars(trade));
+  const source: 'market' | 'fills' | 'synthetic' = market ? 'market' : realBars.length > 0 ? 'fills' : 'synthetic';
 
   useEffect(() => {
-    if (!containerRef.current || bars.length === 0) return;
+    if (!containerRef.current || bars.length === 0 || isLoadingMarket) return;
 
     const chart = createChart(containerRef.current, {
       layout: { background: { color: 'transparent' }, textColor: '#94a3b8' },
@@ -195,19 +225,24 @@ export function TradeCandleChart({ trade }: { trade: Trade }) {
     chart.timeScale().fitContent();
 
     return () => chart.remove();
-  }, [trade.id]);
+  }, [trade.id, isLoadingMarket, source]);
+
+  const caption =
+    source === 'market'
+      ? `Real ${market!.yahooSymbol} market data (${market!.interval} bars, delayed via Yahoo Finance) — for study, not live trading.`
+      : source === 'fills'
+      ? "Built from this trade's own execution fills — not a live market feed."
+      : "No live market feed is wired up — this path is approximated between this trade's real entry and exit.";
 
   return (
-    <div className="space-y-2">
-      <div className="text-[10px] text-muted-foreground">
-        {isReal
-          ? 'Built from this trade\'s own execution fills — not a live market feed.'
-          : "No live market feed is wired up — this path is approximated between this trade's real entry and exit."}
-      </div>
-      {bars.length === 0 ? (
-        <div className="flex h-[280px] items-center justify-center text-xs text-muted-foreground">No fill data to chart.</div>
+    <div className="flex h-full flex-col space-y-2">
+      <div className="text-[10px] text-muted-foreground shrink-0">{isLoadingMarket ? 'Loading market data...' : caption}</div>
+      {isLoadingMarket ? (
+        <div className="flex flex-1 items-center justify-center text-xs text-muted-foreground">Loading market data...</div>
+      ) : bars.length === 0 ? (
+        <div className="flex flex-1 items-center justify-center text-xs text-muted-foreground">No fill data to chart.</div>
       ) : (
-        <div ref={containerRef} className="h-[280px] w-full" />
+        <div ref={containerRef} className="w-full flex-1" />
       )}
     </div>
   );

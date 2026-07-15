@@ -21,7 +21,7 @@ import { Button } from './components/Shared';
 function AppContent() {
   const [activePage, setActivePage] = useState('dashboard');
   const [userRole, setUserRole] = useState<'Admin' | 'Mentor' | 'Student' | 'Viewer'>('Admin');
-  const { user, loading, login } = useAuth();
+  const { user, loading, login, loginAsTestUser } = useAuth();
 
   if (loading) {
     return (
@@ -39,13 +39,23 @@ function AppContent() {
             <h1 className="text-4xl font-bold tracking-tight text-white">Trading Workshop OS</h1>
             <p className="text-slate-400">Sign in to access your trading dashboard and analytics.</p>
           </div>
-          <Button 
-            className="w-full h-14 text-lg font-bold rounded-2xl shadow-lg shadow-indigo-500/20" 
+          <Button
+            className="w-full h-14 text-lg font-bold rounded-2xl shadow-lg shadow-indigo-500/20"
             icon={LogIn}
             onClick={login}
           >
             Sign in with Google
           </Button>
+          {import.meta.env.VITE_USE_FIREBASE_EMULATOR === 'true' && (
+            <Button
+              variant="outline"
+              className="w-full h-12 text-sm font-bold rounded-2xl"
+              icon={LogIn}
+              onClick={loginAsTestUser}
+            >
+              Sign in as Test User (Emulator)
+            </Button>
+          )}
         </div>
       </div>
     );
