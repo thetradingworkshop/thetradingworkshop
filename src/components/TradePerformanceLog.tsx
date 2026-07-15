@@ -143,6 +143,7 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
   });
   const [isSavingReview, setIsSavingReview] = useState(false);
   const [isLoadingReview, setIsLoadingReview] = useState(false);
+  const [isUpdatingRating, setIsUpdatingRating] = useState(false);
 
   const filteredTrades = useMemo(() => {
     return trades.filter(t =>
@@ -318,6 +319,37 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
     } finally {
       setIsSavingReview(false);
       setTimeout(() => setToast(null), 3000);
+    }
+  };
+
+  // Trade Rating is editable directly from the Stats tab (not just the
+  // Strategy tab's form) — writes immediately on click rather than waiting
+  // for "Save Review", to both `trades` (what Stats/Strategy read) and
+  // `trade_reviews` (so the Strategy tab's form doesn't load a stale value
+  // and clobber this back on its next Save Review).
+  const updateStarRating = async (rating: number) => {
+    if (!selectedTrade || !user) return;
+    setIsUpdatingRating(true);
+    try {
+      const tradeRef = doc(db, 'trades', selectedTrade.id);
+      await setDoc(tradeRef, { starRating: rating, updatedAt: serverTimestamp() }, { merge: true });
+
+      const reviewRef = doc(db, 'trade_reviews', selectedTrade.id);
+      await setDoc(reviewRef, {
+        starRating: rating,
+        tradeId: selectedTrade.id,
+        sessionId: selectedTrade.sessionId,
+        userId: user.uid,
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+
+      setReview(prev => ({ ...prev, starRating: rating }));
+    } catch (error) {
+      console.error('Error updating trade rating:', error);
+      setToast({ message: 'Failed to update rating', type: 'error' });
+      setTimeout(() => setToast(null), 3000);
+    } finally {
+      setIsUpdatingRating(false);
     }
   };
 
@@ -690,7 +722,18 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
                           <StatRow label="Trade Rating">
                             <div className="flex items-center gap-0.5">
                               {[1, 2, 3, 4, 5].map(n => (
-                                <span key={n} className={cn("text-base leading-none", (selectedTrade.starRating ?? 0) >= n ? "text-amber-400" : "text-border")}>★</span>
+                                <button
+                                  key={n}
+                                  type="button"
+                                  disabled={isUpdatingRating}
+                                  onClick={() => updateStarRating(n)}
+                                  className={cn(
+                                    "text-base leading-none transition-colors disabled:opacity-50",
+                                    (selectedTrade.starRating ?? 0) >= n ? "text-amber-400" : "text-border hover:text-amber-400/50"
+                                  )}
+                                >
+                                  ★
+                                </button>
                               ))}
                             </div>
                           </StatRow>
