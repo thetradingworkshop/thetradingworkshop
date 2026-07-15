@@ -636,9 +636,6 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
                               </span>
                             </StatRow>
                           )}
-                          {typeof selectedTrade.adjustedCost === 'number' && (
-                            <StatRow label="Notional Exposure">${selectedTrade.adjustedCost.toLocaleString()}</StatRow>
-                          )}
                           <StatRow label="Strategy">
                             {selectedTrade.strategy || <span className="text-muted-foreground font-medium">Not set</span>}
                           </StatRow>
