@@ -53,7 +53,7 @@ interface TradePerformanceLogProps {
 // returns null unless real market bars covering the trade window are
 // available. Bar-level (not tick-level) granularity slightly understates the
 // true extremes, same caveat as the candlestick chart itself.
-function computeExcursion(trade: Trade, market: ReturnType<typeof useMarketBars>['market']): { maeDollars: number; mfeDollars: number } | null {
+function computeExcursion(trade: Trade, market: ReturnType<typeof useMarketBars>['market']): { maeDollars: number; mfeDollars: number; bestExitPrice: number } | null {
   if (!market || market.bars.length === 0) return null;
   const entryEpoch = Math.floor(new Date(trade.entryTime).getTime() / 1000);
   const exitEpoch = Math.floor(new Date(trade.exitTime).getTime() / 1000);
@@ -70,6 +70,9 @@ function computeExcursion(trade: Trade, market: ReturnType<typeof useMarketBars>
   return {
     maeDollars: Number((adversePriceMove * dollarsPerPoint).toFixed(2)),
     mfeDollars: Number((favorablePriceMove * dollarsPerPoint).toFixed(2)),
+    // The price a perfect exit would have captured — the high for a long,
+    // the low for a short — i.e. the price behind the MFE figure above.
+    bestExitPrice: isLong ? maxHigh : minLow,
   };
 }
 
@@ -168,8 +171,6 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
     initialTarget: undefined,
     tradeRisk: undefined,
     plannedRMultiple: undefined,
-    realizedRMultiple: undefined,
-    bestExitPrice: undefined,
     bestExitTime: ''
   });
   const [isSavingReview, setIsSavingReview] = useState(false);
@@ -278,8 +279,6 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
             initialTarget: selectedTrade.initialTarget,
             tradeRisk: selectedTrade.tradeRisk,
             plannedRMultiple: selectedTrade.plannedRMultiple,
-            realizedRMultiple: selectedTrade.realizedRMultiple,
-            bestExitPrice: selectedTrade.bestExitPrice,
             bestExitTime: selectedTrade.bestExitTime || ''
           });
         }
@@ -337,8 +336,6 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
         initialTarget: review.initialTarget,
         tradeRisk: review.tradeRisk,
         plannedRMultiple: review.plannedRMultiple,
-        realizedRMultiple: review.realizedRMultiple,
-        bestExitPrice: review.bestExitPrice,
         bestExitTime: review.bestExitTime,
         updatedAt: serverTimestamp()
       }), { merge: true });
@@ -798,18 +795,22 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
                             defaultValue={selectedTrade.plannedRMultiple?.toString() ?? ''}
                             onCommit={(value) => updateTradeFields({ plannedRMultiple: value === '' ? undefined : parseFloat(value) })}
                           />
-                          <EditableStatRow
-                            key={`realizedR-${selectedTrade.id}`}
-                            label="Realized R Multiple" type="number"
-                            defaultValue={selectedTrade.realizedRMultiple?.toString() ?? ''}
-                            onCommit={(value) => updateTradeFields({ realizedRMultiple: value === '' ? undefined : parseFloat(value) })}
-                          />
-                          <EditableStatRow
-                            key={`bestExitPrice-${selectedTrade.id}`}
-                            label="Best Exit Price" type="number"
-                            defaultValue={selectedTrade.bestExitPrice?.toString() ?? ''}
-                            onCommit={(value) => updateTradeFields({ bestExitPrice: value === '' ? undefined : parseFloat(value) })}
-                          />
+                          <StatRow label="Realized R Multiple">
+                            {(() => {
+                              if (typeof selectedTrade.tradeRisk !== 'number') return '--';
+                              const riskPerContract = Math.abs(selectedTrade.avgEntryPrice - selectedTrade.tradeRisk);
+                              if (riskPerContract === 0) return '--';
+                              const realizedR = selectedTrade.pnlPoints / riskPerContract;
+                              return (
+                                <span className={realizedR >= 0 ? 'text-emerald-500' : 'text-rose-500'}>
+                                  {realizedR >= 0 ? '+' : ''}{realizedR.toFixed(2)}R
+                                </span>
+                              );
+                            })()}
+                          </StatRow>
+                          <StatRow label="Best Exit Price">
+                            {excursion ? excursion.bestExitPrice.toFixed(2) : 'Not available'}
+                          </StatRow>
                           <EditableStatRow
                             key={`bestExitTime-${selectedTrade.id}`}
                             label="Best Exit Time"
