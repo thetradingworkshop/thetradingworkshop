@@ -720,7 +720,7 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
 
                         <div className="px-4 rounded-2xl bg-accent/10 border border-border/50">
                           <StatRow label="Trade Rating">
-                            <div className="flex items-center gap-0.5">
+                            <div className="flex items-center gap-1">
                               {[1, 2, 3, 4, 5].map(n => (
                                 <button
                                   key={n}
@@ -728,7 +728,7 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
                                   disabled={isUpdatingRating}
                                   onClick={() => updateStarRating(n)}
                                   className={cn(
-                                    "text-base leading-none transition-colors disabled:opacity-50",
+                                    "text-2xl leading-none transition-colors disabled:opacity-50",
                                     (selectedTrade.starRating ?? 0) >= n ? "text-amber-400" : "text-border hover:text-amber-400/50"
                                   )}
                                 >
