@@ -27,7 +27,7 @@ import {
   LineChart
 } from 'lucide-react';
 import { Trade, TradeReview, TagCategory } from '../types';
-import { doc, getDoc, setDoc, serverTimestamp, collection, query, where, onSnapshot } from 'firebase/firestore';
+import { doc, getDoc, setDoc, serverTimestamp, collection, query, where, onSnapshot, deleteField } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../context/AuthContext';
 import { useTrades } from '../context/TradeContext';
@@ -78,6 +78,37 @@ function StatRow({ label, children }: { label: string; children: React.ReactNode
     <div className="flex items-center justify-between py-2.5 border-b border-border/40 last:border-b-0">
       <span className="text-xs font-medium text-muted-foreground">{label}</span>
       <span className="text-sm font-bold font-mono text-right">{children}</span>
+    </div>
+  );
+}
+
+// Uncontrolled by design (defaultValue, not value) — commits on blur rather
+// than every keystroke. Pass a `key` from the caller (e.g. per trade id) to
+// reset it when switching trades, same pattern as RichTextEditor.
+function EditableStatRow({
+  label,
+  defaultValue,
+  onCommit,
+  type = 'text',
+  placeholder = '--',
+}: {
+  label: string;
+  defaultValue: string;
+  onCommit: (value: string) => void;
+  type?: 'text' | 'number';
+  placeholder?: string;
+}) {
+  return (
+    <div className="flex items-center justify-between py-2.5 border-b border-border/40 last:border-b-0">
+      <span className="text-xs font-medium text-muted-foreground">{label}</span>
+      <input
+        type={type}
+        defaultValue={defaultValue}
+        placeholder={placeholder}
+        onBlur={(e) => onCommit(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+        className="text-sm font-bold font-mono text-right bg-transparent w-32 outline-none border-b border-transparent hover:border-border focus:border-primary transition-colors"
+      />
     </div>
   );
 }
@@ -322,35 +353,43 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
     }
   };
 
-  // Trade Rating is editable directly from the Stats tab (not just the
-  // Strategy tab's form) — writes immediately on click rather than waiting
-  // for "Save Review", to both `trades` (what Stats/Strategy read) and
+  // Plan/rating fields are editable directly from the Stats tab (not just the
+  // Strategy tab's form) — writes immediately rather than waiting for "Save
+  // Review", to both `trades` (what Stats/Strategy both read) and
   // `trade_reviews` (so the Strategy tab's form doesn't load a stale value
-  // and clobber this back on its next Save Review).
-  const updateStarRating = async (rating: number) => {
+  // and clobber this back on its next Save Review). A value of undefined/''
+  // deletes the field rather than leaving a stale one behind.
+  const updateTradeFields = async (fields: Record<string, any>) => {
     if (!selectedTrade || !user) return;
-    setIsUpdatingRating(true);
+    const cleaned: Record<string, any> = {};
+    for (const [key, value] of Object.entries(fields)) {
+      cleaned[key] = (value === undefined || value === '') ? deleteField() : value;
+    }
     try {
       const tradeRef = doc(db, 'trades', selectedTrade.id);
-      await setDoc(tradeRef, { starRating: rating, updatedAt: serverTimestamp() }, { merge: true });
+      await setDoc(tradeRef, { ...cleaned, updatedAt: serverTimestamp() }, { merge: true });
 
       const reviewRef = doc(db, 'trade_reviews', selectedTrade.id);
       await setDoc(reviewRef, {
-        starRating: rating,
+        ...cleaned,
         tradeId: selectedTrade.id,
         sessionId: selectedTrade.sessionId,
         userId: user.uid,
         updatedAt: new Date().toISOString()
       }, { merge: true });
 
-      setReview(prev => ({ ...prev, starRating: rating }));
+      setReview(prev => ({ ...prev, ...fields }));
     } catch (error) {
-      console.error('Error updating trade rating:', error);
-      setToast({ message: 'Failed to update rating', type: 'error' });
+      console.error('Error saving field:', error);
+      setToast({ message: 'Failed to save', type: 'error' });
       setTimeout(() => setToast(null), 3000);
-    } finally {
-      setIsUpdatingRating(false);
     }
+  };
+
+  const updateStarRating = async (rating: number) => {
+    setIsUpdatingRating(true);
+    await updateTradeFields({ starRating: rating });
+    setIsUpdatingRating(false);
   };
 
   const handleFlagToggle = (flag: string) => {
@@ -668,9 +707,13 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
                               </span>
                             </StatRow>
                           )}
-                          <StatRow label="Strategy">
-                            {selectedTrade.strategy || <span className="text-muted-foreground font-medium">Not set</span>}
-                          </StatRow>
+                          <EditableStatRow
+                            key={`strategy-${selectedTrade.id}`}
+                            label="Strategy"
+                            defaultValue={selectedTrade.strategy || ''}
+                            placeholder="e.g. ORB Breakout"
+                            onCommit={(value) => updateTradeFields({ strategy: value })}
+                          />
                         </div>
 
                         {typeof selectedTrade.executionQuality === 'number' && (() => {
@@ -737,12 +780,43 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
                               ))}
                             </div>
                           </StatRow>
-                          <StatRow label="Initial Target">{selectedTrade.initialTarget ?? '--'}</StatRow>
-                          <StatRow label="Trade Risk">{selectedTrade.tradeRisk ?? '--'}</StatRow>
-                          <StatRow label="Planned R Multiple">{selectedTrade.plannedRMultiple ?? '--'}</StatRow>
-                          <StatRow label="Realized R Multiple">{selectedTrade.realizedRMultiple ?? '--'}</StatRow>
-                          <StatRow label="Best Exit Price">{selectedTrade.bestExitPrice ?? '--'}</StatRow>
-                          <StatRow label="Best Exit Time">{selectedTrade.bestExitTime || '--'}</StatRow>
+                          <EditableStatRow
+                            key={`target-${selectedTrade.id}`}
+                            label="Initial Target" type="number"
+                            defaultValue={selectedTrade.initialTarget?.toString() ?? ''}
+                            onCommit={(value) => updateTradeFields({ initialTarget: value === '' ? undefined : parseFloat(value) })}
+                          />
+                          <EditableStatRow
+                            key={`risk-${selectedTrade.id}`}
+                            label="Trade Risk" type="number"
+                            defaultValue={selectedTrade.tradeRisk?.toString() ?? ''}
+                            onCommit={(value) => updateTradeFields({ tradeRisk: value === '' ? undefined : parseFloat(value) })}
+                          />
+                          <EditableStatRow
+                            key={`plannedR-${selectedTrade.id}`}
+                            label="Planned R Multiple" type="number"
+                            defaultValue={selectedTrade.plannedRMultiple?.toString() ?? ''}
+                            onCommit={(value) => updateTradeFields({ plannedRMultiple: value === '' ? undefined : parseFloat(value) })}
+                          />
+                          <EditableStatRow
+                            key={`realizedR-${selectedTrade.id}`}
+                            label="Realized R Multiple" type="number"
+                            defaultValue={selectedTrade.realizedRMultiple?.toString() ?? ''}
+                            onCommit={(value) => updateTradeFields({ realizedRMultiple: value === '' ? undefined : parseFloat(value) })}
+                          />
+                          <EditableStatRow
+                            key={`bestExitPrice-${selectedTrade.id}`}
+                            label="Best Exit Price" type="number"
+                            defaultValue={selectedTrade.bestExitPrice?.toString() ?? ''}
+                            onCommit={(value) => updateTradeFields({ bestExitPrice: value === '' ? undefined : parseFloat(value) })}
+                          />
+                          <EditableStatRow
+                            key={`bestExitTime-${selectedTrade.id}`}
+                            label="Best Exit Time"
+                            defaultValue={selectedTrade.bestExitTime || ''}
+                            placeholder="e.g. 14:20:00"
+                            onCommit={(value) => updateTradeFields({ bestExitTime: value })}
+                          />
                         </div>
                       </section>
                     </>
@@ -849,88 +923,9 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-1 gap-4">
-                        <div className="space-y-2">
-                          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Strategy</label>
-                          <Input
-                            className="h-10 text-xs"
-                            placeholder="e.g. ORB Breakout"
-                            value={review.strategy || ''}
-                            onChange={(e) => setReview(prev => ({ ...prev, strategy: e.target.value }))}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Trade Rating</label>
-                          <div className="flex items-center space-x-1 h-10">
-                            {[1, 2, 3, 4, 5].map(n => (
-                              <button
-                                key={n}
-                                onClick={() => setReview(prev => ({ ...prev, starRating: prev.starRating === n ? undefined : n }))}
-                                className={cn(
-                                  "text-lg leading-none transition-colors",
-                                  (review.starRating ?? 0) >= n ? "text-amber-400" : "text-border"
-                                )}
-                              >
-                                ★
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Initial Target</label>
-                          <Input
-                            type="number" className="h-10 text-xs" placeholder="--"
-                            value={review.initialTarget ?? ''}
-                            onChange={(e) => setReview(prev => ({ ...prev, initialTarget: e.target.value === '' ? undefined : parseFloat(e.target.value) }))}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Trade Risk</label>
-                          <Input
-                            type="number" className="h-10 text-xs" placeholder="--"
-                            value={review.tradeRisk ?? ''}
-                            onChange={(e) => setReview(prev => ({ ...prev, tradeRisk: e.target.value === '' ? undefined : parseFloat(e.target.value) }))}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Planned R</label>
-                          <Input
-                            type="number" className="h-10 text-xs" placeholder="--"
-                            value={review.plannedRMultiple ?? ''}
-                            onChange={(e) => setReview(prev => ({ ...prev, plannedRMultiple: e.target.value === '' ? undefined : parseFloat(e.target.value) }))}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Realized R</label>
-                          <Input
-                            type="number" className="h-10 text-xs" placeholder="--"
-                            value={review.realizedRMultiple ?? ''}
-                            onChange={(e) => setReview(prev => ({ ...prev, realizedRMultiple: e.target.value === '' ? undefined : parseFloat(e.target.value) }))}
-                          />
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-1 gap-4">
-                        <div className="space-y-2">
-                          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Best Exit Price</label>
-                          <Input
-                            type="number" className="h-10 text-xs" placeholder="--"
-                            value={review.bestExitPrice ?? ''}
-                            onChange={(e) => setReview(prev => ({ ...prev, bestExitPrice: e.target.value === '' ? undefined : parseFloat(e.target.value) }))}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Best Exit Time</label>
-                          <Input
-                            className="h-10 text-xs" placeholder="e.g. 14:20:00"
-                            value={review.bestExitTime || ''}
-                            onChange={(e) => setReview(prev => ({ ...prev, bestExitTime: e.target.value }))}
-                          />
-                        </div>
-                      </div>
+                      <p className="text-[10px] text-muted-foreground -mt-2">
+                        Strategy, Trade Rating, Initial Target/Risk, R-multiples, and Best Exit are edited directly on the Stats tab.
+                      </p>
 
                       <div className="space-y-2">
                         <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Tags</label>
