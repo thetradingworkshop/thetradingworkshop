@@ -142,17 +142,6 @@ service cloud.firestore {
              (!('modelValidation' in data) || isValidModelValidation(data.modelValidation));
     }
 
-    function isValidTradingAccount(data) {
-      return data.userId is string &&
-             data.name is string &&
-             data.accountType in ['Evaluation', 'Funded', 'Live Funded', 'Private Capital'] &&
-             data.initialCost is number &&
-             data.activationFees is number &&
-             data.evaluationTarget is number &&
-             (!('accountSize' in data) || data.accountSize is number) &&
-             (!('drawdown' in data) || data.drawdown is number);
-    }
-
     function isValidTradeIntent(data) {
       return data.userId is string &&
              data.symbol is string &&
@@ -251,14 +240,6 @@ service cloud.firestore {
       allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid && isValidTradeIntent(request.resource.data);
       allow update: if isAuthenticated() && (isDocOwner() || isAdmin()) && isValidTradeIntent(request.resource.data);
       allow delete: if isAuthenticated() && (isDocOwner() || isAdmin());
-    }
-
-    // Trading Accounts
-    match /trading_accounts/{accountId} {
-      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid && isValidTradingAccount(request.resource.data);
-      allow update: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin()) && isValidTradingAccount(request.resource.data);
-      allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
     }
 
     // Journals

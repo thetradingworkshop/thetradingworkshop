@@ -33,17 +33,8 @@ export interface BrokerConnection {
   logs?: any[];
 }
 
-export interface BrokerAccount {
-  id: string;
-  connectionId: string;
-  externalAccountId: string;
-  displayName: string;
-  status: 'active' | 'inactive';
-  selectedForSync: boolean;
-}
-
-// Fixed trading-account types a user picks when creating a trading account
-// in Settings > Accounts, for tracking prop-firm/evaluation account economics.
+// Fixed trading-account types a user picks when setting an account's
+// economics in Settings > Accounts (same accounts used to tag imports).
 export const TRADING_ACCOUNT_TYPES = ['Evaluation', 'Funded', 'Live Funded', 'Private Capital'] as const;
 export type TradingAccountType = typeof TRADING_ACCOUNT_TYPES[number];
 
@@ -55,19 +46,26 @@ export const ACCOUNT_SIZE_PRESETS: Record<number, { evaluationTarget: number; dr
   100000: { evaluationTarget: 6000 },
 };
 
-export interface TradingAccount {
+export interface BrokerAccount {
   id: string;
-  userId: string;
-  name: string;
-  accountType: TradingAccountType;
-  initialCost: number; // USD
-  activationFees: number; // USD, defaults to 0
+  connectionId: string;
+  externalAccountId: string;
+  displayName: string;
+  status: 'active' | 'inactive';
+  selectedForSync: boolean;
+
+  // Trading-account economics, set via Settings > Accounts. Optional since
+  // accounts created directly from Import Orders / Broker Connections don't
+  // set these — they can be filled in later from Settings.
+  accountType?: TradingAccountType;
+  initialCost?: number; // USD
+  activationFees?: number; // USD
   accountSize?: number; // 25000 | 50000 | 100000, undefined when "Custom"
-  evaluationTarget: number; // USD profit target
+  evaluationTarget?: number; // USD profit target
   // Only applicable to Evaluation and Funded account types.
   drawdown?: number; // USD
-  createdAt: string;
-  updatedAt: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface IngestionError {

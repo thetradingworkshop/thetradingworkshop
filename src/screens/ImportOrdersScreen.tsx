@@ -6,7 +6,7 @@ import { Order, Trade, ReconstructionStep, BrokerAccount } from '../types';
 import { cn } from '@/src/utils';
 import { useTrades } from '../context/TradeContext';
 import { useAuth } from '../context/AuthContext';
-import { collection, query, where, onSnapshot, getDocs } from 'firebase/firestore';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
 
 interface ImportAccountOption {
@@ -33,25 +33,58 @@ export default function ImportOrdersScreen({ setActivePage }: { setActivePage: (
 
   // Every account the user has created (across all their broker connections),
   // flattened for the picker below. Required before import is allowed so
-  // every trade gets tagged with which account it came from.
+  // every trade gets tagged with which account it came from. Subscribed live
+  // at both levels so an account created elsewhere (e.g. Settings > Accounts)
+  // while this screen is already mounted shows up immediately.
   useEffect(() => {
     if (!user) return;
-    const unsubscribe = onSnapshot(
+
+    const optionsByConnection = new Map<string, ImportAccountOption[]>();
+    const accountUnsubscribes = new Map<string, () => void>();
+
+    const rebuild = () => {
+      setAccountOptions(Array.from(optionsByConnection.values()).flat());
+    };
+
+    const unsubscribeConnections = onSnapshot(
       query(collection(db, 'broker_connections'), where('userId', '==', user.uid)),
-      async (snapshot) => {
-        const options: ImportAccountOption[] = [];
-        for (const connDoc of snapshot.docs) {
-          const brokerName = (connDoc.data() as any).brokerName || 'Unknown';
-          const accountsSnap = await getDocs(collection(db, 'broker_connections', connDoc.id, 'accounts'));
-          accountsSnap.docs.forEach(accDoc => {
-            const acc = accDoc.data() as BrokerAccount;
-            options.push({ connectionId: connDoc.id, accountId: accDoc.id, brokerName, accountName: acc.displayName });
-          });
+      (snapshot) => {
+        const seenIds = new Set(snapshot.docs.map(d => d.id));
+        for (const [connId, unsub] of accountUnsubscribes.entries()) {
+          if (!seenIds.has(connId)) {
+            unsub();
+            accountUnsubscribes.delete(connId);
+            optionsByConnection.delete(connId);
+          }
         }
-        setAccountOptions(options);
+
+        snapshot.docs.forEach(connDoc => {
+          const brokerName = (connDoc.data() as any).brokerName || 'Unknown';
+          if (!accountUnsubscribes.has(connDoc.id)) {
+            const unsub = onSnapshot(
+              collection(db, 'broker_connections', connDoc.id, 'accounts'),
+              (accountsSnap) => {
+                optionsByConnection.set(connDoc.id, accountsSnap.docs.map(accDoc => ({
+                  connectionId: connDoc.id,
+                  accountId: accDoc.id,
+                  brokerName,
+                  accountName: (accDoc.data() as BrokerAccount).displayName,
+                })));
+                rebuild();
+              }
+            );
+            accountUnsubscribes.set(connDoc.id, unsub);
+          }
+        });
+
+        rebuild();
       }
     );
-    return () => unsubscribe();
+
+    return () => {
+      unsubscribeConnections();
+      accountUnsubscribes.forEach(unsub => unsub());
+    };
   }, [user]);
 
   const selectedAccount = accountOptions.find(a => `${a.connectionId}::${a.accountId}` === selectedAccountKey);
