@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
 import { SectionHeader, Card, Button, Badge, Toast } from '../components/Shared';
-import { Settings as SettingsIcon, Bell, Shield, User, Database, Globe } from 'lucide-react';
+import { Settings as SettingsIcon, Bell, Shield, User, Database, Globe, Wallet } from 'lucide-react';
 import { useTrades } from '../context/TradeContext';
+import TradingAccountsSettings from './TradingAccountsSettings';
 
 export default function SettingsScreen() {
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [activeTab, setActiveTab] = useState<'trading-parameters' | 'accounts'>('trading-parameters');
   const { clearTrades } = useTrades();
 
   const handleAction = (action: string) => {
@@ -22,21 +24,28 @@ export default function SettingsScreen() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         {/* Left: Navigation */}
         <div className="lg:col-span-3 space-y-2">
-          <button 
+          <button
             onClick={() => handleAction('Profile Settings')}
-            className="w-full flex items-center space-x-3 px-4 py-3 rounded-xl bg-primary text-primary-foreground font-medium"
+            className="w-full flex items-center space-x-3 px-4 py-3 rounded-xl hover:bg-accent transition-colors text-muted-foreground"
           >
             <User className="w-4 h-4" />
             <span>Profile</span>
           </button>
-          <button 
-            onClick={() => handleAction('Trading Parameters Settings')}
-            className="w-full flex items-center space-x-3 px-4 py-3 rounded-xl hover:bg-accent transition-colors text-muted-foreground"
+          <button
+            onClick={() => setActiveTab('trading-parameters')}
+            className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-colors ${activeTab === 'trading-parameters' ? 'bg-primary text-primary-foreground font-medium' : 'hover:bg-accent text-muted-foreground'}`}
           >
             <Database className="w-4 h-4" />
             <span>Trading Parameters</span>
           </button>
-          <button 
+          <button
+            onClick={() => setActiveTab('accounts')}
+            className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-colors ${activeTab === 'accounts' ? 'bg-primary text-primary-foreground font-medium' : 'hover:bg-accent text-muted-foreground'}`}
+          >
+            <Wallet className="w-4 h-4" />
+            <span>Accounts</span>
+          </button>
+          <button
             onClick={() => handleAction('Notification Settings')}
             className="w-full flex items-center space-x-3 px-4 py-3 rounded-xl hover:bg-accent transition-colors text-muted-foreground"
           >
@@ -54,6 +63,9 @@ export default function SettingsScreen() {
 
         {/* Right: Content */}
         <div className="lg:col-span-9 space-y-6">
+          {activeTab === 'accounts' && <TradingAccountsSettings />}
+
+          {activeTab === 'trading-parameters' && (
           <Card className="p-8">
             <h3 className="text-lg font-bold mb-6">Trading Parameters</h3>
             {/* ... existing fields ... */}
@@ -94,7 +106,9 @@ export default function SettingsScreen() {
               <Button variant="primary" onClick={() => handleAction('Save Changes')}>Save Changes</Button>
             </div>
           </Card>
+          )}
 
+          {activeTab === 'trading-parameters' && (
           <Card className="p-8 border-rose-500/20 bg-rose-500/5">
             <h3 className="text-lg font-bold mb-6 text-rose-500">Danger Zone</h3>
             <div className="flex items-center justify-between p-6 bg-rose-500/10 rounded-2xl border border-rose-500/20">
@@ -102,8 +116,8 @@ export default function SettingsScreen() {
                 <h4 className="font-bold text-rose-500">Clear All Trade Data</h4>
                 <p className="text-sm text-muted-foreground">This will permanently delete all your imported trades from the database.</p>
               </div>
-              <Button 
-                variant="ghost" 
+              <Button
+                variant="ghost"
                 className="bg-rose-500 text-white hover:bg-rose-600"
                 onClick={() => {
                   if (window.confirm("Are you absolutely sure you want to delete ALL your trade data? This cannot be undone.")) {
@@ -117,6 +131,7 @@ export default function SettingsScreen() {
               </Button>
             </div>
           </Card>
+          )}
         </div>
       </div>
 

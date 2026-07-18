@@ -42,6 +42,34 @@ export interface BrokerAccount {
   selectedForSync: boolean;
 }
 
+// Fixed trading-account types a user picks when creating a trading account
+// in Settings > Accounts, for tracking prop-firm/evaluation account economics.
+export const TRADING_ACCOUNT_TYPES = ['Evaluation', 'Funded', 'Live Funded', 'Private Capital'] as const;
+export type TradingAccountType = typeof TRADING_ACCOUNT_TYPES[number];
+
+// Preset evaluation target / drawdown amounts keyed by account size (USD).
+// Selecting a size in the UI pre-fills these fields; both remain editable.
+export const ACCOUNT_SIZE_PRESETS: Record<number, { evaluationTarget: number; drawdown?: number }> = {
+  25000: { evaluationTarget: 1500, drawdown: 1500 },
+  50000: { evaluationTarget: 3000, drawdown: 200 },
+  100000: { evaluationTarget: 6000 },
+};
+
+export interface TradingAccount {
+  id: string;
+  userId: string;
+  name: string;
+  accountType: TradingAccountType;
+  initialCost: number; // USD
+  activationFees: number; // USD, defaults to 0
+  accountSize?: number; // 25000 | 50000 | 100000, undefined when "Custom"
+  evaluationTarget: number; // USD profit target
+  // Only applicable to Evaluation and Funded account types.
+  drawdown?: number; // USD
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface IngestionError {
   id: string;
   userId: string;
