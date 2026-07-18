@@ -1,11 +1,20 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { SectionHeader, Card, Button, Badge } from '../components/Shared';
-import { Upload, FileText, CheckCircle2, AlertCircle, ArrowRight, Info, ChevronDown, ChevronUp, Terminal, Loader2, Activity } from 'lucide-react';
+import { Upload, FileText, CheckCircle2, AlertCircle, ArrowRight, Info, ChevronDown, ChevronUp, Terminal, Loader2, Activity, Wallet } from 'lucide-react';
 import { parseTradovateCsv, reconstructTrades, ParseResult } from '../engine';
-import { Order, Trade, ReconstructionStep } from '../types';
+import { Order, Trade, ReconstructionStep, BrokerAccount } from '../types';
 import { cn } from '@/src/utils';
 import { useTrades } from '../context/TradeContext';
 import { useAuth } from '../context/AuthContext';
+import { collection, query, where, onSnapshot, getDocs } from 'firebase/firestore';
+import { db } from '../firebase';
+
+interface ImportAccountOption {
+  connectionId: string;
+  accountId: string;
+  brokerName: string;
+  accountName: string;
+}
 
 export default function ImportOrdersScreen({ setActivePage }: { setActivePage: (page: string) => void }) {
   const [isDragging, setIsDragging] = useState(false);
@@ -18,8 +27,37 @@ export default function ImportOrdersScreen({ setActivePage }: { setActivePage: (
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { addTrades, trades } = useTrades();
   const { user } = useAuth();
-  
+
+  const [accountOptions, setAccountOptions] = useState<ImportAccountOption[]>([]);
+  const [selectedAccountKey, setSelectedAccountKey] = useState<string>('');
+
+  // Every account the user has created (across all their broker connections),
+  // flattened for the picker below. Required before import is allowed so
+  // every trade gets tagged with which account it came from.
+  useEffect(() => {
+    if (!user) return;
+    const unsubscribe = onSnapshot(
+      query(collection(db, 'broker_connections'), where('userId', '==', user.uid)),
+      async (snapshot) => {
+        const options: ImportAccountOption[] = [];
+        for (const connDoc of snapshot.docs) {
+          const brokerName = (connDoc.data() as any).brokerName || 'Unknown';
+          const accountsSnap = await getDocs(collection(db, 'broker_connections', connDoc.id, 'accounts'));
+          accountsSnap.docs.forEach(accDoc => {
+            const acc = accDoc.data() as BrokerAccount;
+            options.push({ connectionId: connDoc.id, accountId: accDoc.id, brokerName, accountName: acc.displayName });
+          });
+        }
+        setAccountOptions(options);
+      }
+    );
+    return () => unsubscribe();
+  }, [user]);
+
+  const selectedAccount = accountOptions.find(a => `${a.connectionId}::${a.accountId}` === selectedAccountKey);
+
   const handleFile = (file: File) => {
+    if (!selectedAccount) return;
     setError(null);
     setSkippedCount(null);
     const reader = new FileReader();
@@ -27,14 +65,18 @@ export default function ImportOrdersScreen({ setActivePage }: { setActivePage: (
       const text = e.target?.result as string;
       const result = parseTradovateCsv(text, user?.uid || 'manual-user');
       console.log("Parse Result:", result);
-      
+
       if (result.errors.length > 0) {
         setError(result.errors[0]);
         setParseResult(null);
         setReconstructed(null);
       } else {
         setParseResult(result);
-        const recon = reconstructTrades(result.orders);
+        const recon = reconstructTrades(result.orders, {
+          connectionId: selectedAccount.connectionId,
+          accountId: selectedAccount.accountId,
+          brokerName: selectedAccount.brokerName,
+        });
         console.log("Reconstructed Trades:", recon.trades.length);
         setReconstructed(recon);
       }
@@ -104,29 +146,67 @@ export default function ImportOrdersScreen({ setActivePage }: { setActivePage: (
         </div>
       )}
 
-      {/* Section 1: Upload Zone */}
-      <div 
-        className={cn(
-          "h-[240px] rounded-3xl border-2 border-dashed flex flex-col items-center justify-center transition-all cursor-pointer group",
-          isDragging ? "border-primary bg-primary/5" : "border-border hover:border-primary/50 hover:bg-accent/50"
+      {/* Section 0: Account Selection — required so every imported trade is
+          tagged with which account it came from, for later filtering. */}
+      <Card className="p-5 space-y-3">
+        <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+          <Wallet className="w-3.5 h-3.5" />
+          Import To Account
+        </label>
+        {accountOptions.length === 0 ? (
+          <div className="flex items-center justify-between gap-4 p-4 bg-accent/30 rounded-xl">
+            <p className="text-sm text-muted-foreground">
+              You haven't created any accounts yet. Create one to organize and filter imports by broker/account.
+            </p>
+            <Button variant="outline" className="shrink-0" onClick={() => setActivePage('connections')}>
+              Create Account
+            </Button>
+          </div>
+        ) : (
+          <select
+            value={selectedAccountKey}
+            onChange={(e) => setSelectedAccountKey(e.target.value)}
+            className="w-full h-11 px-4 bg-accent/30 border border-border rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20"
+          >
+            <option value="">Select an account...</option>
+            {accountOptions.map(a => (
+              <option key={`${a.connectionId}::${a.accountId}`} value={`${a.connectionId}::${a.accountId}`}>
+                {a.brokerName} — {a.accountName}
+              </option>
+            ))}
+          </select>
         )}
-        onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+      </Card>
+
+      {/* Section 1: Upload Zone */}
+      <div
+        className={cn(
+          "h-[240px] rounded-3xl border-2 border-dashed flex flex-col items-center justify-center transition-all group",
+          !selectedAccount ? "border-border opacity-50 cursor-not-allowed" :
+          isDragging ? "border-primary bg-primary/5 cursor-pointer" : "border-border hover:border-primary/50 hover:bg-accent/50 cursor-pointer"
+        )}
+        onDragOver={(e) => { e.preventDefault(); if (selectedAccount) setIsDragging(true); }}
         onDragLeave={() => setIsDragging(false)}
-        onDrop={onDrop}
-        onClick={() => fileInputRef.current?.click()}
+        onDrop={selectedAccount ? onDrop : (e) => e.preventDefault()}
+        onClick={() => selectedAccount && fileInputRef.current?.click()}
       >
         <div className="p-5 bg-accent group-hover:bg-primary/10 rounded-2xl mb-4 transition-colors">
           <Upload className="w-10 h-10 text-muted-foreground group-hover:text-primary transition-colors" />
         </div>
         <div className="text-center">
-          <p className="font-bold text-lg">Drag and drop your CSV file here</p>
-          <p className="text-sm text-muted-foreground mt-1">or click to browse files from your computer</p>
+          <p className="font-bold text-lg">
+            {selectedAccount ? 'Drag and drop your CSV file here' : 'Select an account above to enable import'}
+          </p>
+          <p className="text-sm text-muted-foreground mt-1">
+            {selectedAccount ? 'or click to browse files from your computer' : ''}
+          </p>
         </div>
-        <input 
-          type="file" 
-          className="hidden" 
+        <input
+          type="file"
+          className="hidden"
           ref={fileInputRef}
           accept=".csv"
+          disabled={!selectedAccount}
           onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
         />
       </div>

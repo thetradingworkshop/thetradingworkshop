@@ -1,5 +1,11 @@
 export type Role = 'admin' | 'user' | 'guest' | 'Admin' | 'Mentor' | 'Student' | 'Viewer';
 
+// Fixed broker list — a user picks one of these when creating a named
+// account to organize imports under. Not user-extensible; add here to
+// support a new broker.
+export const BROKERS = ['Tradovate', 'NinjaTrader', 'Topstep', 'ThinkorSwim', 'Lucid'] as const;
+export type Broker = typeof BROKERS[number];
+
 export interface BrokerConnection {
   id: string;
   userId: string;
@@ -108,6 +114,14 @@ export interface TradeTruth {
   userId: string;
   sessionId: string;
   sessionDate: string; // YYYY-MM-DD
+
+  // Which broker account these fills were imported under, for separating
+  // and filtering executions from different accounts. Absent on trades
+  // imported before this existed — treated as "Unassigned" in the UI.
+  accountId?: string;
+  connectionId?: string;
+  brokerName?: string;
+
   symbol: string;
   direction: 'LONG' | 'SHORT';
   entryTime: string;
@@ -376,6 +390,7 @@ export interface PositionState {
   id: string;
   connectionId: string;
   accountId: string;
+  brokerName?: string;
   symbol: string;
   currentPosition: number;
   avgEntryPrice: number;

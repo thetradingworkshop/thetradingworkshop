@@ -36,6 +36,7 @@ import {
   Loader2
 } from 'lucide-react';
 import PreTradeChecklistComponent from '../components/PreTradeChecklist';
+import { AccountFilterDropdown } from '../components/AccountFilterDropdown';
 import { useTrades } from '../context/TradeContext';
 import { useDateRange } from '../context/DateContext';
 import { useAuth } from '../context/AuthContext';
@@ -48,7 +49,7 @@ import { RuleBasedMentor } from '../components/RuleBasedMentor';
 
 export default function DashboardScreen() {
   const { user } = useAuth();
-  const { trades, isLiveSyncing, clearTrades, isLoading, error: syncError } = useTrades();
+  const { accountFilteredTrades: trades, isLiveSyncing, clearTrades, isLoading, error: syncError, accountOptions, accountFilter, setAccountFilter } = useTrades();
   const { getEffectiveRange } = useDateRange();
   const dateRange = getEffectiveRange('dashboard');
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
@@ -376,6 +377,7 @@ export default function DashboardScreen() {
         subtitle={trades.length > 0 ? `Analyzing ${trades.length} reconstructed trades` : "Comprehensive analysis of your trading performance and behavioral patterns"}
         rightElement={
           <div className="flex items-center space-x-3">
+            <AccountFilterDropdown accountOptions={accountOptions} accountFilter={accountFilter} setAccountFilter={setAccountFilter} />
             {isLiveSyncing && (
               <div className="flex items-center space-x-2 px-3 py-1.5 bg-emerald-500/10 border border-emerald-500/20 rounded-full">
                 <RefreshCw className="w-3.5 h-3.5 text-emerald-500 animate-spin" />

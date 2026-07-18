@@ -35,7 +35,7 @@ import {
   getDocs
 } from 'firebase/firestore';
 import { db } from '../firebase';
-import { BrokerConnection, IngestionEvent, IngestionError, BrokerAccount } from '../types';
+import { BrokerConnection, IngestionEvent, IngestionError, BrokerAccount, BROKERS, Broker } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '@/src/utils';
 import { Toast } from '../components/Shared';
@@ -56,6 +56,9 @@ export default function DataConnectionsScreen() {
   const [uploadingConnId, setUploadingConnId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [newAccountBroker, setNewAccountBroker] = useState<Broker>(BROKERS[0]);
+  const [newAccountName, setNewAccountName] = useState('');
+  const [isCreatingAccount, setIsCreatingAccount] = useState(false);
 
   const handleAction = (action: string) => {
     setToast({ message: `${action} action performed (Simulated)`, type: 'success' });
@@ -77,18 +80,50 @@ export default function DataConnectionsScreen() {
     if (!user) return;
     const userId = user.uid;
 
+    // Accounts subcollections are subscribed live (not a one-time getDocs) so
+    // that adding/removing an account under an already-existing connection
+    // updates the "Linked Accounts" count here immediately, instead of only
+    // refreshing the next time a connection doc itself changes.
+    const connectionsData = new Map<string, BrokerConnection>();
+    const accountUnsubscribes = new Map<string, () => void>();
+
+    const rebuildConnections = () => {
+      setConnections(Array.from(connectionsData.values()));
+    };
+
     const unsubscribeConnections = onSnapshot(
       query(collection(db, 'broker_connections'), where('userId', '==', userId)),
-      async (snapshot) => {
-        const conns: BrokerConnection[] = [];
-        for (const docSnap of snapshot.docs) {
-          const data = docSnap.data() as BrokerConnection;
-          // Fetch accounts subcollection
-          const accountsSnap = await getDocs(collection(db, 'broker_connections', docSnap.id, 'accounts'));
-          const accounts = accountsSnap.docs.map(d => ({ id: d.id, ...d.data() } as BrokerAccount));
-          conns.push({ ...data, id: docSnap.id, accounts });
+      (snapshot) => {
+        const seenIds = new Set(snapshot.docs.map(d => d.id));
+
+        // Stop listening to accounts for connections that no longer exist.
+        for (const [connId, unsub] of accountUnsubscribes.entries()) {
+          if (!seenIds.has(connId)) {
+            unsub();
+            accountUnsubscribes.delete(connId);
+            connectionsData.delete(connId);
+          }
         }
-        setConnections(conns);
+
+        snapshot.docs.forEach(docSnap => {
+          const data = docSnap.data() as BrokerConnection;
+          connectionsData.set(docSnap.id, { ...data, id: docSnap.id, accounts: connectionsData.get(docSnap.id)?.accounts || [] });
+
+          if (!accountUnsubscribes.has(docSnap.id)) {
+            const unsub = onSnapshot(
+              collection(db, 'broker_connections', docSnap.id, 'accounts'),
+              (accountsSnap) => {
+                const accounts = accountsSnap.docs.map(d => ({ id: d.id, ...d.data() } as BrokerAccount));
+                const existing = connectionsData.get(docSnap.id);
+                if (existing) connectionsData.set(docSnap.id, { ...existing, accounts });
+                rebuildConnections();
+              }
+            );
+            accountUnsubscribes.set(docSnap.id, unsub);
+          }
+        });
+
+        rebuildConnections();
         setIsLoading(false);
       }
     );
@@ -109,6 +144,7 @@ export default function DataConnectionsScreen() {
 
     return () => {
       unsubscribeConnections();
+      accountUnsubscribes.forEach(unsub => unsub());
       unsubscribeEvents();
       unsubscribeErrors();
     };
@@ -133,6 +169,54 @@ export default function DataConnectionsScreen() {
     } catch (error) {
       console.error('Failed to set manual sync mode:', error);
       setToast({ message: 'Failed to initialize manual import.', type: 'error' });
+      setTimeout(() => setToast(null), 3000);
+    }
+  };
+
+  // Creates a named account for organizing imports, under a connection for
+  // the chosen broker (reusing an existing connection for that broker if the
+  // user already has one, rather than creating a duplicate). Both writes go
+  // straight to Firestore from the client — firestore.rules already permits
+  // this (ownership via userId on the connection), matching how e.g. tag
+  // categories are created elsewhere in the app.
+  const handleCreateAccount = async () => {
+    if (!user || !newAccountName.trim()) return;
+    setIsCreatingAccount(true);
+    try {
+      let connectionId = connections.find(c => c.brokerName === newAccountBroker)?.id;
+      if (!connectionId) {
+        const connRef = await addDoc(collection(db, 'broker_connections'), {
+          userId: user.uid,
+          brokerName: newAccountBroker,
+          authType: 'Manual',
+          status: 'manual_sync_active',
+          environment: 'live',
+          syncMode: 'manual_csv',
+          importCount: 0,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+        connectionId = connRef.id;
+      }
+
+      await addDoc(collection(db, 'broker_connections', connectionId, 'accounts'), {
+        connectionId,
+        externalAccountId: `manual-${Date.now()}`,
+        displayName: newAccountName.trim(),
+        status: 'active',
+        selectedForSync: true,
+        createdAt: new Date().toISOString(),
+      });
+
+      setShowNewConnectionModal(false);
+      setToast({ message: `Account "${newAccountName.trim()}" created under ${newAccountBroker}.`, type: 'success' });
+      setNewAccountName('');
+      setNewAccountBroker(BROKERS[0]);
+    } catch (error) {
+      console.error('Failed to create account:', error);
+      setToast({ message: 'Failed to create account.', type: 'error' });
+    } finally {
+      setIsCreatingAccount(false);
       setTimeout(() => setToast(null), 3000);
     }
   };
@@ -373,9 +457,9 @@ export default function DataConnectionsScreen() {
                     <td className="px-4 py-3">
                       <div className="flex flex-col">
                         <span className="font-medium text-slate-900 capitalize">
-                          {event.eventType.replace('_', ' ')}
+                          {(event.eventType || event.type || 'event').replace('_', ' ')}
                         </span>
-                        <span className="text-xs text-slate-400">ID: {event.externalEventId}</span>
+                        <span className="text-xs text-slate-400">ID: {event.externalEventId || event.orderId}</span>
                       </div>
                     </td>
                     <td className="px-4 py-3 font-mono text-slate-600">{event.symbol}</td>
@@ -445,41 +529,42 @@ export default function DataConnectionsScreen() {
               {setupStep === 'select' && (
                 <div className="p-8 space-y-6">
                   <div className="flex justify-between items-center">
-                    <h2 className="text-2xl font-bold text-slate-900">New Connection</h2>
+                    <h2 className="text-2xl font-bold text-slate-900">New Account</h2>
                     <button onClick={() => setShowNewConnectionModal(false)} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
                       <X className="w-5 h-5 text-slate-400" />
                     </button>
                   </div>
-                  <p className="text-slate-500">Select a broker to integrate with your trading workspace.</p>
-                  
-                  <div className="space-y-3">
-                    <button 
-                      onClick={handleSetManualSyncMode}
-                      className="w-full p-4 border-2 border-slate-100 rounded-2xl hover:border-indigo-500 hover:bg-indigo-50/50 transition-all flex items-center gap-4 group text-left"
-                    >
-                      <div className="w-12 h-12 bg-indigo-100 rounded-xl flex items-center justify-center text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
-                        <Upload className="w-6 h-6" />
-                      </div>
-                      <div className="flex-1">
-                        <h3 className="font-bold text-slate-900">Tradovate</h3>
-                        <p className="text-sm text-slate-500">Manual CSV Import</p>
-                      </div>
-                      <ArrowRight className="w-5 h-5 text-slate-300 group-hover:text-indigo-600 transition-colors" />
-                    </button>
+                  <p className="text-slate-500">Pick a broker and name this account, so you can keep imports from different accounts separate and filter them later.</p>
 
-                    <button 
-                      onClick={() => handleAction('Interactive Brokers Integration (Coming Soon)')}
-                      className="w-full p-4 border-2 border-slate-100 rounded-2xl opacity-50 cursor-not-allowed flex items-center gap-4 text-left"
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Broker</label>
+                    <select
+                      value={newAccountBroker}
+                      onChange={(e) => setNewAccountBroker(e.target.value as Broker)}
+                      className="w-full p-3 border border-slate-200 rounded-xl text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
                     >
-                      <div className="w-12 h-12 bg-slate-100 rounded-xl flex items-center justify-center text-slate-400">
-                        <Globe className="w-6 h-6" />
-                      </div>
-                      <div className="flex-1">
-                        <h3 className="font-bold text-slate-900">Interactive Brokers</h3>
-                        <p className="text-sm text-slate-500">Coming Soon</p>
-                      </div>
-                    </button>
+                      {BROKERS.map(b => <option key={b} value={b}>{b}</option>)}
+                    </select>
                   </div>
+
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Account Name</label>
+                    <input
+                      type="text"
+                      value={newAccountName}
+                      onChange={(e) => setNewAccountName(e.target.value)}
+                      placeholder="e.g. Topstep 50k Eval #1"
+                      className="w-full p-3 border border-slate-200 rounded-xl text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+
+                  <button
+                    onClick={handleCreateAccount}
+                    disabled={!newAccountName.trim() || isCreatingAccount}
+                    className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    {isCreatingAccount ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Create Account'}
+                  </button>
                 </div>
               )}
 
@@ -753,7 +838,7 @@ function ConnectionCard({ connection, onManage, onSync, onToggleStatus, onDelete
                 <span className={`w-2 h-2 rounded-full ${
                   isPaused ? 'bg-slate-300' : isError ? 'bg-red-500' : 'bg-emerald-500'
                 }`} />
-                <span className="text-xs font-medium text-slate-500 capitalize">{connection.status.replace('_', ' ')}</span>
+                <span className="text-xs font-medium text-slate-500 capitalize">{connection.status.replace(/_/g, ' ')}</span>
               </div>
             </div>
           </div>
@@ -828,15 +913,57 @@ function ManageConnectionModal({ connection, onClose, onSync, onUpdate, onClearL
   const [activeTab, setActiveTab] = useState<'settings' | 'accounts' | 'logs'>('settings');
   const [isSaving, setIsSaving] = useState(false);
   const [localAccounts, setLocalAccounts] = useState<BrokerAccount[]>(connection.accounts || []);
+  const [newAccountName, setNewAccountName] = useState('');
+  const [isAddingAccount, setIsAddingAccount] = useState(false);
 
+  // `connection` is a snapshot passed down when the modal was opened — it
+  // never updates again on its own, so adding/deleting an account here
+  // wouldn't show up without subscribing directly to the subcollection.
   useEffect(() => {
-    setLocalAccounts(connection.accounts || []);
-  }, [connection.accounts]);
+    const unsubscribe = onSnapshot(
+      collection(db, 'broker_connections', connection.id, 'accounts'),
+      (snapshot) => {
+        setLocalAccounts(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as BrokerAccount)));
+      }
+    );
+    return () => unsubscribe();
+  }, [connection.id]);
 
   const toggleAccountSync = (accountId: string) => {
-    setLocalAccounts(prev => prev.map(acc => 
+    setLocalAccounts(prev => prev.map(acc =>
       acc.id === accountId ? { ...acc, selectedForSync: !acc.selectedForSync } : acc
     ));
+  };
+
+  const handleAddAccount = async () => {
+    if (!newAccountName.trim()) return;
+    setIsAddingAccount(true);
+    try {
+      await addDoc(collection(db, 'broker_connections', connection.id, 'accounts'), {
+        connectionId: connection.id,
+        externalAccountId: `manual-${Date.now()}`,
+        displayName: newAccountName.trim(),
+        status: 'active',
+        selectedForSync: true,
+        createdAt: new Date().toISOString(),
+      });
+      setNewAccountName('');
+    } catch (error) {
+      console.error('Failed to add account:', error);
+      alert('Failed to add account.');
+    } finally {
+      setIsAddingAccount(false);
+    }
+  };
+
+  const handleDeleteAccount = async (accountId: string) => {
+    if (!confirm('Delete this account? Trades already imported under it keep their account tag, but it will no longer appear as an option for new imports or filters.')) return;
+    try {
+      await deleteDoc(doc(db, 'broker_connections', connection.id, 'accounts', accountId));
+    } catch (error) {
+      console.error('Failed to delete account:', error);
+      alert('Failed to delete account.');
+    }
   };
 
   const handleSaveChanges = async () => {
@@ -957,11 +1084,28 @@ function ManageConnectionModal({ connection, onClose, onSync, onUpdate, onClearL
           {activeTab === 'accounts' && (
             <div className="space-y-4">
               <h3 className="font-bold text-slate-900">Linked Accounts</h3>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newAccountName}
+                  onChange={(e) => setNewAccountName(e.target.value)}
+                  placeholder="New account name..."
+                  className="flex-1 p-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+                <button
+                  onClick={handleAddAccount}
+                  disabled={!newAccountName.trim() || isAddingAccount}
+                  className="px-4 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 transition-colors disabled:opacity-50 flex items-center gap-2"
+                >
+                  {isAddingAccount ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                  Add
+                </button>
+              </div>
               <div className="space-y-2">
                 {localAccounts.map(acc => (
                   <div key={acc.id} className="flex items-center justify-between p-4 border border-slate-100 rounded-2xl hover:bg-slate-50 transition-colors">
                     <div className="flex items-center gap-3">
-                      <div 
+                      <div
                         onClick={() => toggleAccountSync(acc.id)}
                         className={`w-8 h-8 rounded-lg flex items-center justify-center cursor-pointer transition-colors ${
                           acc.selectedForSync ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-400'
@@ -980,8 +1124,12 @@ function ManageConnectionModal({ connection, onClose, onSync, onUpdate, onClearL
                       }`}>
                         {acc.selectedForSync ? 'Syncing' : 'Inactive'}
                       </span>
-                      <button className="p-2 hover:bg-slate-200 rounded-lg text-slate-400 transition-colors">
-                        <MoreVertical className="w-4 h-4" />
+                      <button
+                        onClick={() => handleDeleteAccount(acc.id)}
+                        className="p-2 hover:bg-red-50 rounded-lg text-slate-400 hover:text-red-500 transition-colors"
+                        title="Delete account"
+                      >
+                        <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
                   </div>

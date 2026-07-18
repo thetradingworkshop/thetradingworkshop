@@ -9,6 +9,7 @@ import { useAuth } from '../context/AuthContext';
 import { format, isWithinInterval } from 'date-fns';
 import { buildDashboardModel, buildSessionMetrics } from '../services/analyticsService';
 import { TradePerformanceLog } from '../components/TradePerformanceLog';
+import { AccountFilterDropdown } from '../components/AccountFilterDropdown';
 import { MentorService, StructuredInsight } from '../services/mentorService';
 import { RuleBasedMentorService, RuleBasedInsight } from '../services/RuleBasedMentorService';
 import { RuleBasedMentor } from '../components/RuleBasedMentor';
@@ -21,7 +22,7 @@ export default function SessionDetailScreen() {
   const { user } = useAuth();
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const { getEffectiveRange } = useDateRange();
-  const { trades } = useTrades();
+  const { accountFilteredTrades: trades, accountOptions, accountFilter, setAccountFilter } = useTrades();
   const effectiveRange = getEffectiveRange('sessions');
   const [mentorFeedback, setMentorFeedback] = useState<StructuredInsight | null>(null);
   const [ruleBasedInsight, setRuleBasedInsight] = useState<RuleBasedInsight | null>(null);
@@ -205,6 +206,7 @@ export default function SessionDetailScreen() {
         subtitle={`Detailed analysis for ${format(effectiveRange.from, 'MMM d, yyyy')} - ${format(effectiveRange.to, 'MMM d, yyyy')}`}
         rightElement={
           <div className="flex items-center space-x-3">
+            <AccountFilterDropdown accountOptions={accountOptions} accountFilter={accountFilter} setAccountFilter={setAccountFilter} />
             <Button variant="outline" onClick={() => handleAction('Export PDF')}>Export PDF</Button>
             <Button variant="primary" onClick={() => handleAction('Share Session')}>Share Session</Button>
           </div>

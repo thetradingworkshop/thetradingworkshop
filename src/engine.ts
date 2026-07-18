@@ -400,6 +400,9 @@ function createTradeFromState(state: PositionState, exitTime: string, exitPrice:
     userId: userId,
     sessionId: sessionId,
     sessionDate: sessionDate,
+    accountId: state.accountId,
+    connectionId: state.connectionId,
+    brokerName: state.brokerName,
     symbol: state.symbol,
     direction: state.openTradeDirection === 'long' ? 'LONG' : 'SHORT',
     entryTime: state.entryTime || exitTime,
@@ -459,11 +462,12 @@ function createTradeFromState(state: PositionState, exitTime: string, exitPrice:
   return { ...truth, ...metrics, ...review };
 }
 
-export function reconstructTradesStatefully(connectionId: string, accountId: string, symbol: string, events: IngestionEvent[]): { trades: Trade[], steps: ReconstructionStep[] } {
+export function reconstructTradesStatefully(connectionId: string, accountId: string, symbol: string, events: IngestionEvent[], brokerName?: string): { trades: Trade[], steps: ReconstructionStep[] } {
   let state: PositionState = {
     id: `${connectionId}_${accountId}_${symbol}`,
     connectionId,
     accountId,
+    brokerName,
     symbol,
     currentPosition: 0,
     avgEntryPrice: 0,
@@ -574,8 +578,16 @@ function applyBatchDerivedGrading(trades: Trade[]): Trade[] {
   return trades;
 }
 
-export function reconstructTrades(orders: Order[]): { trades: Trade[], steps: ReconstructionStep[] } {
+export interface ImportAccountContext {
+  connectionId: string;
+  accountId: string;
+  brokerName?: string;
+}
+
+export function reconstructTrades(orders: Order[], accountContext?: ImportAccountContext): { trades: Trade[], steps: ReconstructionStep[] } {
   if (orders.length === 0) return { trades: [], steps: [] };
+  const connectionId = accountContext?.connectionId || 'manual';
+  const accountId = accountContext?.accountId || 'manual';
   const ordersBySymbol: Record<string, Order[]> = {};
   orders.forEach(o => {
     if (!ordersBySymbol[o.symbol]) ordersBySymbol[o.symbol] = [];
@@ -587,8 +599,8 @@ export function reconstructTrades(orders: Order[]): { trades: Trade[], steps: Re
     const events: IngestionEvent[] = symbolOrders.map(o => ({
       id: o.id,
       userId: o.userId,
-      connectionId: 'manual',
-      accountId: o.accountId || 'manual',
+      connectionId,
+      accountId,
       type: 'csv_upload',
       status: 'completed',
       processingStatus: 'processed',
@@ -601,7 +613,7 @@ export function reconstructTrades(orders: Order[]): { trades: Trade[], steps: Re
       orderId: o.brokerOrderId || o.id,
       payload: o
     }));
-    const { trades, steps } = reconstructTradesStatefully('manual', 'manual', symbol, events);
+    const { trades, steps } = reconstructTradesStatefully(connectionId, accountId, symbol, events, accountContext?.brokerName);
     allTrades.push(...trades);
     allSteps.push(...steps);
   }

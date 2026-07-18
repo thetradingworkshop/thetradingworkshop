@@ -18,9 +18,10 @@ import {
 } from 'lucide-react';
 import { useTrades } from '../context/TradeContext';
 import { TradePerformanceLog } from '../components/TradePerformanceLog';
+import { AccountFilterDropdown } from '../components/AccountFilterDropdown';
 
 export default function TradesScreen({ setActivePage }: { setActivePage: (page: string) => void }) {
-  const { trades, setSelectedTradeForJournal, setSelectedSessionForJournal } = useTrades();
+  const { accountFilteredTrades, setSelectedTradeForJournal, setSelectedSessionForJournal, accountOptions, accountFilter, setAccountFilter } = useTrades();
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   const handleAddJournal = (trade: any) => {
@@ -38,10 +39,13 @@ export default function TradesScreen({ setActivePage }: { setActivePage: (page: 
       <SectionHeader
         title="Trade Performance Log"
         subtitle="Detailed audit trail of all reconstructed trades and executions"
+        rightElement={
+          <AccountFilterDropdown accountOptions={accountOptions} accountFilter={accountFilter} setAccountFilter={setAccountFilter} />
+        }
       />
 
       <TradePerformanceLog
-        trades={trades}
+        trades={accountFilteredTrades}
         onAddJournal={handleAddJournal}
         onAddDailyJournal={handleAddDailyJournal}
       />

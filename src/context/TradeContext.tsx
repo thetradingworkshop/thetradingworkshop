@@ -1,8 +1,22 @@
-import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
-import { Trade, ReconstructionStep } from '../types';
+import React, { createContext, useContext, useState, ReactNode, useEffect, useMemo } from 'react';
+import { Trade, ReconstructionStep, BrokerAccount } from '../types';
 import { db, auth } from '../firebase';
 import { collection, query, where, onSnapshot, orderBy, addDoc, serverTimestamp, writeBatch, doc, deleteDoc, getDocFromServer } from 'firebase/firestore';
 import { useAuth } from './AuthContext';
+
+export interface AccountOption {
+  connectionId: string;
+  accountId: string;
+  brokerName: string;
+  accountName: string;
+}
+
+// Trades imported before per-account tagging existed have no accountId; the
+// server-side CSV upload route also hardcoded the literal "manual-account"
+// before real account selection existed. Both are treated as "Unassigned".
+function isUnassigned(trade: Trade): boolean {
+  return !trade.accountId || trade.accountId === 'manual-account';
+}
 
 enum OperationType {
   CREATE = 'create',
@@ -57,6 +71,13 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
 
 interface TradeContextType {
   trades: Trade[];
+  // Trades filtered by `accountFilter` — 'all' | 'unassigned' | '{connectionId}::{accountId}'.
+  // Centralized here (rather than duplicated per-screen) so the Trades,
+  // Dashboard, and Sessions screens all respect the same selected account.
+  accountFilteredTrades: Trade[];
+  accountFilter: string;
+  setAccountFilter: (filter: string) => void;
+  accountOptions: AccountOption[];
   addTrades: (trades: Trade[], steps?: ReconstructionStep[]) => Promise<void>;
   deleteTrade: (tradeId: string) => Promise<void>;
   deleteTrades: (tradeIds: string[]) => Promise<void>;
@@ -79,6 +100,8 @@ export function TradeProvider({ children }: { children: ReactNode }) {
   const [isLiveSyncing, setIsLiveSyncing] = useState(false);
   const [selectedTradeForJournal, setSelectedTradeForJournal] = useState<Trade | null>(null);
   const [selectedSessionForJournal, setSelectedSessionForJournal] = useState<{ sessionId: string; sessionDate: string } | null>(null);
+  const [accountFilter, setAccountFilter] = useState('all');
+  const [accountOptions, setAccountOptions] = useState<AccountOption[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -140,6 +163,70 @@ export function TradeProvider({ children }: { children: ReactNode }) {
 
     return () => unsubscribe();
   }, [user]);
+
+  // Flattened list of every named account the user has created (across all
+  // their broker connections), for the account filter dropdown. Subscribed
+  // live at both levels so adding/removing an account under an existing
+  // connection is reflected immediately, not just on the next connection change.
+  useEffect(() => {
+    if (!user) {
+      setAccountOptions([]);
+      return;
+    }
+
+    const accountsByConnection = new Map<string, AccountOption[]>();
+    const accountUnsubscribes = new Map<string, () => void>();
+
+    const rebuild = () => {
+      setAccountOptions(Array.from(accountsByConnection.values()).flat());
+    };
+
+    const unsubscribeConnections = onSnapshot(
+      query(collection(db, 'broker_connections'), where('userId', '==', user.uid)),
+      (snapshot) => {
+        const seenIds = new Set(snapshot.docs.map(d => d.id));
+        for (const [connId, unsub] of accountUnsubscribes.entries()) {
+          if (!seenIds.has(connId)) {
+            unsub();
+            accountUnsubscribes.delete(connId);
+            accountsByConnection.delete(connId);
+          }
+        }
+
+        snapshot.docs.forEach(connDoc => {
+          const brokerName = (connDoc.data() as any).brokerName || 'Unknown';
+          if (!accountUnsubscribes.has(connDoc.id)) {
+            const unsub = onSnapshot(
+              collection(db, 'broker_connections', connDoc.id, 'accounts'),
+              (accountsSnap) => {
+                accountsByConnection.set(connDoc.id, accountsSnap.docs.map(d => ({
+                  connectionId: connDoc.id,
+                  accountId: d.id,
+                  brokerName,
+                  accountName: (d.data() as BrokerAccount).displayName,
+                })));
+                rebuild();
+              }
+            );
+            accountUnsubscribes.set(connDoc.id, unsub);
+          }
+        });
+
+        rebuild();
+      }
+    );
+
+    return () => {
+      unsubscribeConnections();
+      accountUnsubscribes.forEach(unsub => unsub());
+    };
+  }, [user]);
+
+  const accountFilteredTrades = useMemo(() => {
+    if (accountFilter === 'all') return trades;
+    if (accountFilter === 'unassigned') return trades.filter(isUnassigned);
+    return trades.filter(t => `${t.connectionId}::${t.accountId}` === accountFilter);
+  }, [trades, accountFilter]);
 
   const addTrades = async (newTrades: Trade[], _steps: ReconstructionStep[] = []) => {
     if (!user) return;
@@ -262,6 +349,10 @@ export function TradeProvider({ children }: { children: ReactNode }) {
   return (
     <TradeContext.Provider value={{
       trades,
+      accountFilteredTrades,
+      accountFilter,
+      setAccountFilter,
+      accountOptions,
       addTrades,
       deleteTrade,
       deleteTrades,
