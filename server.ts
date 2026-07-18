@@ -826,6 +826,15 @@ async function startServer() {
     }
   });
 
+  // Also run these on an in-process timer for hosts that keep a persistent
+  // server running (e.g. Render) rather than scaling to zero between
+  // requests — the /api/cron/* endpoints above are for hosts like Cloud Run
+  // where an external scheduler has to trigger them instead.
+  if (process.env.DISABLE_INTERVAL_JOBS !== "true") {
+    setInterval(() => { refreshExpiringTokens().catch(() => {}); }, 10 * 60 * 1000);
+    setInterval(() => { syncAllConnectedAccounts().catch(() => {}); }, 15 * 60 * 1000);
+  }
+
   // Vite middleware
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
