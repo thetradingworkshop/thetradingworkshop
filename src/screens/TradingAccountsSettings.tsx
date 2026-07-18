@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { collection, query, where, onSnapshot, addDoc, deleteDoc, doc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../context/AuthContext';
-import { Card, Button, Badge } from '../components/Shared';
+import { Card, Button, Badge, Toast } from '../components/Shared';
 import { Plus, Trash2, Wallet } from 'lucide-react';
 import { TradingAccount, TradingAccountType, TRADING_ACCOUNT_TYPES, ACCOUNT_SIZE_PRESETS } from '../types';
 
@@ -18,6 +18,7 @@ export default function TradingAccountsSettings() {
   const [isCreating, setIsCreating] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [typeFilter, setTypeFilter] = useState<'all' | TradingAccountType>('all');
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   const [name, setName] = useState('');
   const [accountType, setAccountType] = useState<TradingAccountType>('Evaluation');
@@ -79,6 +80,8 @@ export default function TradingAccountsSettings() {
       await addDoc(collection(db, 'trading_accounts'), data);
       resetForm();
       setIsCreating(false);
+    } catch (err: any) {
+      setToast({ message: `Failed to create account: ${err?.message || 'Unknown error'}`, type: 'error' });
     } finally {
       setIsSaving(false);
     }
@@ -86,7 +89,11 @@ export default function TradingAccountsSettings() {
 
   const handleDelete = async (accountId: string) => {
     if (!window.confirm('Delete this trading account? This cannot be undone.')) return;
-    await deleteDoc(doc(db, 'trading_accounts', accountId));
+    try {
+      await deleteDoc(doc(db, 'trading_accounts', accountId));
+    } catch (err: any) {
+      setToast({ message: `Failed to delete account: ${err?.message || 'Unknown error'}`, type: 'error' });
+    }
   };
 
   const filteredAccounts = typeFilter === 'all' ? accounts : accounts.filter(a => a.accountType === typeFilter);
@@ -249,6 +256,10 @@ export default function TradingAccountsSettings() {
             </div>
           ))}
         </div>
+      )}
+
+      {toast && (
+        <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />
       )}
     </Card>
   );
