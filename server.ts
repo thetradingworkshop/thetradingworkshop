@@ -763,42 +763,68 @@ async function startServer() {
     }
   }
 
-  // Background Jobs
-  setInterval(async () => {
-    try {
-      const soon = new Date(Date.now() + 15 * 60 * 1000).toISOString();
-      const snapshot = await db.collection("broker_connections")
-        .where("brokerName", "==", "tradovate")
-        .where("tokenExpiresAt", "<=", soon)
-        .get();
+  // Background Jobs — triggered by Cloud Scheduler HTTP calls rather than
+  // setInterval, since the service runs at min-instances=0 (scale-to-zero)
+  // and a background timer wouldn't survive the instance being torn down
+  // between requests.
+  async function refreshExpiringTokens() {
+    const soon = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+    const snapshot = await db.collection("broker_connections")
+      .where("brokerName", "==", "tradovate")
+      .where("tokenExpiresAt", "<=", soon)
+      .get();
 
-      for (const doc of snapshot.docs) {
-        const conn = doc.data() as any;
-        if (!conn.refreshToken || !tradovate.isConfigured()) continue;
-        const tokenData = await tradovate.renewToken(conn.refreshToken);
-        const expiresAt = new Date();
-        expiresAt.setSeconds(expiresAt.getSeconds() + tokenData.expires_in);
-        await doc.ref.update({
-          accessToken: tokenData.access_token,
-          refreshToken: tokenData.refresh_token || conn.refreshToken,
-          tokenExpiresAt: expiresAt.toISOString(),
-          updatedAt: new Date().toISOString()
-        });
-      }
-    } catch (error) {}
-  }, 10 * 60 * 1000);
+    for (const doc of snapshot.docs) {
+      const conn = doc.data() as any;
+      if (!conn.refreshToken || !tradovate.isConfigured()) continue;
+      const tokenData = await tradovate.renewToken(conn.refreshToken);
+      const expiresAt = new Date();
+      expiresAt.setSeconds(expiresAt.getSeconds() + tokenData.expires_in);
+      await doc.ref.update({
+        accessToken: tokenData.access_token,
+        refreshToken: tokenData.refresh_token || conn.refreshToken,
+        tokenExpiresAt: expiresAt.toISOString(),
+        updatedAt: new Date().toISOString()
+      });
+    }
+  }
 
-  setInterval(async () => {
+  async function syncAllConnectedAccounts() {
+    const snapshot = await db.collection("broker_connections")
+      .where("status", "==", "connected")
+      .where("authType", "==", "OAuth")
+      .get();
+    for (const doc of snapshot.docs) {
+      await syncConnection(doc.id);
+    }
+  }
+
+  function requireCronSecret(req: express.Request, res: express.Response, next: express.NextFunction) {
+    if (!process.env.CRON_SECRET || req.headers["x-cron-secret"] !== process.env.CRON_SECRET) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    next();
+  }
+
+  app.post("/api/cron/refresh-tokens", requireCronSecret, async (req, res) => {
     try {
-      const snapshot = await db.collection("broker_connections")
-        .where("status", "==", "connected")
-        .where("authType", "==", "OAuth")
-        .get();
-      for (const doc of snapshot.docs) {
-        await syncConnection(doc.id);
-      }
-    } catch (error) {}
-  }, 15 * 60 * 1000);
+      await refreshExpiringTokens();
+      res.json({ status: "ok" });
+    } catch (error) {
+      console.error("Token refresh cron failed:", error);
+      res.status(500).json({ error: "Token refresh failed" });
+    }
+  });
+
+  app.post("/api/cron/sync-connections", requireCronSecret, async (req, res) => {
+    try {
+      await syncAllConnectedAccounts();
+      res.json({ status: "ok" });
+    } catch (error) {
+      console.error("Sync cron failed:", error);
+      res.status(500).json({ error: "Sync failed" });
+    }
+  });
 
   // Vite middleware
   if (process.env.NODE_ENV !== "production") {
