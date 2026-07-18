@@ -17,6 +17,7 @@ export default function TradingAccountsSettings() {
   const [accounts, setAccounts] = useState<TradingAccount[]>([]);
   const [isCreating, setIsCreating] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [typeFilter, setTypeFilter] = useState<'all' | TradingAccountType>('all');
 
   const [name, setName] = useState('');
   const [accountType, setAccountType] = useState<TradingAccountType>('Evaluation');
@@ -88,6 +89,8 @@ export default function TradingAccountsSettings() {
     await deleteDoc(doc(db, 'trading_accounts', accountId));
   };
 
+  const filteredAccounts = typeFilter === 'all' ? accounts : accounts.filter(a => a.accountType === typeFilter);
+
   return (
     <Card className="p-8">
       <div className="flex items-center justify-between mb-6">
@@ -95,9 +98,22 @@ export default function TradingAccountsSettings() {
           <h3 className="text-lg font-bold">Trading Accounts</h3>
           <p className="text-sm text-muted-foreground mt-1">Track evaluation, funded, and live account economics.</p>
         </div>
-        {!isCreating && (
-          <Button variant="primary" icon={Plus} onClick={() => setIsCreating(true)}>New Account</Button>
-        )}
+        <div className="flex items-center space-x-3">
+          {accounts.length > 0 && (
+            <select
+              value={typeFilter}
+              onChange={(e) => setTypeFilter(e.target.value as 'all' | TradingAccountType)}
+              className="h-10 pl-3 pr-8 bg-accent/30 border border-border rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-primary/20"
+              title="Filter by account type"
+            >
+              <option value="all">All Types</option>
+              {TRADING_ACCOUNT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+          )}
+          {!isCreating && (
+            <Button variant="primary" icon={Plus} onClick={() => setIsCreating(true)}>New Account</Button>
+          )}
+        </div>
       </div>
 
       {isCreating && (
@@ -196,9 +212,14 @@ export default function TradingAccountsSettings() {
           <Wallet className="w-8 h-8 mx-auto mb-3 opacity-40" />
           <p className="text-sm">No trading accounts yet. Create one to start tracking its economics.</p>
         </div>
+      ) : filteredAccounts.length === 0 ? (
+        <div className="text-center py-12 text-muted-foreground">
+          <Wallet className="w-8 h-8 mx-auto mb-3 opacity-40" />
+          <p className="text-sm">No {typeFilter} accounts.</p>
+        </div>
       ) : (
         <div className="space-y-3">
-          {accounts.map(acc => (
+          {filteredAccounts.map(acc => (
             <div key={acc.id} className="flex items-center justify-between p-4 bg-accent/30 rounded-2xl">
               <div className="flex items-center space-x-4">
                 <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
