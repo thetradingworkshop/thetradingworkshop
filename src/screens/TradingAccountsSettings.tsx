@@ -22,7 +22,7 @@ export default function TradingAccountsSettings() {
 
   const [name, setName] = useState('');
   const [accountType, setAccountType] = useState<TradingAccountType>('Evaluation');
-  const [initialCost, setInitialCost] = useState('');
+  const [initialCost, setInitialCost] = useState('0');
   const [activationFees, setActivationFees] = useState('0');
   const [accountSize, setAccountSize] = useState<string>('25000');
   const [evaluationTarget, setEvaluationTarget] = useState('1500');
@@ -42,7 +42,7 @@ export default function TradingAccountsSettings() {
   const resetForm = () => {
     setName('');
     setAccountType('Evaluation');
-    setInitialCost('');
+    setInitialCost('0');
     setActivationFees('0');
     setAccountSize('25000');
     setEvaluationTarget('1500');
@@ -60,7 +60,7 @@ export default function TradingAccountsSettings() {
   };
 
   const handleCreate = async () => {
-    if (!user || !name.trim() || !initialCost || !evaluationTarget) return;
+    if (!user || !name.trim() || !evaluationTarget) return;
     setIsSaving(true);
     try {
       const now = new Date().toISOString();
@@ -68,7 +68,7 @@ export default function TradingAccountsSettings() {
         userId: user.uid,
         name: name.trim(),
         accountType,
-        initialCost: Number(initialCost),
+        initialCost: Number(initialCost) || 0,
         activationFees: Number(activationFees) || 0,
         evaluationTarget: Number(evaluationTarget),
         createdAt: now,
@@ -205,7 +205,7 @@ export default function TradingAccountsSettings() {
             <Button variant="outline" onClick={() => { setIsCreating(false); resetForm(); }}>Cancel</Button>
             <Button
               variant="primary"
-              disabled={isSaving || !name.trim() || !initialCost || !evaluationTarget}
+              disabled={isSaving || !name.trim() || !evaluationTarget}
               onClick={handleCreate}
             >
               {isSaving ? 'Creating...' : 'Create Account'}
