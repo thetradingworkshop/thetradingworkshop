@@ -11,6 +11,26 @@ export interface AccountOption {
   accountName: string;
 }
 
+// Filter selections for the global Filters dropdown — empty array means "no
+// restriction" for that field (a trade only needs to match a field if the
+// user has picked at least one value for it).
+export interface TradeFilters {
+  symbols: string[];
+  sides: ('LONG' | 'SHORT')[];
+  grades: string[];
+  tags: string[];
+}
+
+export const EMPTY_TRADE_FILTERS: TradeFilters = { symbols: [], sides: [], grades: [], tags: [] };
+
+// The set of values actually present across the account-filtered trades,
+// so the Filters dropdown only ever offers choices that exist in the data.
+export interface TradeFilterOptions {
+  symbols: string[];
+  grades: string[];
+  tags: string[];
+}
+
 // Trades imported before per-account tagging existed have no accountId; the
 // server-side CSV upload route also hardcoded the literal "manual-account"
 // before real account selection existed. Both are treated as "Unassigned".
@@ -78,6 +98,12 @@ interface TradeContextType {
   accountFilter: string;
   setAccountFilter: (filter: string) => void;
   accountOptions: AccountOption[];
+  // Further filtered by `filters` (symbol/side/grade/tag) on top of the
+  // account filter above — this is what screens should actually render.
+  filteredTrades: Trade[];
+  filters: TradeFilters;
+  setFilters: (filters: TradeFilters) => void;
+  filterOptions: TradeFilterOptions;
   addTrades: (trades: Trade[], steps?: ReconstructionStep[]) => Promise<void>;
   deleteTrade: (tradeId: string) => Promise<void>;
   deleteTrades: (tradeIds: string[]) => Promise<void>;
@@ -102,6 +128,7 @@ export function TradeProvider({ children }: { children: ReactNode }) {
   const [selectedSessionForJournal, setSelectedSessionForJournal] = useState<{ sessionId: string; sessionDate: string } | null>(null);
   const [accountFilter, setAccountFilter] = useState('all');
   const [accountOptions, setAccountOptions] = useState<AccountOption[]>([]);
+  const [filters, setFilters] = useState<TradeFilters>(EMPTY_TRADE_FILTERS);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -228,6 +255,35 @@ export function TradeProvider({ children }: { children: ReactNode }) {
     return trades.filter(t => `${t.connectionId}::${t.accountId}` === accountFilter);
   }, [trades, accountFilter]);
 
+  const filterOptions = useMemo<TradeFilterOptions>(() => {
+    const symbols = new Set<string>();
+    const grades = new Set<string>();
+    const tags = new Set<string>();
+    accountFilteredTrades.forEach(t => {
+      if (t.symbol) symbols.add(t.symbol);
+      if (t.tradeGrade) grades.add(t.tradeGrade);
+      (t.tags || []).forEach(tag => tags.add(tag));
+    });
+    return {
+      symbols: Array.from(symbols).sort(),
+      grades: Array.from(grades).sort(),
+      tags: Array.from(tags).sort(),
+    };
+  }, [accountFilteredTrades]);
+
+  const filteredTrades = useMemo(() => {
+    if (filters.symbols.length === 0 && filters.sides.length === 0 && filters.grades.length === 0 && filters.tags.length === 0) {
+      return accountFilteredTrades;
+    }
+    return accountFilteredTrades.filter(t => {
+      if (filters.symbols.length > 0 && !filters.symbols.includes(t.symbol)) return false;
+      if (filters.sides.length > 0 && !filters.sides.includes(t.direction)) return false;
+      if (filters.grades.length > 0 && (!t.tradeGrade || !filters.grades.includes(t.tradeGrade))) return false;
+      if (filters.tags.length > 0 && !(t.tags || []).some(tag => filters.tags.includes(tag))) return false;
+      return true;
+    });
+  }, [accountFilteredTrades, filters]);
+
   const addTrades = async (newTrades: Trade[], _steps: ReconstructionStep[] = []) => {
     if (!user) return;
 
@@ -353,6 +409,10 @@ export function TradeProvider({ children }: { children: ReactNode }) {
       accountFilter,
       setAccountFilter,
       accountOptions,
+      filteredTrades,
+      filters,
+      setFilters,
+      filterOptions,
       addTrades,
       deleteTrade,
       deleteTrades,

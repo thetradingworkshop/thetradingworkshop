@@ -18,7 +18,7 @@ export function AccountFilterDropdown({ accountOptions, accountFilter, setAccoun
       <select
         value={accountFilter}
         onChange={(e) => setAccountFilter(e.target.value)}
-        className="h-10 pl-3 pr-8 bg-accent/30 border border-border rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-primary/20"
+        className="px-3 py-2 bg-card border border-border/60 rounded-xl text-sm font-medium shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
         title="Filter by account"
       >
         <option value="all">All Accounts</option>

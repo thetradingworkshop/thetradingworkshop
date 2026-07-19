@@ -28,7 +28,6 @@ import {
   BookOpen,
   Loader2
 } from 'lucide-react';
-import { AccountFilterDropdown } from '../components/AccountFilterDropdown';
 import { useTrades } from '../context/TradeContext';
 import { useDateRange } from '../context/DateContext';
 import { useAuth } from '../context/AuthContext';
@@ -41,7 +40,7 @@ import { RuleBasedMentor } from '../components/RuleBasedMentor';
 
 export default function DashboardScreen() {
   const { user } = useAuth();
-  const { accountFilteredTrades: trades, isLiveSyncing, isLoading, error: syncError, accountOptions, accountFilter, setAccountFilter } = useTrades();
+  const { filteredTrades: trades, isLiveSyncing, isLoading, error: syncError } = useTrades();
   const { getEffectiveRange } = useDateRange();
   const dateRange = getEffectiveRange('dashboard');
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
@@ -302,15 +301,12 @@ export default function DashboardScreen() {
         title="Performance Dashboard" 
         subtitle={trades.length > 0 ? `Analyzing ${trades.length} reconstructed trades` : "Comprehensive analysis of your trading performance and behavioral patterns"}
         rightElement={
-          <div className="flex flex-wrap items-center gap-3">
-            <AccountFilterDropdown accountOptions={accountOptions} accountFilter={accountFilter} setAccountFilter={setAccountFilter} />
-            {isLiveSyncing && (
-              <div className="flex items-center space-x-2 px-3 py-1.5 bg-emerald-500/10 border border-emerald-500/20 rounded-full">
-                <RefreshCw className="w-3.5 h-3.5 text-emerald-500 animate-spin" />
-                <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-600">Live Sync Active</span>
-              </div>
-            )}
-          </div>
+          isLiveSyncing ? (
+            <div className="flex items-center space-x-2 px-3 py-1.5 bg-emerald-500/10 border border-emerald-500/20 rounded-full">
+              <RefreshCw className="w-3.5 h-3.5 text-emerald-500 animate-spin" />
+              <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-600">Live Sync Active</span>
+            </div>
+          ) : undefined
         }
       />
 

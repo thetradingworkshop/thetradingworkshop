@@ -36,6 +36,12 @@ const navItems = [
 ];
 
 import { GlobalDateRangePicker } from './DateRangePicker';
+import { FiltersDropdown } from './FiltersDropdown';
+import { AccountFilterDropdown } from './AccountFilterDropdown';
+import { useTrades } from '../context/TradeContext';
+
+// Filters + Accounts only make sense where trades are actually shown.
+const TRADE_SCOPED_PAGES = ['dashboard', 'trades', 'sessions'];
 
 export function AppShell({ 
   children, 
@@ -51,6 +57,8 @@ export function AppShell({
   const [isSidebarOpen, setIsSidebarOpen] = React.useState(true);
   const { theme, toggleTheme } = useTheme();
   const [toast, setToast] = React.useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const { filters, setFilters, filterOptions, accountOptions, accountFilter, setAccountFilter } = useTrades();
+  const showTradeControls = TRADE_SCOPED_PAGES.includes(activePage);
 
   const handleAction = (action: string) => {
     setToast({ message: `${action} action performed (Simulated)`, type: 'success' });
@@ -128,9 +136,15 @@ export function AppShell({
           </div>
 
           <div className="flex items-center space-x-4">
+            {showTradeControls && (
+              <>
+                <FiltersDropdown filters={filters} setFilters={setFilters} filterOptions={filterOptions} />
+                <AccountFilterDropdown accountOptions={accountOptions} accountFilter={accountFilter} setAccountFilter={setAccountFilter} />
+              </>
+            )}
             <GlobalDateRangePicker />
-            
-            <button 
+
+            <button
               onClick={toggleTheme}
               className="w-10 h-10 rounded-xl border border-border flex items-center justify-center hover:bg-accent transition-colors"
             >
