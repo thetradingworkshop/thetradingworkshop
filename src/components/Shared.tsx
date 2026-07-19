@@ -62,7 +62,7 @@ export function SectionHeader({ title, subtitle, rightElement, icon: Icon }: { t
           {subtitle && <p className="text-sm text-muted-foreground mt-1.5 max-w-2xl">{subtitle}</p>}
         </div>
       </div>
-      {rightElement && <div className="flex items-center gap-3">{rightElement}</div>}
+      {rightElement && <div className="flex flex-wrap items-center gap-3">{rightElement}</div>}
     </div>
   );
 }
@@ -124,7 +124,7 @@ export function Button({ children, onClick, variant = 'primary', className, icon
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        "inline-flex items-center justify-center font-semibold transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50",
+        "inline-flex items-center justify-center shrink-0 whitespace-nowrap font-semibold transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50",
         variants[variant],
         sizes[size],
         className

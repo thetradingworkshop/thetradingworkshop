@@ -9,28 +9,22 @@ import {
   HourlyPerformanceChart, 
   HoldTimeHistogram 
 } from '../components/Charts';
-import { 
-  CheckCircle2, 
-  AlertCircle, 
-  Zap, 
-  BrainCircuit, 
-  ChevronDown, 
-  BarChart3, 
-  RefreshCw, 
-  Download,
+import {
+  CheckCircle2,
+  AlertCircle,
+  Zap,
+  BrainCircuit,
+  ChevronDown,
+  BarChart3,
+  RefreshCw,
   Clock,
-  RotateCcw, 
-  TrendingUp, 
-  TrendingDown, 
-  ChevronLeft, 
-  ChevronRight, 
+  RotateCcw,
+  TrendingUp,
+  TrendingDown,
+  ChevronLeft,
+  ChevronRight,
   Calendar,
   Settings,
-  Share2,
-  Copy,
-  Check,
-  Camera,
-  Info,
   BookOpen,
   ShieldCheck,
   Loader2
@@ -64,7 +58,6 @@ export default function DashboardScreen() {
     highlightBestDay: true,
     highlightWorstDay: true,
     colorIntensity: 'medium' as 'low' | 'medium' | 'high',
-    clickAction: 'filter-dashboard' as 'open-session' | 'filter-dashboard',
     showWeeklyPnL: true,
     showTradingDays: true,
     highlightBestWeek: true,
@@ -82,11 +75,6 @@ export default function DashboardScreen() {
 
   // Memoize mentor service to avoid re-instantiation
   const mentorService = useMemo(() => new MentorService(new AnthropicProvider()), []);
-
-  const handleAction = (action: string) => {
-    setToast({ message: `${action} action performed (Simulated)`, type: 'success' });
-    setTimeout(() => setToast(null), 3000);
-  };
 
   const recalculateAllSessions = async () => {
     if (trades.length === 0) {
@@ -260,33 +248,6 @@ export default function DashboardScreen() {
     };
   }, [calendarDays]);
 
-  const handleShare = () => {
-    const includes = [];
-    if (calendarSettings.shareIncludeWeekly) includes.push('Weekly Panel');
-    if (calendarSettings.shareIncludeStats) includes.push('Range Stats');
-    if (calendarSettings.shareIncludeHighlights) includes.push('Highlights');
-    
-    const message = includes.length > 0 
-      ? `Share link copied! Including: ${includes.join(', ')}`
-      : 'Share link copied to clipboard!';
-      
-    setToast({ message, type: 'success' });
-  };
-
-  const handleExport = () => {
-    const includes = [];
-    if (calendarSettings.shareIncludeWeekly) includes.push('Weekly Panel');
-    if (calendarSettings.shareIncludeStats) includes.push('Range Stats');
-    if (calendarSettings.shareIncludeHighlights) includes.push('Highlights');
-    
-    const message = includes.length > 0 
-      ? `Snapshot generated with: ${includes.join(', ')}`
-      : 'Snapshot generated successfully!';
-      
-    setToast({ message, type: 'success' });
-    handleAction('Report generation started. You will be notified when it is ready.');
-  };
-
   const resetCalendarSettings = () => {
     setCalendarSettings({
       displayMode: 'full',
@@ -296,7 +257,6 @@ export default function DashboardScreen() {
       highlightBestDay: true,
       highlightWorstDay: true,
       colorIntensity: 'medium',
-      clickAction: 'filter-dashboard',
       showWeeklyPnL: true,
       showTradingDays: true,
       highlightBestWeek: true,
@@ -376,7 +336,7 @@ export default function DashboardScreen() {
         title="Performance Dashboard" 
         subtitle={trades.length > 0 ? `Analyzing ${trades.length} reconstructed trades` : "Comprehensive analysis of your trading performance and behavioral patterns"}
         rightElement={
-          <div className="flex items-center space-x-3">
+          <div className="flex flex-wrap items-center gap-3">
             <AccountFilterDropdown accountOptions={accountOptions} accountFilter={accountFilter} setAccountFilter={setAccountFilter} />
             {isLiveSyncing && (
               <div className="flex items-center space-x-2 px-3 py-1.5 bg-emerald-500/10 border border-emerald-500/20 rounded-full">
@@ -384,7 +344,7 @@ export default function DashboardScreen() {
                 <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-600">Live Sync Active</span>
               </div>
             )}
-            <div className="flex items-center space-x-3">
+            <div className="flex flex-wrap items-center gap-3">
               <Button 
                 variant="primary" 
                 size="sm" 
@@ -417,7 +377,6 @@ export default function DashboardScreen() {
               >
                 Clear All Trades
               </Button>
-              <Button variant="primary" size="sm" icon={Download} onClick={handleExport}>Export Report</Button>
             </div>
           </div>
         }
@@ -652,19 +611,13 @@ export default function DashboardScreen() {
             </div>
 
             <div className="flex items-center gap-1 border-l border-slate-200 pl-4">
-              <Button 
-                variant="ghost" 
-                size="sm" 
+              <Button
+                variant="ghost"
+                size="sm"
                 className="h-8 w-8 p-0 text-slate-400 hover:text-indigo-600"
                 onClick={() => setIsSettingsOpen(!isSettingsOpen)}
               >
                 <Settings className="w-4 h-4" />
-              </Button>
-              <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-slate-400 hover:text-indigo-600" onClick={handleExport}>
-                <Camera className="w-4 h-4" />
-              </Button>
-              <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-slate-400 hover:text-indigo-600">
-                <Info className="w-4 h-4" />
               </Button>
             </div>
           </div>
@@ -712,15 +665,11 @@ export default function DashboardScreen() {
                       key={i}
                       onClick={() => {
                         if (d.isEmpty) return;
-                        if (calendarSettings.clickAction === 'filter-dashboard') {
-                          setSelectedFilter(prev => 
-                            prev.type === 'day' && prev.value === d.day 
-                              ? { type: 'none', value: null } 
-                              : { type: 'day', value: d.day }
-                          );
-                        } else {
-                          handleAction(`Opening session for ${monthYearLabel} ${d.day}`);
-                        }
+                        setSelectedFilter(prev =>
+                          prev.type === 'day' && prev.value === d.day
+                            ? { type: 'none', value: null }
+                            : { type: 'day', value: d.day }
+                        );
                       }}
                       className={cn(
                         "group relative aspect-square rounded-xl border transition-all duration-300 cursor-pointer overflow-hidden",

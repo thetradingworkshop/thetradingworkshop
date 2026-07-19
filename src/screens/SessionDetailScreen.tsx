@@ -205,7 +205,7 @@ export default function SessionDetailScreen() {
         title="Session Detail" 
         subtitle={`Detailed analysis for ${format(effectiveRange.from, 'MMM d, yyyy')} - ${format(effectiveRange.to, 'MMM d, yyyy')}`}
         rightElement={
-          <div className="flex items-center space-x-3">
+          <div className="flex flex-wrap items-center gap-3">
             <AccountFilterDropdown accountOptions={accountOptions} accountFilter={accountFilter} setAccountFilter={setAccountFilter} />
             <Button variant="outline" onClick={() => handleAction('Export PDF')}>Export PDF</Button>
             <Button variant="primary" onClick={() => handleAction('Share Session')}>Share Session</Button>

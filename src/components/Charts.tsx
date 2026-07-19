@@ -23,6 +23,25 @@ export function EquityCurveChart({ className, data: propData }: { className?: st
   const peak = chartData.length > 0 ? Math.max(...chartData.map(d => d.value)) : 0;
   const current = chartData.length > 0 ? chartData[chartData.length - 1]?.value : 0;
 
+  // Points are one-per-trade, labeled by calendar day — several trades on the
+  // same day repeat that day's label back-to-back, which reads as clutter.
+  // The tooltip still needs the real label on every point, so only the tick
+  // text is thinned here (first occurrence of each label), not the data.
+  const firstLabelIndex = new Map<string, number>();
+  chartData.forEach((d, i) => {
+    if (!firstLabelIndex.has(d.name)) firstLabelIndex.set(d.name, i);
+  });
+  const renderTick = (props: any) => {
+    const { x, y, payload } = props;
+    const isFirstOccurrence = firstLabelIndex.get(payload.value) === payload.index;
+    if (!isFirstOccurrence) return <g />;
+    return (
+      <text x={x} y={y + 10} textAnchor="middle" fontSize={11} fontWeight={500} fill="#71717a">
+        {payload.value}
+      </text>
+    );
+  };
+
   return (
     <Card className={cn("flex flex-col", className)}>
       <div className="p-8 border-b border-border/50 flex items-center justify-between">
@@ -54,13 +73,12 @@ export function EquityCurveChart({ className, data: propData }: { className?: st
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.03)" />
-              <XAxis 
-                dataKey="name" 
-                axisLine={false} 
-                tickLine={false} 
-                tick={{ fontSize: 11, fill: '#71717a', fontWeight: 500 }} 
-                dy={10}
-                minTickGap={30}
+              <XAxis
+                dataKey="name"
+                axisLine={false}
+                tickLine={false}
+                tick={renderTick}
+                interval={0}
               />
               <YAxis 
                 axisLine={false} 

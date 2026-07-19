@@ -64,7 +64,7 @@ export default function WeeklyReportsScreen() {
         title="Weekly Reports" 
         subtitle="Performance summaries and behavioral analysis reports"
         rightElement={
-          <div className="flex items-center space-x-4">
+          <div className="flex flex-wrap items-center gap-4">
             <WeekPicker selectedDate={effectiveRange.from} onChange={handleWeekChange} />
             <Button variant="primary" onClick={() => handleAction('Generate New Report')}>Generate New Report</Button>
           </div>

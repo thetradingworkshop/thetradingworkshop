@@ -46,7 +46,7 @@ export default function MentorDashboardScreen() {
         title="Mentor Dashboard" 
         subtitle="Coaching overview for Group Alpha & Beta"
         rightElement={
-          <div className="flex items-center space-x-3">
+          <div className="flex flex-wrap items-center gap-3">
             <Button variant="outline" size="sm" onClick={() => handleAction('Filter Group')}>Filter Group</Button>
             <Button variant="primary" size="sm" onClick={() => handleAction('Weekly Report')}>Weekly Report</Button>
           </div>
