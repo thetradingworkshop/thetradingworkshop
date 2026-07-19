@@ -26,10 +26,8 @@ import {
   Calendar,
   Settings,
   BookOpen,
-  ShieldCheck,
   Loader2
 } from 'lucide-react';
-import PreTradeChecklistComponent from '../components/PreTradeChecklist';
 import { AccountFilterDropdown } from '../components/AccountFilterDropdown';
 import { useTrades } from '../context/TradeContext';
 import { useDateRange } from '../context/DateContext';
@@ -43,7 +41,7 @@ import { RuleBasedMentor } from '../components/RuleBasedMentor';
 
 export default function DashboardScreen() {
   const { user } = useAuth();
-  const { accountFilteredTrades: trades, isLiveSyncing, clearTrades, isLoading, error: syncError, accountOptions, accountFilter, setAccountFilter } = useTrades();
+  const { accountFilteredTrades: trades, isLiveSyncing, isLoading, error: syncError, accountOptions, accountFilter, setAccountFilter } = useTrades();
   const { getEffectiveRange } = useDateRange();
   const dateRange = getEffectiveRange('dashboard');
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
@@ -69,42 +67,10 @@ export default function DashboardScreen() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [ruleBasedInsight, setRuleBasedInsight] = useState<RuleBasedInsight | null>(null);
   const [isMentorLoading, setIsMentorLoading] = useState(false);
-  const [isPreTradeOpen, setIsPreTradeOpen] = useState(false);
   const [cooldownRemaining, setCooldownRemaining] = useState(0);
-  const { logTradeIntent } = useTrades();
 
   // Memoize mentor service to avoid re-instantiation
   const mentorService = useMemo(() => new MentorService(new AnthropicProvider()), []);
-
-  const recalculateAllSessions = async () => {
-    if (trades.length === 0) {
-      setToast({ message: 'No trades to recalculate', type: 'error' });
-      return;
-    }
-
-    const sessionDates = Array.from(new Set(trades.map(t => t.sessionDate))).filter(Boolean);
-    if (sessionDates.length === 0) {
-      setToast({ message: 'No session dates found', type: 'error' });
-      return;
-    }
-
-    setToast({ message: `Recalculating ${sessionDates.length} sessions...`, type: 'success' });
-    
-    try {
-      for (const sessionDate of sessionDates) {
-        await fetch('/api/sessions/recalculate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId: user?.uid, sessionDate })
-        });
-      }
-      setToast({ message: 'All sessions recalculated successfully', type: 'success' });
-    } catch (error) {
-      console.error('Recalculation failed:', error);
-      setToast({ message: 'Recalculation failed', type: 'error' });
-    }
-  };
-
 
   const filteredTrades = useMemo(() => {
     // First apply global/page date range filter
@@ -344,40 +310,6 @@ export default function DashboardScreen() {
                 <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-600">Live Sync Active</span>
               </div>
             )}
-            <div className="flex flex-wrap items-center gap-3">
-              <Button 
-                variant="primary" 
-                size="sm" 
-                icon={ShieldCheck} 
-                onClick={() => setIsPreTradeOpen(true)}
-                className="bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-500/20"
-              >
-                Pre-Trade Gate
-              </Button>
-              <Button 
-                variant="outline" 
-                size="sm" 
-                icon={RefreshCw} 
-                onClick={recalculateAllSessions}
-                className="text-indigo-600 border-indigo-200 hover:bg-indigo-50"
-              >
-                Recalculate Sessions
-              </Button>
-              <Button 
-                variant="outline" 
-                size="sm" 
-                icon={RotateCcw} 
-                onClick={() => {
-                  if (confirm('Are you sure you want to clear all current trades? This action cannot be undone.')) {
-                    clearTrades();
-                    setToast({ message: 'All trades cleared successfully', type: 'success' });
-                  }
-                }}
-                className="text-rose-600 border-rose-200 hover:bg-rose-50"
-              >
-                Clear All Trades
-              </Button>
-            </div>
           </div>
         }
       />
@@ -549,28 +481,6 @@ export default function DashboardScreen() {
               </label>
             </div>
           </div>
-        </div>
-      </Modal>
-
-      {/* PRE-TRADE GATE MODAL */}
-      <Modal
-        isOpen={isPreTradeOpen}
-        onClose={() => setIsPreTradeOpen(false)}
-        title="Trading Model Validation"
-        maxWidth="md"
-      >
-        <div className="flex justify-center py-4">
-          <PreTradeChecklistComponent 
-            onConfirm={async (checklist, isOverride) => {
-              await logTradeIntent('ES/NQ', checklist, isOverride);
-              setIsPreTradeOpen(false);
-              setToast({ 
-                message: isOverride ? 'Trade intent logged with manual override' : 'Setup validated and intent logged', 
-                type: isOverride ? 'error' : 'success' 
-              });
-            } }
-            onCancel={() => setIsPreTradeOpen(false)}
-          />
         </div>
       </Modal>
 
