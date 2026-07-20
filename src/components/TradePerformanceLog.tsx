@@ -819,6 +819,29 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
                             onCommit={(value) => updateTradeFields({ bestExitTime: value })}
                           />
                         </div>
+
+                        <div className="p-4 rounded-2xl bg-accent/10 border border-border/50 space-y-5">
+                          <div className="space-y-2">
+                            <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Verdict / Summary</label>
+                            <RichTextEditor
+                              key={`verdict-${selectedTrade.id}`}
+                              initialValue={review.verdict || ''}
+                              onChange={(html) => setReview(prev => ({ ...prev, verdict: html }))}
+                              placeholder="What happened in this trade?"
+                              minHeightClass="min-h-[96px]"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Lesson Learned</label>
+                            <RichTextEditor
+                              key={`lesson-${selectedTrade.id}`}
+                              initialValue={review.lessonLearned || ''}
+                              onChange={(html) => setReview(prev => ({ ...prev, lessonLearned: html }))}
+                              placeholder="What is the key takeaway?"
+                              minHeightClass="min-h-[96px]"
+                            />
+                          </div>
+                        </div>
                       </section>
                     </>
                   )}
@@ -925,7 +948,7 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
                       </div>
 
                       <p className="text-[10px] text-muted-foreground -mt-2">
-                        Strategy, Trade Rating, Initial Target/Risk, R-multiples, and Best Exit are edited directly on the Stats tab.
+                        Strategy, Trade Rating, Initial Target/Risk, R-multiples, Best Exit, Verdict/Summary, and Lesson Learned are edited directly on the Stats tab.
                       </p>
 
                       <div className="space-y-2">
@@ -938,28 +961,6 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
                             userId={user.uid}
                           />
                         )}
-                      </div>
-                      <div className="p-4 rounded-2xl bg-accent/10 border border-border/50 space-y-5">
-                        <div className="space-y-2">
-                          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Verdict / Summary</label>
-                          <RichTextEditor
-                            key={`verdict-${selectedTrade.id}`}
-                            initialValue={review.verdict || ''}
-                            onChange={(html) => setReview(prev => ({ ...prev, verdict: html }))}
-                            placeholder="What happened in this trade?"
-                            minHeightClass="min-h-[96px]"
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Lesson Learned</label>
-                          <RichTextEditor
-                            key={`lesson-${selectedTrade.id}`}
-                            initialValue={review.lessonLearned || ''}
-                            onChange={(html) => setReview(prev => ({ ...prev, lessonLearned: html }))}
-                            placeholder="What is the key takeaway?"
-                            minHeightClass="min-h-[96px]"
-                          />
-                        </div>
                       </div>
                     </section>
                   )}
