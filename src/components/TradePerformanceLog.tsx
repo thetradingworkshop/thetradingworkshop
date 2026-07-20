@@ -138,7 +138,7 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
   const [pendingDeleteIds, setPendingDeleteIds] = useState<string[] | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [tagCategories, setTagCategories] = useState<TagCategory[]>([]);
-  const [leftTab, setLeftTab] = useState<'stats' | 'strategy' | 'executions' | 'attachments'>('stats');
+  const [leftTab, setLeftTab] = useState<'stats' | 'executions' | 'attachments'>('stats');
   const [rightTab, setRightTab] = useState<'chart' | 'notes' | 'pnl'>('chart');
 
   useEffect(() => {
@@ -606,12 +606,11 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
             </div>
 
             <div className="flex-1 flex overflow-hidden">
-              {/* Left Pane: Stats / Strategy / Executions / Attachments */}
+              {/* Left Pane: Stats / Executions / Attachments */}
               <div className="w-[420px] shrink-0 border-r border-border flex flex-col overflow-hidden">
                 <div className="flex items-center gap-1 p-4 border-b border-border shrink-0">
                   {([
                     { id: 'stats', label: 'Stats' },
-                    { id: 'strategy', label: 'Strategy' },
                     { id: 'executions', label: 'Executions' },
                     { id: 'attachments', label: 'Attachments' },
                   ] as const).map(tab => (
@@ -823,6 +822,108 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
                         </div>
 
                         <div className="p-4 rounded-2xl bg-accent/10 border border-border/50 space-y-5">
+                          <h3 className="text-sm font-bold flex items-center space-x-2">
+                            <BookOpen className="w-4 h-4 text-indigo-500" />
+                            <span>Manual Review</span>
+                          </h3>
+
+                          <div className="space-y-2">
+                            <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Trade Grade</label>
+                            <div className="flex items-center gap-3 p-3 rounded-xl bg-accent/30 border border-border">
+                              <Badge variant={gradeBadgeVariant(selectedTrade.tradeGrade)} className="text-sm px-3 py-1 font-mono">
+                                {selectedTrade.tradeGrade || '—'}
+                              </Badge>
+                              <p className="text-[10px] text-muted-foreground">
+                                Auto-computed from P&amp;L, execution pattern, and re-entry timing — not manually set.
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="space-y-2">
+                            <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Behavior Flags</label>
+                            <div className="flex flex-wrap gap-2">
+                              {['FOMO', 'Revenge', 'Early Exit', 'Late Entry', 'Over-sized'].map(flag => (
+                                <button
+                                  key={flag}
+                                  onClick={() => handleFlagToggle(flag)}
+                                  className={cn(
+                                    "px-3 py-1.5 rounded-lg text-[10px] font-bold border transition-all",
+                                    review.behaviorFlags?.includes(flag)
+                                      ? "bg-rose-500 text-white border-rose-500"
+                                      : "bg-accent/30 border-border hover:border-rose-500/30"
+                                  )}
+                                >
+                                  {flag}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                              <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Execution Quality ({review.executionQuality}%)</label>
+                              <input
+                                type="range" min="0" max="100" step="10"
+                                className="w-full accent-primary"
+                                value={review.executionQuality}
+                                onChange={(e) => setReview(prev => ({ ...prev, executionQuality: parseInt(e.target.value) }))}
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Strategy Quality ({review.strategyQuality}%)</label>
+                              <input
+                                type="range" min="0" max="100" step="10"
+                                className="w-full accent-primary"
+                                value={review.strategyQuality}
+                                onChange={(e) => setReview(prev => ({ ...prev, strategyQuality: parseInt(e.target.value) }))}
+                              />
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-3 gap-4">
+                            <div className="space-y-2">
+                              <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Entry ({review.entryQuality}%)</label>
+                              <input
+                                type="range" min="0" max="100" step="10"
+                                className="w-full accent-primary"
+                                value={review.entryQuality}
+                                onChange={(e) => setReview(prev => ({ ...prev, entryQuality: parseInt(e.target.value) }))}
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Exit ({review.exitQuality}%)</label>
+                              <input
+                                type="range" min="0" max="100" step="10"
+                                className="w-full accent-primary"
+                                value={review.exitQuality}
+                                onChange={(e) => setReview(prev => ({ ...prev, exitQuality: parseInt(e.target.value) }))}
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Timing ({review.timingScore}%)</label>
+                              <input
+                                type="range" min="0" max="100" step="10"
+                                className="w-full accent-primary"
+                                value={review.timingScore}
+                                onChange={(e) => setReview(prev => ({ ...prev, timingScore: parseInt(e.target.value) }))}
+                              />
+                            </div>
+                          </div>
+
+                          <div className="space-y-2">
+                            <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Tags</label>
+                            {user && (
+                              <TagCategoriesPicker
+                                categories={tagCategories}
+                                selectedTags={review.tags || []}
+                                onChange={(tags) => setReview(prev => ({ ...prev, tags }))}
+                                userId={user.uid}
+                              />
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="p-4 rounded-2xl bg-accent/10 border border-border/50 space-y-5">
                           <div className="space-y-2">
                             <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Verdict / Summary</label>
                             <RichTextEditor
@@ -846,114 +947,6 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
                         </div>
                       </section>
                     </>
-                  )}
-
-                  {leftTab === 'strategy' && (
-                    <section className="space-y-6">
-                      <h3 className="text-sm font-bold flex items-center space-x-2">
-                        <BookOpen className="w-4 h-4 text-indigo-500" />
-                        <span>Manual Review</span>
-                      </h3>
-
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Trade Grade</label>
-                        <div className="flex items-center gap-3 p-3 rounded-xl bg-accent/30 border border-border">
-                          <Badge variant={gradeBadgeVariant(selectedTrade.tradeGrade)} className="text-sm px-3 py-1 font-mono">
-                            {selectedTrade.tradeGrade || '—'}
-                          </Badge>
-                          <p className="text-[10px] text-muted-foreground">
-                            Auto-computed from P&amp;L, execution pattern, and re-entry timing — not manually set.
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Behavior Flags</label>
-                        <div className="flex flex-wrap gap-2">
-                          {['FOMO', 'Revenge', 'Early Exit', 'Late Entry', 'Over-sized'].map(flag => (
-                            <button
-                              key={flag}
-                              onClick={() => handleFlagToggle(flag)}
-                              className={cn(
-                                "px-3 py-1.5 rounded-lg text-[10px] font-bold border transition-all",
-                                review.behaviorFlags?.includes(flag)
-                                  ? "bg-rose-500 text-white border-rose-500"
-                                  : "bg-accent/30 border-border hover:border-rose-500/30"
-                              )}
-                            >
-                              {flag}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Execution Quality ({review.executionQuality}%)</label>
-                          <input
-                            type="range" min="0" max="100" step="10"
-                            className="w-full accent-primary"
-                            value={review.executionQuality}
-                            onChange={(e) => setReview(prev => ({ ...prev, executionQuality: parseInt(e.target.value) }))}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Strategy Quality ({review.strategyQuality}%)</label>
-                          <input
-                            type="range" min="0" max="100" step="10"
-                            className="w-full accent-primary"
-                            value={review.strategyQuality}
-                            onChange={(e) => setReview(prev => ({ ...prev, strategyQuality: parseInt(e.target.value) }))}
-                          />
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-3 gap-4">
-                        <div className="space-y-2">
-                          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Entry ({review.entryQuality}%)</label>
-                          <input
-                            type="range" min="0" max="100" step="10"
-                            className="w-full accent-primary"
-                            value={review.entryQuality}
-                            onChange={(e) => setReview(prev => ({ ...prev, entryQuality: parseInt(e.target.value) }))}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Exit ({review.exitQuality}%)</label>
-                          <input
-                            type="range" min="0" max="100" step="10"
-                            className="w-full accent-primary"
-                            value={review.exitQuality}
-                            onChange={(e) => setReview(prev => ({ ...prev, exitQuality: parseInt(e.target.value) }))}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Timing ({review.timingScore}%)</label>
-                          <input
-                            type="range" min="0" max="100" step="10"
-                            className="w-full accent-primary"
-                            value={review.timingScore}
-                            onChange={(e) => setReview(prev => ({ ...prev, timingScore: parseInt(e.target.value) }))}
-                          />
-                        </div>
-                      </div>
-
-                      <p className="text-[10px] text-muted-foreground -mt-2">
-                        Strategy, Trade Rating, Initial Target/Risk, R-multiples, Best Exit, Verdict/Summary, and Lesson Learned are edited directly on the Stats tab.
-                      </p>
-
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Tags</label>
-                        {user && (
-                          <TagCategoriesPicker
-                            categories={tagCategories}
-                            selectedTags={review.tags || []}
-                            onChange={(tags) => setReview(prev => ({ ...prev, tags }))}
-                            userId={user.uid}
-                          />
-                        )}
-                      </div>
-                    </section>
                   )}
 
                   {leftTab === 'executions' && (
