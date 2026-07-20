@@ -1,15 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Bold, Italic, Underline, List, ListOrdered, Image as ImageIcon, Loader2 } from 'lucide-react';
 import { cn } from '@/src/utils';
-
-// Firestore documents cap out at ~1MiB. A pasted screenshot is downscaled and
-// re-encoded as JPEG before being embedded as a data URI, and rejected outright
-// if it's still too big — there's no Firebase Storage bucket wired up for this
-// app, so inline data URIs are the only option without adding that
-// infrastructure just for journal images.
-const MAX_IMAGE_DIMENSION = 1200;
-const JPEG_QUALITY = 0.82;
-const MAX_DATA_URL_BYTES = 700_000;
+import { processImageFile } from '@/src/lib/imageProcessing';
 
 function isContentEmpty(html?: string): boolean {
   if (!html) return true;
@@ -68,51 +60,13 @@ export function RichTextEditor({ initialValue, onChange, placeholder, minHeightC
     emitChange();
   };
 
-  const processImageFile = (file: File) => {
+  const handleImageFile = (file: File) => {
     setError(null);
-    if (!file.type.startsWith('image/')) return;
     setIsProcessingImage(true);
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      const img = new window.Image();
-      img.onload = () => {
-        let { width, height } = img;
-        if (width > MAX_IMAGE_DIMENSION || height > MAX_IMAGE_DIMENSION) {
-          const scale = MAX_IMAGE_DIMENSION / Math.max(width, height);
-          width = Math.round(width * scale);
-          height = Math.round(height * scale);
-        }
-        const canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) {
-          setError('Could not process that image.');
-          setIsProcessingImage(false);
-          return;
-        }
-        ctx.drawImage(img, 0, 0, width, height);
-        const dataUrl = canvas.toDataURL('image/jpeg', JPEG_QUALITY);
-        if (dataUrl.length > MAX_DATA_URL_BYTES) {
-          setError('Image is too large even after compression — try a smaller screenshot.');
-          setIsProcessingImage(false);
-          return;
-        }
-        insertImageDataUrl(dataUrl);
-        setIsProcessingImage(false);
-      };
-      img.onerror = () => {
-        setError('Could not read that image.');
-        setIsProcessingImage(false);
-      };
-      img.src = reader.result as string;
-    };
-    reader.onerror = () => {
-      setError('Could not read that file.');
-      setIsProcessingImage(false);
-    };
-    reader.readAsDataURL(file);
+    processImageFile(file)
+      .then(insertImageDataUrl)
+      .catch((err: Error) => setError(err.message))
+      .finally(() => setIsProcessingImage(false));
   };
 
   const handlePaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
@@ -122,7 +76,7 @@ export function RichTextEditor({ initialValue, onChange, placeholder, minHeightC
         if (items[i].type.startsWith('image/')) {
           e.preventDefault();
           const file = items[i].getAsFile();
-          if (file) processImageFile(file);
+          if (file) handleImageFile(file);
           return;
         }
       }
@@ -141,13 +95,13 @@ export function RichTextEditor({ initialValue, onChange, placeholder, minHeightC
     const file = e.dataTransfer.files?.[0];
     if (file && file.type.startsWith('image/')) {
       e.preventDefault();
-      processImageFile(file);
+      handleImageFile(file);
     }
   };
 
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) processImageFile(file);
+    if (file) handleImageFile(file);
     e.target.value = '';
   };
 

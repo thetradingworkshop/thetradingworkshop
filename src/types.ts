@@ -234,6 +234,10 @@ export interface TradeReview {
   tags?: string[];
   verdict?: string;
   lessonLearned?: string;
+  // Standalone screenshots attached to the trade, separate from any images
+  // embedded inline in verdict/lessonLearned — same downscaled-JPEG data URI
+  // approach (see src/lib/imageProcessing.ts), no Firebase Storage bucket.
+  attachments?: string[];
   diagnostics?: TradeDiagnostics;
   modelValidation?: ModelValidation;
 

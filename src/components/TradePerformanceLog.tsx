@@ -35,6 +35,7 @@ import { TagCategoriesPicker } from './TagCategoriesPicker';
 import { TradeCandleChart } from './TradeCandleChart';
 import { RunningPnlChart } from './RunningPnlChart';
 import { RichTextEditor, stripHtml } from './RichTextEditor';
+import { TradeAttachments } from './TradeAttachments';
 import { useMarketBars } from '../hooks/useMarketBars';
 import { getPointValue } from '../contractSpecs';
 
@@ -137,7 +138,7 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
   const [pendingDeleteIds, setPendingDeleteIds] = useState<string[] | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [tagCategories, setTagCategories] = useState<TagCategory[]>([]);
-  const [leftTab, setLeftTab] = useState<'stats' | 'strategy' | 'executions'>('stats');
+  const [leftTab, setLeftTab] = useState<'stats' | 'strategy' | 'executions' | 'attachments'>('stats');
   const [rightTab, setRightTab] = useState<'chart' | 'notes' | 'pnl'>('chart');
 
   useEffect(() => {
@@ -605,13 +606,14 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
             </div>
 
             <div className="flex-1 flex overflow-hidden">
-              {/* Left Pane: Stats / Strategy / Executions */}
+              {/* Left Pane: Stats / Strategy / Executions / Attachments */}
               <div className="w-[420px] shrink-0 border-r border-border flex flex-col overflow-hidden">
                 <div className="flex items-center gap-1 p-4 border-b border-border shrink-0">
                   {([
                     { id: 'stats', label: 'Stats' },
                     { id: 'strategy', label: 'Strategy' },
                     { id: 'executions', label: 'Executions' },
+                    { id: 'attachments', label: 'Attachments' },
                   ] as const).map(tab => (
                     <button
                       key={tab.id}
@@ -848,21 +850,10 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
 
                   {leftTab === 'strategy' && (
                     <section className="space-y-6">
-                      <div className="flex items-center justify-between">
-                        <h3 className="text-sm font-bold flex items-center space-x-2">
-                          <BookOpen className="w-4 h-4 text-indigo-500" />
-                          <span>Manual Review</span>
-                        </h3>
-                        <Button
-                          variant="primary"
-                          size="sm"
-                          icon={isSavingReview ? Loader2 : Save}
-                          onClick={saveReview}
-                          disabled={isSavingReview}
-                        >
-                          {isSavingReview ? 'Saving...' : 'Save Review'}
-                        </Button>
-                      </div>
+                      <h3 className="text-sm font-bold flex items-center space-x-2">
+                        <BookOpen className="w-4 h-4 text-indigo-500" />
+                        <span>Manual Review</span>
+                      </h3>
 
                       <div className="space-y-2">
                         <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Trade Grade</label>
@@ -993,6 +984,28 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
                       </div>
                     </section>
                   )}
+
+                  {leftTab === 'attachments' && (
+                    <TradeAttachments
+                      attachments={review.attachments || []}
+                      onChange={(attachments) => setReview(prev => ({ ...prev, attachments }))}
+                    />
+                  )}
+                </div>
+
+                {/* Persistent across tabs — Verdict/Lesson (Stats), Manual Review
+                    fields (Strategy), and Attachments all live in the same
+                    `review` object and are only committed to Firestore here. */}
+                <div className="p-4 border-t border-border shrink-0">
+                  <Button
+                    variant="primary"
+                    className="w-full"
+                    icon={isSavingReview ? Loader2 : Save}
+                    onClick={saveReview}
+                    disabled={isSavingReview}
+                  >
+                    {isSavingReview ? 'Saving...' : 'Save Review'}
+                  </Button>
                 </div>
               </div>
 
