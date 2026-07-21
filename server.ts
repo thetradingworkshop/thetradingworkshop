@@ -355,8 +355,20 @@ async function startServer() {
   // and keeps the User-Agent handling in one place. Data is real but delayed
   // (Yahoo's free feed, not a paid real-time subscription) — fine for
   // after-the-fact trade study, not for live trading decisions.
+  // How far back to fetch when the client explicitly requests a timeframe
+  // (rather than the default auto-selected narrow trade window) — enough
+  // bars for a top-down look at market structure leading into the trade,
+  // within what Yahoo's chart API actually serves per interval.
+  const TIMEFRAME_LOOKBACK_SECONDS: Record<string, number> = {
+    "1m": 5 * 24 * 3600,
+    "5m": 30 * 24 * 3600,
+    "15m": 45 * 24 * 3600,
+    "1h": 180 * 24 * 3600,
+    "1d": 730 * 24 * 3600,
+  };
+
   app.get("/api/market/candles", async (req, res) => {
-    const { symbol, start, end } = req.query as { symbol?: string; start?: string; end?: string };
+    const { symbol, start, end, interval: requestedInterval } = req.query as { symbol?: string; start?: string; end?: string; interval?: string };
     if (!symbol || !start || !end) {
       return res.status(400).json({ error: "symbol, start, and end are required" });
     }
@@ -369,18 +381,31 @@ async function startServer() {
 
     const root = getRootSymbol(symbol);
     const yahooSymbol = `${root}=F`;
-    const durationSec = (endMs - startMs) / 1000;
-    const padSec = Math.min(30 * 60, Math.max(5 * 60, durationSec * 0.25));
-    const period1 = Math.floor(startMs / 1000 - padSec);
-    const period2 = Math.ceil(endMs / 1000 + padSec);
-    const spanSec = period2 - period1;
-    const daysAgo = (Date.now() / 1000 - period1) / 86400;
 
-    let interval = "1d";
-    if (daysAgo <= 30) {
-      interval = spanSec <= 2 * 3600 ? "1m" : spanSec <= 24 * 3600 ? "5m" : "15m";
-    } else if (daysAgo <= 60) {
-      interval = spanSec <= 5 * 24 * 3600 ? "15m" : "1h";
+    let interval: string;
+    let period1: number;
+    let period2: number;
+
+    const lookbackSec = requestedInterval ? TIMEFRAME_LOOKBACK_SECONDS[requestedInterval] : undefined;
+    if (requestedInterval && lookbackSec) {
+      interval = requestedInterval;
+      const padSec = 30 * 60;
+      period2 = Math.ceil(endMs / 1000 + padSec);
+      period1 = period2 - lookbackSec;
+    } else {
+      const durationSec = (endMs - startMs) / 1000;
+      const padSec = Math.min(30 * 60, Math.max(5 * 60, durationSec * 0.25));
+      period1 = Math.floor(startMs / 1000 - padSec);
+      period2 = Math.ceil(endMs / 1000 + padSec);
+      const spanSec = period2 - period1;
+      const daysAgo = (Date.now() / 1000 - period1) / 86400;
+
+      interval = "1d";
+      if (daysAgo <= 30) {
+        interval = spanSec <= 2 * 3600 ? "1m" : spanSec <= 24 * 3600 ? "5m" : "15m";
+      } else if (daysAgo <= 60) {
+        interval = spanSec <= 5 * 24 * 3600 ? "15m" : "1h";
+      }
     }
 
     try {

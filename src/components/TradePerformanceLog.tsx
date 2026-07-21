@@ -127,7 +127,10 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
   // fields), instead of showing stale data until the drawer is reopened.
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selectedTrade = useMemo(() => trades.find(t => t.id === selectedId) ?? null, [trades, selectedId]);
-  const { market, isLoading: isLoadingMarket } = useMarketBars(selectedTrade);
+  // undefined = the default narrow window tightly bracketing the trade;
+  // an explicit interval fetches a longer lookback for top-down context.
+  const [chartTimeframe, setChartTimeframe] = useState<string | undefined>(undefined);
+  const { market, isLoading: isLoadingMarket } = useMarketBars(selectedTrade, chartTimeframe);
   const excursion = useMemo(
     () => (selectedTrade ? computeExcursion(selectedTrade, market) : null),
     [selectedTrade, market]
@@ -1028,7 +1031,15 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
                 </div>
 
                 <div className="flex-1 overflow-hidden p-6">
-                  {rightTab === 'chart' && <TradeCandleChart trade={selectedTrade} market={market} isLoadingMarket={isLoadingMarket} />}
+                  {rightTab === 'chart' && (
+                    <TradeCandleChart
+                      trade={selectedTrade}
+                      market={market}
+                      isLoadingMarket={isLoadingMarket}
+                      timeframe={chartTimeframe}
+                      onTimeframeChange={setChartTimeframe}
+                    />
+                  )}
                   {rightTab === 'pnl' && <RunningPnlChart trade={selectedTrade} />}
                   {rightTab === 'notes' && (
                     <div className="h-full flex flex-col items-center justify-center space-y-3 max-w-md mx-auto">

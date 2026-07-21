@@ -11,6 +11,7 @@ import {
 } from 'lightweight-charts';
 import { Trade } from '../types';
 import { MarketBarsData } from '../hooks/useMarketBars';
+import { cn } from '@/src/utils';
 
 interface Bar {
   time: number;
@@ -130,13 +131,24 @@ function nearestBarTime(bars: Bar[], epochSeconds: number): number {
   return closest;
 }
 
+const TIMEFRAMES: { id: string | undefined; label: string }[] = [
+  { id: undefined, label: 'Auto' },
+  { id: '1m', label: '1m' },
+  { id: '5m', label: '5m' },
+  { id: '15m', label: '15m' },
+  { id: '1h', label: '1H' },
+  { id: '1d', label: '1D' },
+];
+
 interface TradeCandleChartProps {
   trade: Trade;
   market: MarketBarsData | null;
   isLoadingMarket: boolean;
+  timeframe?: string;
+  onTimeframeChange?: (timeframe: string | undefined) => void;
 }
 
-export function TradeCandleChart({ trade, market, isLoadingMarket }: TradeCandleChartProps) {
+export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, onTimeframeChange }: TradeCandleChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   const realBars = buildBarsFromFills(trade);
@@ -203,7 +215,10 @@ export function TradeCandleChart({ trade, market, isLoadingMarket }: TradeCandle
     chart.timeScale().fitContent();
 
     return () => chart.remove();
-  }, [trade.id, isLoadingMarket, source]);
+    // `market` (not just `source`) is a dependency because switching
+    // timeframes can produce a new dataset while `source` stays 'market'
+    // both before and after, which wouldn't otherwise trigger a redraw.
+  }, [trade.id, isLoadingMarket, source, market]);
 
   const caption =
     source === 'market'
@@ -214,6 +229,22 @@ export function TradeCandleChart({ trade, market, isLoadingMarket }: TradeCandle
 
   return (
     <div className="flex h-full flex-col space-y-2">
+      {onTimeframeChange && (
+        <div className="flex items-center gap-1 shrink-0">
+          {TIMEFRAMES.map(tf => (
+            <button
+              key={tf.label}
+              onClick={() => onTimeframeChange(tf.id)}
+              className={cn(
+                "px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors",
+                timeframe === tf.id ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent"
+              )}
+            >
+              {tf.label}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="text-[10px] text-muted-foreground shrink-0">{isLoadingMarket ? 'Loading market data...' : caption}</div>
       {isLoadingMarket ? (
         <div className="flex flex-1 items-center justify-center text-xs text-muted-foreground">Loading market data...</div>
