@@ -386,6 +386,27 @@ export interface JournalEntry {
   status?: 'private' | 'shared';
   createdAt: string;
   updatedAt: string;
+
+  isFavorite?: boolean;
+
+  // Sessions Recap notes span a date range rather than a single trade/session,
+  // so unlike Trade Notes (tradeId set) and Daily Journal (sessionId set) they
+  // can't be inferred from existing fields — noteType marks them explicitly.
+  noteType?: 'session_recap';
+  recapStartDate?: string; // yyyy-MM-dd
+  recapEndDate?: string; // yyyy-MM-dd
+  accountId?: string;
+  connectionId?: string;
+  brokerName?: string;
+  recapStats?: {
+    netPnl: number;
+    grossPnl: number;
+    contractsTraded: number;
+    volume: number;
+    commissions: number;
+    netRoi: number;
+    tradeCount: number;
+  };
 }
 
 export interface ReconstructionStep {

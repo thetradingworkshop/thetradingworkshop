@@ -1,15 +1,31 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { cn, omitUndefined } from '@/src/utils';
 import { SectionHeader, Card, Button, Badge, Toast, Modal, Input } from '../components/Shared';
-import { Search, Plus, Calendar, Share2, MessageSquare, ExternalLink, RotateCcw, Trash2, BookOpen, Edit3, Link as LinkIcon, Zap, X, TrendingUp, TrendingDown, BrainCircuit, Save, Loader2 } from 'lucide-react';
+import { Search, Plus, Calendar, Share2, MessageSquare, ExternalLink, RotateCcw, Trash2, BookOpen, Edit3, Link as LinkIcon, Zap, X, TrendingUp, TrendingDown, BrainCircuit, Save, Loader2, Star, FileText, BarChart3, FileBarChart } from 'lucide-react';
 import { collection, query, where, onSnapshot, orderBy, addDoc, updateDoc, deleteDoc, doc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useTrades } from '../context/TradeContext';
 import { useAuth } from '../context/AuthContext';
-import { JournalEntry } from '../types';
+import { JournalEntry, Trade } from '../types';
 import { RichTextEditor, isContentEmpty, stripHtml } from '../components/RichTextEditor';
 
 type JournalDraft = Partial<JournalEntry>;
+type NoteCategory = 'all' | 'favorites' | 'trade' | 'daily' | 'session_recap';
+
+const CATEGORIES: { id: NoteCategory; label: string; icon: any }[] = [
+  { id: 'all', label: 'All notes', icon: FileText },
+  { id: 'favorites', label: 'Favorites', icon: Star },
+  { id: 'trade', label: 'Trade Notes', icon: BarChart3 },
+  { id: 'daily', label: 'Daily Journal', icon: Calendar },
+  { id: 'session_recap', label: 'Sessions Recap', icon: FileBarChart },
+];
+
+function categoryOf(j: JournalDraft): Exclude<NoteCategory, 'all' | 'favorites'> | null {
+  if (j.noteType === 'session_recap') return 'session_recap';
+  if (j.tradeId) return 'trade';
+  if (j.sessionId) return 'daily';
+  return null;
+}
 
 function emptyDraft(overrides: Partial<JournalEntry> = {}): JournalDraft {
   return {
@@ -26,11 +42,42 @@ function emptyDraft(overrides: Partial<JournalEntry> = {}): JournalDraft {
   };
 }
 
+interface RecapDraft {
+  startDate: string;
+  endDate: string;
+  accountKey: string;
+}
+
+function emptyRecapDraft(): RecapDraft {
+  const today = new Date().toISOString().slice(0, 10);
+  return { startDate: today, endDate: today, accountKey: '' };
+}
+
+function formatRecapTitle(start: string, end: string): string {
+  const fmt = (d: string) => new Date(`${d}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' });
+  return start === end ? fmt(start) : `${fmt(start)} - ${fmt(end)}`;
+}
+
+// Volume counts both legs of each trade (entry + exit fills), so it runs
+// roughly 2x contractsTraded for simple single-entry/single-exit trades —
+// contractsTraded is the per-trade position size, volume is total executed size.
+function computeRecapStats(rangeTrades: Trade[]): NonNullable<JournalEntry['recapStats']> {
+  const netPnl = rangeTrades.reduce((s, t) => s + (t.realizedPnL || 0), 0);
+  const grossPnl = rangeTrades.reduce((s, t) => s + (t.grossPnlCurrency ?? t.pnlCurrency ?? 0), 0);
+  const contractsTraded = rangeTrades.reduce((s, t) => s + (t.totalQuantity || 0), 0);
+  const volume = rangeTrades.reduce((s, t) => s + t.fills.reduce((fs, f) => fs + (f.quantity || 0), 0), 0);
+  const commissions = rangeTrades.reduce((s, t) => s + (t.totalCommission || 0), 0);
+  const totalCost = rangeTrades.reduce((s, t) => s + (t.adjustedCost || 0), 0);
+  const netRoi = totalCost > 0 ? (netPnl / totalCost) * 100 : 0;
+  return { netPnl, grossPnl, contractsTraded, volume, commissions, netRoi, tradeCount: rangeTrades.length };
+}
+
 export default function JournalScreen() {
   const { user } = useAuth();
   const {
     selectedTradeForJournal, setSelectedTradeForJournal,
     selectedSessionForJournal, setSelectedSessionForJournal,
+    trades, accountOptions,
   } = useTrades();
   const [selectedJournal, setSelectedJournal] = useState<any>(null);
   const [journals, setJournals] = useState<any[]>([]);
@@ -40,6 +87,32 @@ export default function JournalScreen() {
   const [isSaving, setIsSaving] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [isPublicPreview, setIsPublicPreview] = useState(false);
+  const [activeCategory, setActiveCategory] = useState<NoteCategory>('all');
+  const [recapDraft, setRecapDraft] = useState<RecapDraft | null>(null);
+  const [isSavingRecap, setIsSavingRecap] = useState(false);
+
+  const counts = useMemo(() => ({
+    all: journals.length,
+    favorites: journals.filter(j => j.isFavorite).length,
+    trade: journals.filter(j => categoryOf(j) === 'trade').length,
+    daily: journals.filter(j => categoryOf(j) === 'daily').length,
+    session_recap: journals.filter(j => categoryOf(j) === 'session_recap').length,
+  }), [journals]);
+
+  const categoryFilteredJournals = useMemo(() => {
+    if (activeCategory === 'all') return journals;
+    if (activeCategory === 'favorites') return journals.filter(j => j.isFavorite);
+    return journals.filter(j => categoryOf(j) === activeCategory);
+  }, [journals, activeCategory]);
+
+  const toggleFavorite = async (journal: any, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    try {
+      await updateDoc(doc(db, 'journals', journal.id), { isFavorite: !journal.isFavorite });
+    } catch (error) {
+      console.error('Error toggling favorite:', error);
+    }
+  };
 
   useEffect(() => {
     if (!user) return;
@@ -102,6 +175,58 @@ export default function JournalScreen() {
   const openNew = () => setDraft(emptyDraft());
   const openEdit = () => selectedJournal && setDraft({ ...selectedJournal });
   const closeDraft = () => setDraft(null);
+
+  const openNewRecap = () => setRecapDraft(emptyRecapDraft());
+  const closeRecapDraft = () => setRecapDraft(null);
+
+  const saveRecapDraft = async () => {
+    if (!recapDraft || !user) return;
+    if (!recapDraft.startDate || !recapDraft.endDate || recapDraft.endDate < recapDraft.startDate) {
+      setToast({ message: 'Pick a valid date range', type: 'error' });
+      setTimeout(() => setToast(null), 3000);
+      return;
+    }
+    setIsSavingRecap(true);
+    try {
+      const account = accountOptions.find(a => `${a.connectionId}::${a.accountId}` === recapDraft.accountKey);
+      const rangeTrades = trades.filter(t => {
+        if (t.sessionDate < recapDraft.startDate || t.sessionDate > recapDraft.endDate) return false;
+        if (account) return t.connectionId === account.connectionId && t.accountId === account.accountId;
+        return true;
+      });
+      const recapStats = computeRecapStats(rangeTrades);
+      const now = new Date().toISOString();
+      const newEntry = omitUndefined({
+        userId: user.uid,
+        sessionId: '',
+        title: formatRecapTitle(recapDraft.startDate, recapDraft.endDate),
+        date: recapDraft.endDate,
+        content: '',
+        tags: [],
+        status: 'private',
+        noteType: 'session_recap' as const,
+        recapStartDate: recapDraft.startDate,
+        recapEndDate: recapDraft.endDate,
+        accountId: account?.accountId,
+        connectionId: account?.connectionId,
+        brokerName: account?.brokerName,
+        recapStats,
+        createdAt: now,
+        updatedAt: now,
+      });
+      const docRef = await addDoc(collection(db, 'journals'), newEntry);
+      setSelectedJournal({ id: docRef.id, ...newEntry });
+      setActiveCategory('session_recap');
+      setRecapDraft(null);
+      setToast({ message: 'Session recap created', type: 'success' });
+    } catch (error) {
+      console.error('Error creating session recap:', error);
+      setToast({ message: 'Failed to create recap', type: 'error' });
+    } finally {
+      setIsSavingRecap(false);
+      setTimeout(() => setToast(null), 3000);
+    }
+  };
 
   const saveDraft = async () => {
     if (!draft || !user) return;
@@ -318,11 +443,47 @@ export default function JournalScreen() {
   return (
     <div className="flex flex-col h-[calc(100vh-120px)] gap-6">
       <div className="flex flex-1 gap-6 overflow-hidden">
+        {/* Categories */}
+      <div className="w-[220px] flex flex-col gap-4 shrink-0">
+        <h2 className="text-xl font-bold">Notebook</h2>
+        <Card className="p-2 space-y-1" noPadding>
+          {CATEGORIES.map(cat => {
+            const Icon = cat.icon;
+            const isActive = activeCategory === cat.id;
+            return (
+              <button
+                key={cat.id}
+                onClick={() => setActiveCategory(cat.id)}
+                className={cn(
+                  "w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-medium transition-colors",
+                  isActive ? "bg-primary text-primary-foreground" : "hover:bg-accent text-foreground"
+                )}
+              >
+                <span className="flex items-center gap-2.5">
+                  <Icon className="w-4 h-4" />
+                  {cat.label}
+                </span>
+                <span className={cn("text-xs font-bold", isActive ? "text-primary-foreground/80" : "text-muted-foreground")}>
+                  {counts[cat.id]}
+                </span>
+              </button>
+            );
+          })}
+        </Card>
+      </div>
+
         {/* Left Column: List */}
-      <div className="w-[360px] flex flex-col gap-4">
+      <div className="w-[320px] flex flex-col gap-4 shrink-0">
         <div className="flex items-center justify-between">
-          <h2 className="text-xl font-bold">Journals</h2>
-          <Button variant="primary" icon={Plus} className="px-3 py-1.5 h-auto" onClick={openNew}>New</Button>
+          <h2 className="text-xl font-bold">{CATEGORIES.find(c => c.id === activeCategory)?.label}</h2>
+          <Button
+            variant="primary"
+            icon={Plus}
+            className="px-3 py-1.5 h-auto"
+            onClick={() => activeCategory === 'session_recap' ? openNewRecap() : openNew()}
+          >
+            {activeCategory === 'session_recap' ? 'New Recap' : 'New'}
+          </Button>
         </div>
 
         <Card className="p-3">
@@ -339,7 +500,7 @@ export default function JournalScreen() {
         <div className="flex-1 overflow-y-auto space-y-3 pr-2">
           {isLoading ? (
             <div className="text-center py-12 text-muted-foreground italic text-sm">Loading...</div>
-          ) : journals.length > 0 ? journals.map((j) => (
+          ) : categoryFilteredJournals.length > 0 ? categoryFilteredJournals.map((j) => (
             <button
               key={j.id}
               onClick={() => setSelectedJournal(j)}
@@ -352,9 +513,17 @@ export default function JournalScreen() {
             >
               <div className="flex items-center justify-between mb-2">
                 <span className="text-[10px] font-bold uppercase opacity-70">{j.date}</span>
-                <Badge variant={j.status === 'shared' ? 'positive' : 'neutral'}>
-                  {j.status || 'private'}
-                </Badge>
+                <div className="flex items-center gap-2">
+                  <span onClick={(e) => toggleFavorite(j, e)} className="p-0.5 -m-0.5">
+                    <Star className={cn(
+                      "w-3.5 h-3.5",
+                      j.isFavorite ? "fill-amber-400 text-amber-400" : (selectedJournal?.id === j.id ? "text-primary-foreground/50" : "text-muted-foreground/50")
+                    )} />
+                  </span>
+                  <Badge variant={j.status === 'shared' ? 'positive' : 'neutral'}>
+                    {j.status || 'private'}
+                  </Badge>
+                </div>
               </div>
               <h4 className="font-bold text-sm mb-1">{j.title}</h4>
               <p className={cn(
@@ -366,7 +535,7 @@ export default function JournalScreen() {
             </button>
           )) : (
             <div className="text-center py-12 text-muted-foreground italic text-sm">
-              No journals found.
+              No notes found.
             </div>
           )}
         </div>
@@ -379,10 +548,20 @@ export default function JournalScreen() {
             <Card className="p-8">
               <div className="flex items-center justify-between mb-8">
                 <div>
-                  <h1 className="text-3xl font-bold tracking-tight">{selectedJournal.title}</h1>
-                  <div className="flex items-center mt-2 text-sm text-muted-foreground">
-                    <Calendar className="w-4 h-4 mr-2" />
-                    {selectedJournal.date}
+                  <div className="flex items-center gap-3">
+                    <h1 className="text-3xl font-bold tracking-tight">{selectedJournal.title}</h1>
+                    <button onClick={() => toggleFavorite(selectedJournal)} aria-label="Toggle favorite">
+                      <Star className={cn("w-5 h-5", selectedJournal.isFavorite ? "fill-amber-400 text-amber-400" : "text-muted-foreground")} />
+                    </button>
+                  </div>
+                  <div className="flex items-center mt-2 text-sm text-muted-foreground gap-3">
+                    <span className="flex items-center">
+                      <Calendar className="w-4 h-4 mr-2" />
+                      {selectedJournal.date}
+                    </span>
+                    {selectedJournal.noteType === 'session_recap' && selectedJournal.brokerName && (
+                      <Badge variant="neutral">{selectedJournal.brokerName}</Badge>
+                    )}
                   </div>
                 </div>
                 <div className="flex items-center space-x-2">
@@ -391,7 +570,31 @@ export default function JournalScreen() {
                 </div>
               </div>
 
+              {selectedJournal.noteType === 'session_recap' && selectedJournal.recapStats && (
+                <div className="grid grid-cols-3 md:grid-cols-6 gap-4 mb-8">
+                  {[
+                    { label: 'Net P&L', value: `${selectedJournal.recapStats.netPnl >= 0 ? '+' : ''}$${selectedJournal.recapStats.netPnl.toFixed(2)}`, tone: selectedJournal.recapStats.netPnl >= 0 ? 'positive' : 'negative' },
+                    { label: 'Gross P&L', value: `${selectedJournal.recapStats.grossPnl >= 0 ? '+' : ''}$${selectedJournal.recapStats.grossPnl.toFixed(2)}`, tone: 'neutral' },
+                    { label: 'Contracts Traded', value: selectedJournal.recapStats.contractsTraded, tone: 'neutral' },
+                    { label: 'Volume', value: selectedJournal.recapStats.volume, tone: 'neutral' },
+                    { label: 'Commissions', value: `$${selectedJournal.recapStats.commissions.toFixed(2)}`, tone: 'neutral' },
+                    { label: 'Net ROI', value: `${selectedJournal.recapStats.netRoi.toFixed(2)}%`, tone: 'neutral' },
+                  ].map(stat => (
+                    <div key={stat.label} className="p-4 rounded-2xl bg-accent/30 border border-border/50">
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">{stat.label}</p>
+                      <p className={cn(
+                        "text-lg font-bold",
+                        stat.tone === 'positive' ? "text-emerald-500" : stat.tone === 'negative' ? "text-rose-500" : "text-foreground"
+                      )}>
+                        {stat.value}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               <div className="space-y-8">
+                {selectedJournal.noteType !== 'session_recap' && (
                 <div className="p-6 rounded-3xl bg-slate-50 border border-slate-100 space-y-6">
                   <div className="space-y-2">
                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Why did you enter?</label>
@@ -421,6 +624,7 @@ export default function JournalScreen() {
                     </p>
                   </div>
                 </div>
+                )}
 
                 <div className="max-w-none">
                   {selectedJournal.content ? (
@@ -442,6 +646,7 @@ export default function JournalScreen() {
                 )}
               </div>
 
+              {selectedJournal.noteType !== 'session_recap' && (
               <div className="mt-12 pt-8 border-t border-border grid grid-cols-1 md:grid-cols-2 gap-8">
                 <section>
                   <h4 className="text-xs font-bold uppercase text-muted-foreground mb-4">Linked Session</h4>
@@ -472,6 +677,7 @@ export default function JournalScreen() {
                   )}
                 </section>
               </div>
+              )}
             </Card>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -583,14 +789,23 @@ export default function JournalScreen() {
                   placeholder="e.g. Monday Recap"
                 />
               </div>
-              <div className="space-y-2">
-                <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Date</label>
-                <Input
-                  type="date"
-                  value={draft.date || ''}
-                  onChange={(e) => setDraft(prev => prev && ({ ...prev, date: e.target.value }))}
-                />
-              </div>
+              {draft.noteType === 'session_recap' ? (
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Range</label>
+                  <div className="h-[38px] flex items-center px-3 rounded-xl bg-accent/30 border border-border text-xs font-bold text-muted-foreground whitespace-nowrap overflow-hidden text-ellipsis">
+                    {formatRecapTitle(draft.recapStartDate!, draft.recapEndDate!)}
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Date</label>
+                  <Input
+                    type="date"
+                    value={draft.date || ''}
+                    onChange={(e) => setDraft(prev => prev && ({ ...prev, date: e.target.value }))}
+                  />
+                </div>
+              )}
             </div>
 
             {(draft.tradeId || draft.sessionId) && (
@@ -611,6 +826,8 @@ export default function JournalScreen() {
               />
             </div>
 
+            {draft.noteType !== 'session_recap' && (
+            <>
             <div className="space-y-2">
               <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Why did you enter?</label>
               <textarea
@@ -648,6 +865,8 @@ export default function JournalScreen() {
                 onChange={(e) => setDraft(prev => prev && ({ ...prev, improvements: e.target.value }))}
               />
             </div>
+            </>
+            )}
 
             <div className="space-y-2">
               <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Tags (comma separated)</label>
@@ -657,6 +876,67 @@ export default function JournalScreen() {
                 onChange={(e) => setDraft(prev => prev && ({ ...prev, tags: e.target.value.split(',').map(t => t.trim()).filter(t => t !== '') }))}
               />
             </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* New Sessions Recap Modal */}
+      <Modal
+        isOpen={recapDraft !== null}
+        onClose={closeRecapDraft}
+        title="New Sessions Recap"
+        maxWidth="sm"
+        footer={
+          <>
+            <Button variant="outline" onClick={closeRecapDraft} disabled={isSavingRecap}>Cancel</Button>
+            <Button variant="primary" icon={isSavingRecap ? Loader2 : Save} onClick={saveRecapDraft} disabled={isSavingRecap}>
+              {isSavingRecap ? 'Creating...' : 'Create Recap'}
+            </Button>
+          </>
+        }
+      >
+        {recapDraft && (
+          <div className="space-y-5">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Start Date</label>
+                <Input
+                  type="date"
+                  value={recapDraft.startDate}
+                  onChange={(e) => setRecapDraft(prev => prev && ({ ...prev, startDate: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">End Date</label>
+                <Input
+                  type="date"
+                  value={recapDraft.endDate}
+                  onChange={(e) => setRecapDraft(prev => prev && ({ ...prev, endDate: e.target.value }))}
+                />
+              </div>
+            </div>
+
+            {accountOptions.length > 0 && (
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Account</label>
+                <select
+                  value={recapDraft.accountKey}
+                  onChange={(e) => setRecapDraft(prev => prev && ({ ...prev, accountKey: e.target.value }))}
+                  className="w-full bg-accent/30 border border-border rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+                >
+                  <option value="">All accounts</option>
+                  {accountOptions.map(a => (
+                    <option key={`${a.connectionId}::${a.accountId}`} value={`${a.connectionId}::${a.accountId}`}>
+                      {a.brokerName} — {a.accountName}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            <p className="text-xs text-muted-foreground">
+              Net P&L, contracts traded, volume, commissions, and ROI are pulled automatically from your trades in this range.
+            </p>
           </div>
         )}
       </Modal>
