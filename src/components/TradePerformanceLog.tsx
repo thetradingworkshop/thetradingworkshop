@@ -24,10 +24,11 @@ import {
   Calendar,
   BarChart3,
   MessageSquare,
-  LineChart
+  LineChart,
+  Link2
 } from 'lucide-react';
 import { Trade, TradeReview, TagCategory } from '../types';
-import { doc, getDoc, setDoc, serverTimestamp, collection, query, where, onSnapshot, deleteField } from 'firebase/firestore';
+import { doc, getDoc, setDoc, serverTimestamp, collection, query, where, onSnapshot, deleteField, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../context/AuthContext';
 import { useTrades } from '../context/TradeContext';
@@ -36,6 +37,7 @@ import { TradeCandleChart } from './TradeCandleChart';
 import { RunningPnlChart } from './RunningPnlChart';
 import { RichTextEditor, stripHtml } from './RichTextEditor';
 import { TradeAttachments } from './TradeAttachments';
+import { LinkTradeModal } from './LinkTradeModal';
 import { useMarketBars } from '../hooks/useMarketBars';
 import { getPointValue } from '../contractSpecs';
 
@@ -137,6 +139,7 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
   );
   const [showFilters, setShowFilters] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [isLinkModalOpen, setIsLinkModalOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [pendingDeleteIds, setPendingDeleteIds] = useState<string[] | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -350,6 +353,69 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
       setToast({ message: 'Failed to save trade review', type: 'error' });
     } finally {
       setIsSavingReview(false);
+      setTimeout(() => setToast(null), 3000);
+    }
+  };
+
+  // Moves a manually-entered trade's journal notes onto a later CSV-imported
+  // trade of the same real-world position, then removes the manual trade so
+  // it isn't double-counted in P&L/stats. Mirrors saveReview()'s own
+  // trades/trade_reviews write shape so the merged fields behave identically
+  // to a normal save on the target trade.
+  const handleLinkTrade = async (targetTradeId: string) => {
+    if (!selectedTrade || !user) return;
+    const sourceTrade = selectedTrade;
+    try {
+      const sourceReviewSnap = await getDoc(doc(db, 'trade_reviews', sourceTrade.id));
+      const sourceReview = sourceReviewSnap.exists() ? (sourceReviewSnap.data() as TradeReview) : review;
+
+      const targetReviewRef = doc(db, 'trade_reviews', targetTradeId);
+      const targetReviewSnap = await getDoc(targetReviewRef);
+      const targetHasNotes = targetReviewSnap.exists() &&
+        !!(stripHtml((targetReviewSnap.data() as TradeReview).verdict || '').trim() ||
+           stripHtml((targetReviewSnap.data() as TradeReview).lessonLearned || '').trim());
+      if (targetHasNotes && !window.confirm("The trade you picked already has notes. Linking will overwrite them with this manual trade's notes. Continue?")) {
+        return;
+      }
+
+      const targetTrade = trades.find(t => t.id === targetTradeId);
+      const mergedReview = omitUndefined({
+        ...sourceReview,
+        tradeId: targetTradeId,
+        sessionId: targetTrade?.sessionId,
+        userId: user.uid,
+        updatedAt: new Date().toISOString()
+      });
+      await setDoc(targetReviewRef, mergedReview, { merge: true });
+
+      await setDoc(doc(db, 'trades', targetTradeId), omitUndefined({
+        executionQuality: sourceReview.executionQuality,
+        strategyQuality: sourceReview.strategyQuality,
+        entryQuality: sourceReview.entryQuality,
+        exitQuality: sourceReview.exitQuality,
+        timingScore: sourceReview.timingScore,
+        behaviorFlags: sourceReview.behaviorFlags,
+        tags: sourceReview.tags,
+        verdict: sourceReview.verdict,
+        lessonLearned: sourceReview.lessonLearned,
+        strategy: sourceReview.strategy,
+        starRating: sourceReview.starRating,
+        initialTarget: sourceReview.initialTarget,
+        tradeRisk: sourceReview.tradeRisk,
+        plannedRMultiple: sourceReview.plannedRMultiple,
+        bestExitTime: sourceReview.bestExitTime,
+        updatedAt: serverTimestamp()
+      }), { merge: true });
+
+      await deleteDoc(doc(db, 'trade_reviews', sourceTrade.id));
+      await deleteTrades([sourceTrade.id]);
+
+      setSelectedId(targetTradeId);
+      setToast({ message: 'Linked — manual trade merged and removed', type: 'success' });
+    } catch (error) {
+      console.error('Error linking trade:', error);
+      setToast({ message: 'Failed to link trade', type: 'error' });
+    } finally {
       setTimeout(() => setToast(null), 3000);
     }
   };
@@ -588,10 +654,21 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
                 <div className="flex items-center space-x-3 mb-1">
                   <h2 className="text-2xl font-bold tracking-tight">Trade Details</h2>
                   <Badge variant="neutral" className="font-mono text-[10px]">{selectedTrade.id}</Badge>
+                  {selectedTrade.isManualEntry && <Badge variant="warning" className="text-[10px]">Manually entered</Badge>}
                 </div>
                 <p className="text-sm text-muted-foreground">Reconstructed from {selectedTrade.fills.length} execution fills</p>
               </div>
               <div className="flex items-center gap-2">
+                {selectedTrade.isManualEntry && (
+                  <button
+                    onClick={() => setIsLinkModalOpen(true)}
+                    className="p-2 hover:bg-primary/10 text-muted-foreground hover:text-primary rounded-full transition-colors"
+                    aria-label="Link to imported trade"
+                    title="Link to imported trade"
+                  >
+                    <Link2 className="w-5 h-5" />
+                  </button>
+                )}
                 <button
                   onClick={(e) => requestDeleteOne(selectedTrade.id, e)}
                   className="p-2 hover:bg-rose-500/10 text-muted-foreground hover:text-rose-600 rounded-full transition-colors"
@@ -1113,6 +1190,17 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
           </p>
         </div>
       </Modal>
+
+      {/* Link Manual Trade to Imported Trade Modal */}
+      {selectedTrade && selectedTrade.isManualEntry && (
+        <LinkTradeModal
+          isOpen={isLinkModalOpen}
+          onClose={() => setIsLinkModalOpen(false)}
+          sourceTrade={selectedTrade}
+          candidates={trades.filter(t => !t.isManualEntry && t.id !== selectedTrade.id)}
+          onConfirm={handleLinkTrade}
+        />
+      )}
 
       {/* Toast Notification */}
       {toast && (

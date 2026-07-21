@@ -185,6 +185,11 @@ export interface TradeTruth {
   wasValidAtEntry?: boolean;
   wasForced?: boolean;
   isViolation?: boolean;
+
+  // Set by AddTradeModal when a trade is entered by hand rather than
+  // imported. Not derived from `fills[].source`, which reconstructTrades()
+  // always overwrites to 'csv' regardless of the input orders' own source.
+  isManualEntry?: boolean;
 }
 
 export interface TradeDerivedMetrics {

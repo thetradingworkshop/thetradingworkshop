@@ -125,6 +125,7 @@ export function AddTradeModal({ isOpen, onClose, onSuccess }: AddTradeModalProps
         setError('Could not reconstruct a trade from these values.');
         return;
       }
+      trades.forEach(t => { t.isManualEntry = true; });
 
       await addTrades(trades);
       resetForm();
