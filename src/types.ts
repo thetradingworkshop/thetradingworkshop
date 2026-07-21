@@ -3,7 +3,7 @@ export type Role = 'admin' | 'user' | 'guest' | 'Admin' | 'Mentor' | 'Student' |
 // Fixed broker list — a user picks one of these when creating a named
 // account to organize imports under. Not user-extensible; add here to
 // support a new broker.
-export const BROKERS = ['Tradovate', 'NinjaTrader', 'Topstep', 'ThinkorSwim', 'Lucid'] as const;
+export const BROKERS = ['Tradovate', 'NinjaTrader', 'Topstep', 'ThinkorSwim', 'Lucid', 'Tradeify', 'MyFundedFutures'] as const;
 export type Broker = typeof BROKERS[number];
 
 export interface BrokerConnection {
