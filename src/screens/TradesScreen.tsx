@@ -18,10 +18,12 @@ import {
 } from 'lucide-react';
 import { useTrades } from '../context/TradeContext';
 import { TradePerformanceLog } from '../components/TradePerformanceLog';
+import { AddTradeModal } from '../components/AddTradeModal';
 
 export default function TradesScreen({ setActivePage }: { setActivePage: (page: string) => void }) {
   const { filteredTrades, setSelectedTradeForJournal, setSelectedSessionForJournal } = useTrades();
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [isAddTradeOpen, setIsAddTradeOpen] = useState(false);
 
   const handleAddJournal = (trade: any) => {
     setSelectedTradeForJournal(trade);
@@ -38,6 +40,9 @@ export default function TradesScreen({ setActivePage }: { setActivePage: (page: 
       <SectionHeader
         title="Trade Performance Log"
         subtitle="Detailed audit trail of all reconstructed trades and executions"
+        rightElement={
+          <Button variant="primary" icon={Plus} onClick={() => setIsAddTradeOpen(true)}>Add Trade</Button>
+        }
       />
 
       <TradePerformanceLog
@@ -46,11 +51,20 @@ export default function TradesScreen({ setActivePage }: { setActivePage: (page: 
         onAddDailyJournal={handleAddDailyJournal}
       />
 
+      <AddTradeModal
+        isOpen={isAddTradeOpen}
+        onClose={() => setIsAddTradeOpen(false)}
+        onSuccess={() => {
+          setIsAddTradeOpen(false);
+          setToast({ message: 'Trade added successfully', type: 'success' });
+        }}
+      />
+
       {toast && (
-        <Toast 
-          message={toast.message} 
-          type={toast.type} 
-          onClose={() => setToast(null)} 
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
         />
       )}
     </div>

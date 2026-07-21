@@ -33,9 +33,11 @@ export interface TradeFilterOptions {
 
 // Trades imported before per-account tagging existed have no accountId; the
 // server-side CSV upload route also hardcoded the literal "manual-account"
-// before real account selection existed. Both are treated as "Unassigned".
+// before real account selection existed, and reconstructTrades() itself
+// falls back to "manual" when called with no accountContext (e.g. Add Trade
+// with no account picked). All three are treated as "Unassigned".
 function isUnassigned(trade: Trade): boolean {
-  return !trade.accountId || trade.accountId === 'manual-account';
+  return !trade.accountId || trade.accountId === 'manual-account' || trade.accountId === 'manual';
 }
 
 enum OperationType {

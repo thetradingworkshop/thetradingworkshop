@@ -126,7 +126,7 @@ export type Order = {
   normalizedTimestamp?: string;
   commission?: number;
   fees?: number;
-  source?: 'csv' | 'api';
+  source?: 'csv' | 'api' | 'manual';
   importRunId?: string;
   
   // Snake case aliases for backward compatibility
