@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { cn, omitUndefined } from '@/src/utils';
 import { SectionHeader, Card, Button, Badge, Toast, Modal, Input } from '../components/Shared';
-import { Search, Plus, Calendar, Share2, MessageSquare, ExternalLink, RotateCcw, Trash2, BookOpen, Edit3, Link as LinkIcon, Zap, X, TrendingUp, TrendingDown, BrainCircuit, Save, Loader2, Star, FileText, BarChart3, FileBarChart } from 'lucide-react';
+import { Search, Plus, Calendar, Share2, MessageSquare, ExternalLink, RotateCcw, Trash2, BookOpen, Edit3, Link as LinkIcon, Zap, X, TrendingUp, TrendingDown, BrainCircuit, Save, Loader2, Star, FileText, BarChart3, FileBarChart, ChevronRight } from 'lucide-react';
 import { collection, query, where, onSnapshot, orderBy, addDoc, updateDoc, deleteDoc, doc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useTrades } from '../context/TradeContext';
 import { useAuth } from '../context/AuthContext';
 import { JournalEntry, Trade } from '../types';
 import { RichTextEditor, isContentEmpty, stripHtml } from '../components/RichTextEditor';
+import { RecapEquityChart } from '../components/RecapEquityChart';
 
 type JournalDraft = Partial<JournalEntry>;
 type NoteCategory = 'all' | 'favorites' | 'trade' | 'daily' | 'session_recap';
@@ -64,12 +65,25 @@ function formatRecapTitle(start: string, end: string): string {
 function computeRecapStats(rangeTrades: Trade[]): NonNullable<JournalEntry['recapStats']> {
   const netPnl = rangeTrades.reduce((s, t) => s + (t.realizedPnL || 0), 0);
   const grossPnl = rangeTrades.reduce((s, t) => s + (t.grossPnlCurrency ?? t.pnlCurrency ?? 0), 0);
-  const contractsTraded = rangeTrades.reduce((s, t) => s + (t.totalQuantity || 0), 0);
-  const volume = rangeTrades.reduce((s, t) => s + t.fills.reduce((fs, f) => fs + (f.quantity || 0), 0), 0);
+  const totalTrades = rangeTrades.length;
+  const winners = rangeTrades.filter(t => t.isWinner).length;
+  const losers = totalTrades - winners;
+  const winRate = totalTrades > 0 ? (winners / totalTrades) * 100 : 0;
   const commissions = rangeTrades.reduce((s, t) => s + (t.totalCommission || 0), 0);
-  const totalCost = rangeTrades.reduce((s, t) => s + (t.adjustedCost || 0), 0);
-  const netRoi = totalCost > 0 ? (netPnl / totalCost) * 100 : 0;
-  return { netPnl, grossPnl, contractsTraded, volume, commissions, netRoi, tradeCount: rangeTrades.length };
+  const volume = rangeTrades.reduce((s, t) => s + t.fills.reduce((fs, f) => fs + (f.quantity || 0), 0), 0);
+  const grossProfit = rangeTrades.filter(t => (t.realizedPnL || 0) > 0).reduce((s, t) => s + (t.realizedPnL || 0), 0);
+  const grossLoss = rangeTrades.filter(t => (t.realizedPnL || 0) < 0).reduce((s, t) => s + (t.realizedPnL || 0), 0);
+  const profitFactor = grossLoss < 0 ? grossProfit / Math.abs(grossLoss) : 0;
+
+  const byDate = new Map<string, number>();
+  rangeTrades.forEach(t => byDate.set(t.sessionDate, (byDate.get(t.sessionDate) || 0) + (t.realizedPnL || 0)));
+  let running = 0;
+  const equityCurve = [...byDate.keys()].sort().map(date => {
+    running += byDate.get(date)!;
+    return { date, cumPnl: Number(running.toFixed(2)) };
+  });
+
+  return { netPnl, grossPnl, totalTrades, winners, losers, winRate, commissions, volume, profitFactor, equityCurve };
 }
 
 export default function JournalScreen() {
@@ -90,6 +104,11 @@ export default function JournalScreen() {
   const [activeCategory, setActiveCategory] = useState<NoteCategory>('all');
   const [recapDraft, setRecapDraft] = useState<RecapDraft | null>(null);
   const [isSavingRecap, setIsSavingRecap] = useState(false);
+  const [isStatsExpanded, setIsStatsExpanded] = useState(false);
+
+  useEffect(() => {
+    setIsStatsExpanded(false);
+  }, [selectedJournal?.id]);
 
   const counts = useMemo(() => ({
     all: journals.length,
@@ -571,25 +590,86 @@ export default function JournalScreen() {
               </div>
 
               {selectedJournal.noteType === 'session_recap' && selectedJournal.recapStats && (
-                <div className="grid grid-cols-3 md:grid-cols-6 gap-4 mb-8">
-                  {[
-                    { label: 'Net P&L', value: `${selectedJournal.recapStats.netPnl >= 0 ? '+' : ''}$${selectedJournal.recapStats.netPnl.toFixed(2)}`, tone: selectedJournal.recapStats.netPnl >= 0 ? 'positive' : 'negative' },
-                    { label: 'Gross P&L', value: `${selectedJournal.recapStats.grossPnl >= 0 ? '+' : ''}$${selectedJournal.recapStats.grossPnl.toFixed(2)}`, tone: 'neutral' },
-                    { label: 'Contracts Traded', value: selectedJournal.recapStats.contractsTraded, tone: 'neutral' },
-                    { label: 'Volume', value: selectedJournal.recapStats.volume, tone: 'neutral' },
-                    { label: 'Commissions', value: `$${selectedJournal.recapStats.commissions.toFixed(2)}`, tone: 'neutral' },
-                    { label: 'Net ROI', value: `${selectedJournal.recapStats.netRoi.toFixed(2)}%`, tone: 'neutral' },
-                  ].map(stat => (
-                    <div key={stat.label} className="p-4 rounded-2xl bg-accent/30 border border-border/50">
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">{stat.label}</p>
-                      <p className={cn(
-                        "text-lg font-bold",
-                        stat.tone === 'positive' ? "text-emerald-500" : stat.tone === 'negative' ? "text-rose-500" : "text-foreground"
-                      )}>
-                        {stat.value}
+                <div className="mb-8 rounded-2xl border border-border/50 overflow-hidden">
+                  <button
+                    onClick={() => setIsStatsExpanded(v => !v)}
+                    className="w-full flex items-center gap-4 p-4 bg-accent/30 hover:bg-accent/40 transition-colors text-left"
+                  >
+                    <span className={cn(
+                      "shrink-0 w-6 h-6 rounded-md border border-border/60 flex items-center justify-center transition-transform",
+                      isStatsExpanded && "rotate-90"
+                    )}>
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </span>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Net P&L</span>
+                        <span className={cn("text-lg font-bold", selectedJournal.recapStats.netPnl >= 0 ? "text-emerald-500" : "text-rose-500")}>
+                          {selectedJournal.recapStats.netPnl >= 0 ? '+' : '-'}${Math.abs(selectedJournal.recapStats.netPnl).toFixed(2)}
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {selectedJournal.recapStats.totalTrades} trades · {selectedJournal.recapStats.winRate.toFixed(0)}% win rate
                       </p>
                     </div>
-                  ))}
+                  </button>
+
+                  {isStatsExpanded && (
+                    <div className="p-5 space-y-5 border-t border-border/50">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Net P&L</span>
+                        <span className={cn("text-lg font-bold", selectedJournal.recapStats.netPnl >= 0 ? "text-emerald-500" : "text-rose-500")}>
+                          {selectedJournal.recapStats.netPnl >= 0 ? '+' : '-'}${Math.abs(selectedJournal.recapStats.netPnl).toFixed(2)}
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          {selectedJournal.recapStats.totalTrades} trades · {selectedJournal.recapStats.winRate.toFixed(0)}% win rate
+                        </span>
+                      </div>
+
+                      {selectedJournal.recapStats.equityCurve.length > 1 && (
+                        <div className="h-[140px]">
+                          <RecapEquityChart points={selectedJournal.recapStats.equityCurve} />
+                        </div>
+                      )}
+
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+                        <div>
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Total Trades</p>
+                          <p className="text-base font-bold">{selectedJournal.recapStats.totalTrades}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Gross P&L</p>
+                          <p className={cn("text-base font-bold", selectedJournal.recapStats.grossPnl >= 0 ? "text-emerald-500" : "text-rose-500")}>
+                            {selectedJournal.recapStats.grossPnl >= 0 ? '+' : '-'}${Math.abs(selectedJournal.recapStats.grossPnl).toFixed(2)}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Winners / Losers</p>
+                          <p className="text-base font-bold">
+                            <span className="text-emerald-500">{selectedJournal.recapStats.winners}</span>
+                            {' / '}
+                            <span className="text-rose-500">{selectedJournal.recapStats.losers}</span>
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Commissions</p>
+                          <p className="text-base font-bold">${selectedJournal.recapStats.commissions.toFixed(2)}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Win Rate</p>
+                          <p className="text-base font-bold">{selectedJournal.recapStats.winRate.toFixed(2)}%</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Volume</p>
+                          <p className="text-base font-bold">{selectedJournal.recapStats.volume}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Profit Factor</p>
+                          <p className="text-base font-bold">{selectedJournal.recapStats.profitFactor.toFixed(2)}</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 

@@ -401,11 +401,15 @@ export interface JournalEntry {
   recapStats?: {
     netPnl: number;
     grossPnl: number;
-    contractsTraded: number;
-    volume: number;
+    totalTrades: number;
+    winners: number;
+    losers: number;
+    winRate: number; // percent, 0-100
     commissions: number;
-    netRoi: number;
-    tradeCount: number;
+    volume: number;
+    profitFactor: number;
+    // Cumulative realized P&L by day within the recap range, for the equity curve.
+    equityCurve: { date: string; cumPnl: number }[];
   };
 }
 
