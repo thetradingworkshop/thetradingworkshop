@@ -86,6 +86,28 @@ function computeRecapStats(rangeTrades: Trade[]): NonNullable<JournalEntry['reca
   return { netPnl, grossPnl, totalTrades, winners, losers, winRate, commissions, volume, profitFactor, equityCurve };
 }
 
+// Recap notes saved under an earlier shape of `recapStats` (before
+// equityCurve/winners/losers/winRate/profitFactor existed) would otherwise
+// throw when this screen reads those fields — and with no error boundary
+// anywhere in the app, that crash blanks the entire page, not just this
+// note. Recomputing from the live trades on read makes old notes self-heal
+// instead of crashing.
+function getRecapStatsForDisplay(journal: JournalDraft, trades: Trade[]): NonNullable<JournalEntry['recapStats']> | null {
+  const stats = journal.recapStats;
+  if (stats && Array.isArray(stats.equityCurve) && typeof stats.winRate === 'number') {
+    return stats;
+  }
+  if (!journal.recapStartDate || !journal.recapEndDate) return null;
+  const rangeTrades = trades.filter(t => {
+    if (t.sessionDate < journal.recapStartDate! || t.sessionDate > journal.recapEndDate!) return false;
+    if (journal.connectionId && journal.accountId) {
+      return t.connectionId === journal.connectionId && t.accountId === journal.accountId;
+    }
+    return true;
+  });
+  return computeRecapStats(rangeTrades);
+}
+
 export default function JournalScreen() {
   const { user } = useAuth();
   const {
@@ -109,6 +131,11 @@ export default function JournalScreen() {
   useEffect(() => {
     setIsStatsExpanded(false);
   }, [selectedJournal?.id]);
+
+  const recapStats = useMemo(
+    () => (selectedJournal?.noteType === 'session_recap' ? getRecapStatsForDisplay(selectedJournal, trades) : null),
+    [selectedJournal, trades]
+  );
 
   const counts = useMemo(() => ({
     all: journals.length,
@@ -589,7 +616,7 @@ export default function JournalScreen() {
                 </div>
               </div>
 
-              {selectedJournal.noteType === 'session_recap' && selectedJournal.recapStats && (
+              {selectedJournal.noteType === 'session_recap' && recapStats && (
                 <div className="mb-8 rounded-2xl border border-border/50 overflow-hidden">
                   <button
                     onClick={() => setIsStatsExpanded(v => !v)}
@@ -604,12 +631,12 @@ export default function JournalScreen() {
                     <div>
                       <div className="flex items-center gap-2">
                         <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Net P&L</span>
-                        <span className={cn("text-lg font-bold", selectedJournal.recapStats.netPnl >= 0 ? "text-emerald-500" : "text-rose-500")}>
-                          {selectedJournal.recapStats.netPnl >= 0 ? '+' : '-'}${Math.abs(selectedJournal.recapStats.netPnl).toFixed(2)}
+                        <span className={cn("text-lg font-bold", recapStats.netPnl >= 0 ? "text-emerald-500" : "text-rose-500")}>
+                          {recapStats.netPnl >= 0 ? '+' : '-'}${Math.abs(recapStats.netPnl).toFixed(2)}
                         </span>
                       </div>
                       <p className="text-xs text-muted-foreground mt-0.5">
-                        {selectedJournal.recapStats.totalTrades} trades · {selectedJournal.recapStats.winRate.toFixed(0)}% win rate
+                        {recapStats.totalTrades} trades · {recapStats.winRate.toFixed(0)}% win rate
                       </p>
                     </div>
                   </button>
@@ -618,54 +645,54 @@ export default function JournalScreen() {
                     <div className="p-5 space-y-5 border-t border-border/50">
                       <div className="flex items-center gap-2">
                         <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Net P&L</span>
-                        <span className={cn("text-lg font-bold", selectedJournal.recapStats.netPnl >= 0 ? "text-emerald-500" : "text-rose-500")}>
-                          {selectedJournal.recapStats.netPnl >= 0 ? '+' : '-'}${Math.abs(selectedJournal.recapStats.netPnl).toFixed(2)}
+                        <span className={cn("text-lg font-bold", recapStats.netPnl >= 0 ? "text-emerald-500" : "text-rose-500")}>
+                          {recapStats.netPnl >= 0 ? '+' : '-'}${Math.abs(recapStats.netPnl).toFixed(2)}
                         </span>
                         <span className="text-xs text-muted-foreground">
-                          {selectedJournal.recapStats.totalTrades} trades · {selectedJournal.recapStats.winRate.toFixed(0)}% win rate
+                          {recapStats.totalTrades} trades · {recapStats.winRate.toFixed(0)}% win rate
                         </span>
                       </div>
 
-                      {selectedJournal.recapStats.equityCurve.length > 1 && (
+                      {recapStats.equityCurve.length > 1 && (
                         <div className="h-[140px]">
-                          <RecapEquityChart points={selectedJournal.recapStats.equityCurve} />
+                          <RecapEquityChart points={recapStats.equityCurve} />
                         </div>
                       )}
 
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
                         <div>
                           <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Total Trades</p>
-                          <p className="text-base font-bold">{selectedJournal.recapStats.totalTrades}</p>
+                          <p className="text-base font-bold">{recapStats.totalTrades}</p>
                         </div>
                         <div>
                           <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Gross P&L</p>
-                          <p className={cn("text-base font-bold", selectedJournal.recapStats.grossPnl >= 0 ? "text-emerald-500" : "text-rose-500")}>
-                            {selectedJournal.recapStats.grossPnl >= 0 ? '+' : '-'}${Math.abs(selectedJournal.recapStats.grossPnl).toFixed(2)}
+                          <p className={cn("text-base font-bold", recapStats.grossPnl >= 0 ? "text-emerald-500" : "text-rose-500")}>
+                            {recapStats.grossPnl >= 0 ? '+' : '-'}${Math.abs(recapStats.grossPnl).toFixed(2)}
                           </p>
                         </div>
                         <div>
                           <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Winners / Losers</p>
                           <p className="text-base font-bold">
-                            <span className="text-emerald-500">{selectedJournal.recapStats.winners}</span>
+                            <span className="text-emerald-500">{recapStats.winners}</span>
                             {' / '}
-                            <span className="text-rose-500">{selectedJournal.recapStats.losers}</span>
+                            <span className="text-rose-500">{recapStats.losers}</span>
                           </p>
                         </div>
                         <div>
                           <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Commissions</p>
-                          <p className="text-base font-bold">${selectedJournal.recapStats.commissions.toFixed(2)}</p>
+                          <p className="text-base font-bold">${recapStats.commissions.toFixed(2)}</p>
                         </div>
                         <div>
                           <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Win Rate</p>
-                          <p className="text-base font-bold">{selectedJournal.recapStats.winRate.toFixed(2)}%</p>
+                          <p className="text-base font-bold">{recapStats.winRate.toFixed(2)}%</p>
                         </div>
                         <div>
                           <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Volume</p>
-                          <p className="text-base font-bold">{selectedJournal.recapStats.volume}</p>
+                          <p className="text-base font-bold">{recapStats.volume}</p>
                         </div>
                         <div>
                           <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Profit Factor</p>
-                          <p className="text-base font-bold">{selectedJournal.recapStats.profitFactor.toFixed(2)}</p>
+                          <p className="text-base font-bold">{recapStats.profitFactor.toFixed(2)}</p>
                         </div>
                       </div>
                     </div>

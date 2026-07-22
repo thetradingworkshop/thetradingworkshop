@@ -17,6 +17,7 @@ import DataConnectionsScreen from './screens/DataConnectionsScreen';
 import { DateProvider } from './context/DateContext';
 import { Loader2, LogIn } from 'lucide-react';
 import { Button } from './components/Shared';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 function AppContent() {
   const [activePage, setActivePage] = useState('dashboard');
@@ -91,12 +92,14 @@ function AppContent() {
   };
 
   return (
-    <AppShell 
-      activePage={activePage} 
+    <AppShell
+      activePage={activePage}
       setActivePage={setActivePage}
       userRole={userRole}
     >
-      {renderScreen()}
+      <ErrorBoundary resetKey={activePage}>
+        {renderScreen()}
+      </ErrorBoundary>
     </AppShell>
   );
 }
