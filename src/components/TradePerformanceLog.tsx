@@ -1006,29 +1006,6 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
                             )}
                           </div>
                         </div>
-
-                        <div className="p-4 rounded-2xl bg-accent/10 border border-border/50 space-y-5">
-                          <div className="space-y-2">
-                            <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Verdict / Summary</label>
-                            <RichTextEditor
-                              key={`verdict-${selectedTrade.id}`}
-                              initialValue={review.verdict || ''}
-                              onChange={(html) => setReview(prev => ({ ...prev, verdict: html }))}
-                              placeholder="What happened in this trade?"
-                              minHeightClass="min-h-[96px]"
-                            />
-                          </div>
-                          <div className="space-y-2">
-                            <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Lesson Learned</label>
-                            <RichTextEditor
-                              key={`lesson-${selectedTrade.id}`}
-                              initialValue={review.lessonLearned || ''}
-                              onChange={(html) => setReview(prev => ({ ...prev, lessonLearned: html }))}
-                              placeholder="What is the key takeaway?"
-                              minHeightClass="min-h-[96px]"
-                            />
-                          </div>
-                        </div>
                       </section>
                     </>
                   )}
@@ -1113,13 +1090,40 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
 
                 <div className="flex-1 overflow-hidden p-6">
                   {rightTab === 'chart' && (
-                    <TradeCandleChart
-                      trade={selectedTrade}
-                      market={market}
-                      isLoadingMarket={isLoadingMarket}
-                      timeframe={chartTimeframe}
-                      onTimeframeChange={setChartTimeframe}
-                    />
+                    <div className="h-full overflow-y-auto space-y-6 pr-1">
+                      <div className="h-[420px] shrink-0">
+                        <TradeCandleChart
+                          trade={selectedTrade}
+                          market={market}
+                          isLoadingMarket={isLoadingMarket}
+                          timeframe={chartTimeframe}
+                          onTimeframeChange={setChartTimeframe}
+                        />
+                      </div>
+
+                      <div className="p-4 rounded-2xl bg-accent/10 border border-border/50 space-y-5">
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Verdict / Summary</label>
+                          <RichTextEditor
+                            key={`verdict-${selectedTrade.id}`}
+                            initialValue={review.verdict || ''}
+                            onChange={(html) => setReview(prev => ({ ...prev, verdict: html }))}
+                            placeholder="What happened in this trade?"
+                            minHeightClass="min-h-[96px]"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Lesson Learned</label>
+                          <RichTextEditor
+                            key={`lesson-${selectedTrade.id}`}
+                            initialValue={review.lessonLearned || ''}
+                            onChange={(html) => setReview(prev => ({ ...prev, lessonLearned: html }))}
+                            placeholder="What is the key takeaway?"
+                            minHeightClass="min-h-[96px]"
+                          />
+                        </div>
+                      </div>
+                    </div>
                   )}
                   {rightTab === 'pnl' && <RunningPnlChart trade={selectedTrade} />}
                   {rightTab === 'notes' && (
