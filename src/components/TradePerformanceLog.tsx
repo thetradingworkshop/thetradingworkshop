@@ -794,16 +794,21 @@ export function TradePerformanceLog({ trades, title, subtitle }: TradePerformanc
                 <div className="flex-1 overflow-y-auto p-6 space-y-8">
                   {leftTab === 'stats' && (
                     <>
-                      {/* Trade Verdict */}
-                      <div className="p-6 rounded-3xl bg-indigo-500/5 border border-indigo-500/20 relative overflow-hidden">
-                        <div className="absolute top-0 right-0 p-4 opacity-5">
-                          <Zap className="w-12 h-12 text-indigo-500" />
+                      {/* Trade Verdict — the auto-computed insight from diagnostics,
+                          not the user's own Verdict/Summary note below (those used to
+                          be the same field, which just echoed the note back). Hidden
+                          when there's no genuine computed insight to show. */}
+                      {selectedTrade.diagnostics?.dataInsight && (
+                        <div className="p-6 rounded-3xl bg-indigo-500/5 border border-indigo-500/20 relative overflow-hidden">
+                          <div className="absolute top-0 right-0 p-4 opacity-5">
+                            <Zap className="w-12 h-12 text-indigo-500" />
+                          </div>
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-indigo-600 mb-2">Data Insight</p>
+                          <p className="text-sm font-medium text-slate-900 leading-relaxed italic">
+                            "{stripHtml(selectedTrade.diagnostics.dataInsight)}"
+                          </p>
                         </div>
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-indigo-600 mb-2">Data Insight</p>
-                        <p className="text-sm font-medium text-slate-900 leading-relaxed italic">
-                          "{stripHtml(selectedTrade.verdict)}"
-                        </p>
-                      </div>
+                      )}
 
                       {/* Trade Details */}
                       <section className="space-y-6">
