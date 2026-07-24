@@ -203,7 +203,7 @@ export function Modal({ isOpen, onClose, title, children, footer, maxWidth = 'md
   title: string; 
   children: React.ReactNode;
   footer?: React.ReactNode;
-  maxWidth?: 'sm' | 'md' | 'lg' | 'xl' | '2xl';
+  maxWidth?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | 'full';
 }) {
   if (!isOpen) return null;
 
@@ -213,11 +213,19 @@ export function Modal({ isOpen, onClose, title, children, footer, maxWidth = 'md
     lg: 'max-w-lg',
     xl: 'max-w-xl',
     '2xl': 'max-w-2xl',
+    full: 'max-w-none',
   };
-  
+
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-background/60 backdrop-blur-md animate-in fade-in duration-300">
-      <div className={cn("bg-card border border-border/60 rounded-3xl shadow-2xl w-full max-h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-4 duration-300", maxWidths[maxWidth])}>
+    <div className={cn(
+      "fixed inset-0 z-[100] flex items-center justify-center bg-background/60 backdrop-blur-md animate-in fade-in duration-300",
+      maxWidth === 'full' ? 'p-0' : 'p-4'
+    )}>
+      <div className={cn(
+        "bg-card border border-border/60 shadow-2xl w-full flex flex-col overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-4 duration-300",
+        maxWidth === 'full' ? 'h-full rounded-none' : 'max-h-[90vh] rounded-3xl',
+        maxWidths[maxWidth]
+      )}>
         <div className="px-8 py-6 border-b border-border/40 flex items-center justify-between shrink-0">
           <h3 className="text-2xl font-bold tracking-tight">{title}</h3>
           <button onClick={onClose} className="p-2 hover:bg-accent rounded-xl transition-all text-muted-foreground hover:text-foreground active:scale-90">

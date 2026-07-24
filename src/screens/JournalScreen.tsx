@@ -936,7 +936,7 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
         isOpen={draft !== null}
         onClose={closeDraft}
         title={draft?.id ? 'Edit Journal' : 'New Journal'}
-        maxWidth="lg"
+        maxWidth="full"
         footer={
           <>
             <Button variant="outline" onClick={closeDraft} disabled={isSaving}>Cancel</Button>
