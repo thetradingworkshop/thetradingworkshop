@@ -3,7 +3,7 @@ import { SectionHeader, Card, Button, Badge } from '../components/Shared';
 import { Upload, FileText, CheckCircle2, AlertCircle, ArrowRight, Info, ChevronDown, ChevronUp, Terminal, Loader2, Activity, Wallet } from 'lucide-react';
 import { parseTradovateCsv, reconstructTrades, ParseResult } from '../engine';
 import { Order, Trade, ReconstructionStep, BrokerAccount } from '../types';
-import { cn } from '@/src/utils';
+import { cn, pointsPerContract } from '@/src/utils';
 import { useTrades } from '../context/TradeContext';
 import { useAuth } from '../context/AuthContext';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
@@ -475,7 +475,7 @@ export default function ImportOrdersScreen({ setActivePage }: { setActivePage: (
                           "p-4 text-right font-bold",
                           trade.pnlPoints > 0 ? "text-emerald-500" : "text-rose-500"
                         )}>
-                          {trade.pnlPoints > 0 ? '+' : ''}{trade.pnlPoints.toFixed(2)}
+                          {trade.pnlPoints > 0 ? '+' : ''}{pointsPerContract(trade.pnlPoints, trade.totalQuantity).toFixed(2)}
                         </td>
                         <td className="p-4 text-right text-muted-foreground">{trade.orderCount}</td>
                       </tr>

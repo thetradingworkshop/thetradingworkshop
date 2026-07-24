@@ -544,7 +544,7 @@ export default function SessionDetailScreen() {
               </TableRow>
             </TableHeader>
             <tbody>
-              {filteredTrades.filter(t => t.isWinner).sort((a, b) => b.pnlPoints - a.pnlPoints).slice(0, 5).map((t, i) => (
+              {filteredTrades.filter(t => t.isWinner).sort((a, b) => b.realizedPnL - a.realizedPnL).slice(0, 5).map((t, i) => (
                 <TableRow key={i}>
                   <TableCell>
                     <div className="font-bold text-foreground">{t.symbol}</div>
@@ -553,7 +553,7 @@ export default function SessionDetailScreen() {
                   <TableCell className="text-sm font-medium text-muted-foreground">{(t.holdTimeSeconds / 60).toFixed(1)}m</TableCell>
                   <TableCell className="text-right text-sm font-medium text-muted-foreground">{t.fills.length} Fills</TableCell>
                   <TableCell className="text-right">
-                    <div className="font-bold text-emerald-600">+${t.pnlPoints.toFixed(2)}</div>
+                    <div className="font-bold text-emerald-600">+${t.realizedPnL.toFixed(2)}</div>
                     <div className="flex flex-col items-end gap-1 mt-1.5">
                       <Badge variant="positive" className="text-[9px] px-1.5 py-0">{t.tradeGrade} Entry</Badge>
                       {t.intentId && (
@@ -597,7 +597,7 @@ export default function SessionDetailScreen() {
                   <TableCell className="text-sm font-medium text-rose-600">{t.holdTimeSeconds.toFixed(0)}s</TableCell>
                   <TableCell className="text-right text-sm font-medium text-muted-foreground">{t.fills.length} Fills</TableCell>
                   <TableCell className="text-right">
-                    <div className="font-bold text-rose-600">-${Math.abs(t.pnlPoints).toFixed(2)}</div>
+                    <div className="font-bold text-rose-600">-${Math.abs(t.realizedPnL).toFixed(2)}</div>
                     <div className="flex flex-col items-end gap-1 mt-1.5">
                       <Badge variant="negative" className="text-[9px] px-1.5 py-0">{t.tradeGrade} Quality</Badge>
                       {t.intentId && (

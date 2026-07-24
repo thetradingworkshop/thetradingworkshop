@@ -105,21 +105,25 @@ export const buildTradeStats = (trades: Trade[]): TradeStats | null => {
   const winners = validTrades.filter(t => (t.pnlPoints || 0) > 0);
   const losers = validTrades.filter(t => (t.pnlPoints || 0) < 0);
   const winRate = validTrades.length > 0 ? (winners.length / validTrades.length) * 100 : 0;
-  
-  const totalProfit = winners.reduce((sum, t) => sum + (t.pnlPoints || 0), 0);
-  const totalLoss = Math.abs(losers.reduce((sum, t) => sum + (t.pnlPoints || 0), 0));
-  
+
+  // Dollar-denominated (not raw points) — the UI shows these next to (and
+  // styled like) "Net P&L", so they need to be actual currency, and staying
+  // in points would also break as soon as trades span symbols with
+  // different point values (raw points aren't comparable across symbols).
+  const totalProfitDollars = winners.reduce((sum, t) => sum + (t.realizedPnL || 0), 0);
+  const totalLossDollars = Math.abs(losers.reduce((sum, t) => sum + (t.realizedPnL || 0), 0));
+
   let profitFactor = 0;
-  if (totalLoss === 0) {
-    profitFactor = totalProfit; // If no losses, PF is total wins
-  } else if (totalProfit === 0) {
+  if (totalLossDollars === 0) {
+    profitFactor = totalProfitDollars; // If no losses, PF is total wins
+  } else if (totalProfitDollars === 0) {
     profitFactor = 0;
   } else {
-    profitFactor = totalProfit / totalLoss;
+    profitFactor = totalProfitDollars / totalLossDollars;
   }
 
-  const avgWinner = winners.length > 0 ? totalProfit / winners.length : 0;
-  const avgLoser = losers.length > 0 ? totalLoss / losers.length : 0;
+  const avgWinner = winners.length > 0 ? totalProfitDollars / winners.length : 0;
+  const avgLoser = losers.length > 0 ? totalLossDollars / losers.length : 0;
 
   const sortedTrades = [...validTrades].sort((a, b) => 
     new Date(a.entryTime).getTime() - new Date(b.entryTime).getTime()
@@ -165,16 +169,16 @@ export const buildTradeStats = (trades: Trade[]): TradeStats | null => {
     { name: 'F', value: gradePct('F'), color: '#ef4444' },
   ].filter(g => g.value > 0);
 
-  const pnlByTrade = validTrades.slice(-10).map((t, i) => ({ 
-    id: `T${Math.max(0, validTrades.length - 10) + i + 1}`, 
-    pnl: Number((t.pnlPoints || 0).toFixed(2)) || 0
+  const pnlByTrade = validTrades.slice(-10).map((t, i) => ({
+    id: `T${Math.max(0, validTrades.length - 10) + i + 1}`,
+    pnl: Number((t.realizedPnL || 0).toFixed(2)) || 0
   }));
 
   const hourly = validTrades.reduce((acc, t) => {
     try {
       const hour = new Date(t.entryTime).getHours();
       const label = hour >= 12 ? `${hour === 12 ? 12 : hour - 12}pm` : `${hour}am`;
-      acc[label] = (acc[label] || 0) + (t.pnlPoints || 0);
+      acc[label] = (acc[label] || 0) + (t.realizedPnL || 0);
     } catch (e) {
       console.warn("Invalid entryTime for trade:", t.id);
     }

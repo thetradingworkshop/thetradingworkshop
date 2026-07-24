@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect, useCallback } from 'react';
-import { cn, gradeBadgeVariant } from '@/src/utils';
+import { cn, gradeBadgeVariant, pointsPerContract } from '@/src/utils';
 import { SectionHeader, Scorecard, Card, Badge, Button, Table, TableHeader, TableRow, TableHead, TableCell, Toast, Modal } from '../components/Shared';
 import { 
   EquityCurveChart, 
@@ -803,7 +803,7 @@ export default function DashboardScreen() {
                         "font-black",
                         trade.pnlPoints >= 0 ? "text-emerald-600" : "text-rose-600"
                       )}>
-                        {trade.pnlPoints >= 0 ? '+' : ''}{trade.pnlPoints.toFixed(2)}
+                        {trade.pnlPoints >= 0 ? '+' : ''}{pointsPerContract(trade.pnlPoints, trade.totalQuantity).toFixed(2)}
                       </span>
                     </TableCell>
                     <TableCell>

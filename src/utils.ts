@@ -35,3 +35,14 @@ export function gradeBadgeVariant(grade?: string | null): 'positive' | 'info' | 
       return 'neutral';
   }
 }
+
+/**
+ * `Trade.pnlPoints` is quantity-scaled — it's (avgExitPrice - avgEntryPrice) *
+ * totalQuantity, since that's what grossPnlCurrency multiplies by point
+ * value to get correct dollar P&L. Any UI showing "Points" to the user
+ * (a price differential) needs to divide back out by quantity, or a
+ * 10-contract trade that moved 12 points shows "120 points" instead of 12.
+ */
+export function pointsPerContract(pnlPoints: number, totalQuantity: number): number {
+  return totalQuantity > 0 ? pnlPoints / totalQuantity : 0;
+}

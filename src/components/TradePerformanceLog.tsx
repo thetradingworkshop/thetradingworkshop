@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { cn, gradeBadgeVariant, omitUndefined } from '@/src/utils';
+import { cn, gradeBadgeVariant, omitUndefined, pointsPerContract } from '@/src/utils';
 import { Card, Badge, Button, Input, Toast, Modal } from './Shared';
 import {
   Search,
@@ -609,7 +609,7 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
                     "px-6 py-5 text-right font-bold",
                     trade.isWinner ? "text-emerald-500" : "text-rose-500"
                   )}>
-                    {trade.isWinner ? '+' : ''}{trade.pnlPoints.toFixed(2)}
+                    {trade.isWinner ? '+' : ''}{pointsPerContract(trade.pnlPoints, trade.totalQuantity).toFixed(2)}
                   </td>
                   <td className="px-6 py-5 text-center">
                     <Badge variant={gradeBadgeVariant(trade.tradeGrade)}>
@@ -760,14 +760,11 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
                           </StatRow>
                           <StatRow label="Points">
                             <span className={selectedTrade.pnlPoints >= 0 ? 'text-emerald-500' : 'text-rose-500'}>
-                              {selectedTrade.pnlPoints >= 0 ? '+' : ''}{selectedTrade.pnlPoints.toFixed(2)}
+                              {selectedTrade.pnlPoints >= 0 ? '+' : ''}{pointsPerContract(selectedTrade.pnlPoints, selectedTrade.totalQuantity).toFixed(2)}
                             </span>
                           </StatRow>
-                          {typeof selectedTrade.ticks === 'number' && (
-                            <>
-                              <StatRow label="Ticks">{selectedTrade.ticks}</StatRow>
-                              <StatRow label="Ticks Per Contract">{selectedTrade.ticksPerContract}</StatRow>
-                            </>
+                          {typeof selectedTrade.ticksPerContract === 'number' && (
+                            <StatRow label="Ticks">{selectedTrade.ticksPerContract}</StatRow>
                           )}
                           <StatRow label="Gross P&amp;L">
                             <span className={(selectedTrade.grossPnlCurrency ?? selectedTrade.realizedPnL) >= 0 ? 'text-emerald-500' : 'text-rose-500'}>
@@ -881,7 +878,7 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
                               if (typeof selectedTrade.tradeRisk !== 'number') return '--';
                               const riskPerContract = Math.abs(selectedTrade.avgEntryPrice - selectedTrade.tradeRisk);
                               if (riskPerContract === 0) return '--';
-                              const realizedR = selectedTrade.pnlPoints / riskPerContract;
+                              const realizedR = pointsPerContract(selectedTrade.pnlPoints, selectedTrade.totalQuantity) / riskPerContract;
                               return (
                                 <span className={realizedR >= 0 ? 'text-emerald-500' : 'text-rose-500'}>
                                   {realizedR >= 0 ? '+' : ''}{realizedR.toFixed(2)}R
