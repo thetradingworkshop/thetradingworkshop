@@ -118,7 +118,7 @@ function EditableStatRow({
 
 export function TradePerformanceLog({ trades, title, subtitle }: TradePerformanceLogProps) {
   const { user } = useAuth();
-  const { deleteTrades } = useTrades();
+  const { deleteTrades, tradeIdToOpen, setTradeIdToOpen } = useTrades();
   const [searchQuery, setSearchQuery] = useState('');
   // Holds only the id, not a snapshot of the trade object — deriving
   // selectedTrade from the live `trades` prop below means it automatically
@@ -126,6 +126,17 @@ export function TradePerformanceLog({ trades, title, subtitle }: TradePerformanc
   // fields), instead of showing stale data until the drawer is reopened.
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selectedTrade = useMemo(() => trades.find(t => t.id === selectedId) ?? null, [trades, selectedId]);
+
+  // Cross-screen open request (e.g. "View Trade Details" from a Journal
+  // Trade Note) — open the drawer once the requested trade is actually
+  // present in this instance's trades, then clear the request so it doesn't
+  // reopen on a later remount.
+  useEffect(() => {
+    if (tradeIdToOpen && trades.some(t => t.id === tradeIdToOpen)) {
+      setSelectedId(tradeIdToOpen);
+      setTradeIdToOpen(null);
+    }
+  }, [tradeIdToOpen, trades]);
   // undefined = the default narrow window tightly bracketing the trade;
   // an explicit interval fetches a longer lookback for top-down context.
   const [chartTimeframe, setChartTimeframe] = useState<string | undefined>(undefined);

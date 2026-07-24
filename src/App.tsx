@@ -75,7 +75,7 @@ function AppContent() {
       case 'trades':
         return <TradesScreen />;
       case 'journal':
-        return <JournalScreen />;
+        return <JournalScreen setActivePage={setActivePage} />;
       case 'range':
         return <RangeAnalysisScreen />;
       case 'mentor':

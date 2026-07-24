@@ -116,6 +116,12 @@ interface TradeContextType {
   setSelectedTradeForJournal: (trade: Trade | null) => void;
   selectedSessionForJournal: { sessionId: string; sessionDate: string } | null;
   setSelectedSessionForJournal: (session: { sessionId: string; sessionDate: string } | null) => void;
+  // Cross-screen request to open a specific trade's detail drawer — set from
+  // the Journal screen's "View Trade Details" button, consumed by whichever
+  // TradePerformanceLog instance mounts next (e.g. after switching to the
+  // Trades screen), then cleared.
+  tradeIdToOpen: string | null;
+  setTradeIdToOpen: (tradeId: string | null) => void;
   isLoading: boolean;
   error: string | null;
 }
@@ -128,6 +134,7 @@ export function TradeProvider({ children }: { children: ReactNode }) {
   const [isLiveSyncing, setIsLiveSyncing] = useState(false);
   const [selectedTradeForJournal, setSelectedTradeForJournal] = useState<Trade | null>(null);
   const [selectedSessionForJournal, setSelectedSessionForJournal] = useState<{ sessionId: string; sessionDate: string } | null>(null);
+  const [tradeIdToOpen, setTradeIdToOpen] = useState<string | null>(null);
   const [accountFilter, setAccountFilterState] = useState('all');
   const [accountOptions, setAccountOptions] = useState<AccountOption[]>([]);
 
@@ -439,6 +446,8 @@ export function TradeProvider({ children }: { children: ReactNode }) {
       setSelectedTradeForJournal,
       selectedSessionForJournal,
       setSelectedSessionForJournal,
+      tradeIdToOpen,
+      setTradeIdToOpen,
       isLoading,
       error
     }}>

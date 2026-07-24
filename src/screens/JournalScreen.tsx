@@ -108,12 +108,12 @@ function getRecapStatsForDisplay(journal: JournalDraft, trades: Trade[]): NonNul
   return computeRecapStats(rangeTrades);
 }
 
-export default function JournalScreen() {
+export default function JournalScreen({ setActivePage }: { setActivePage: (page: string) => void }) {
   const { user } = useAuth();
   const {
     selectedTradeForJournal, setSelectedTradeForJournal,
     selectedSessionForJournal, setSelectedSessionForJournal,
-    trades, accountOptions,
+    trades, accountOptions, setTradeIdToOpen,
   } = useTrades();
   const [selectedJournal, setSelectedJournal] = useState<any>(null);
   const [journals, setJournals] = useState<any[]>([]);
@@ -136,6 +136,17 @@ export default function JournalScreen() {
     () => (selectedJournal?.noteType === 'session_recap' ? getRecapStatsForDisplay(selectedJournal, trades) : null),
     [selectedJournal, trades]
   );
+
+  const linkedTrade = useMemo(
+    () => (selectedJournal?.tradeId ? trades.find(t => t.id === selectedJournal.tradeId) ?? null : null),
+    [selectedJournal, trades]
+  );
+
+  const viewLinkedTradeDetails = () => {
+    if (!linkedTrade) return;
+    setTradeIdToOpen(linkedTrade.id);
+    setActivePage('trades');
+  };
 
   const counts = useMemo(() => ({
     all: journals.length,
@@ -700,8 +711,46 @@ export default function JournalScreen() {
                 </div>
               )}
 
+              {linkedTrade && (
+                <div className="mb-8 p-5 rounded-2xl bg-accent/10 border border-border/50 space-y-4">
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Net P&L</p>
+                      <p className={cn("text-xl font-bold", linkedTrade.realizedPnL >= 0 ? "text-emerald-500" : "text-rose-500")}>
+                        {linkedTrade.realizedPnL >= 0 ? '+' : '-'}${Math.abs(linkedTrade.realizedPnL).toFixed(2)}
+                      </p>
+                    </div>
+                    <Button variant="primary" onClick={viewLinkedTradeDetails}>View Trade Details</Button>
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-4 pt-4 border-t border-border/40">
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Contracts</p>
+                      <p className="text-sm font-bold">{linkedTrade.totalQuantity}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Volume</p>
+                      <p className="text-sm font-bold">{linkedTrade.fills.reduce((s, f) => s + f.quantity, 0)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Commissions</p>
+                      <p className="text-sm font-bold">${(linkedTrade.totalCommission || 0).toFixed(2)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Net ROI</p>
+                      <p className="text-sm font-bold">{(linkedTrade.netRoi || 0).toFixed(2)}%</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Gross P&L</p>
+                      <p className={cn("text-sm font-bold", (linkedTrade.grossPnlCurrency ?? linkedTrade.pnlCurrency) >= 0 ? "text-emerald-500" : "text-rose-500")}>
+                        {(linkedTrade.grossPnlCurrency ?? linkedTrade.pnlCurrency) >= 0 ? '+' : '-'}${Math.abs(linkedTrade.grossPnlCurrency ?? linkedTrade.pnlCurrency).toFixed(2)}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div className="space-y-8">
-                {selectedJournal.noteType !== 'session_recap' && (
+                {selectedJournal.noteType !== 'session_recap' && !linkedTrade && (
                 <div className="p-6 rounded-3xl bg-slate-50 border border-slate-100 space-y-6">
                   <div className="space-y-2">
                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Why did you enter?</label>
@@ -777,8 +826,13 @@ export default function JournalScreen() {
                 </section>
                 <section>
                   <h4 className="text-xs font-bold uppercase text-muted-foreground mb-4">Linked Trade</h4>
-                  {selectedJournal.tradeId ? (
-                    <Badge variant="neutral" className="font-mono">{selectedJournal.tradeId}</Badge>
+                  {linkedTrade ? (
+                    <p className="text-xs text-muted-foreground italic">Shown above.</p>
+                  ) : selectedJournal.tradeId ? (
+                    <div className="space-y-1">
+                      <Badge variant="neutral" className="font-mono">{selectedJournal.tradeId}</Badge>
+                      <p className="text-xs text-muted-foreground italic">This trade no longer exists.</p>
+                    </div>
                   ) : (
                     <p className="text-xs text-muted-foreground italic">No trade linked.</p>
                   )}
