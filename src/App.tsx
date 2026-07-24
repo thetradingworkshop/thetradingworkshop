@@ -73,7 +73,7 @@ function AppContent() {
       case 'sessions':
         return <SessionDetailScreen />;
       case 'trades':
-        return <TradesScreen setActivePage={setActivePage} />;
+        return <TradesScreen />;
       case 'journal':
         return <JournalScreen />;
       case 'range':

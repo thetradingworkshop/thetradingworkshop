@@ -20,20 +20,10 @@ import { useTrades } from '../context/TradeContext';
 import { TradePerformanceLog } from '../components/TradePerformanceLog';
 import { AddTradeModal } from '../components/AddTradeModal';
 
-export default function TradesScreen({ setActivePage }: { setActivePage: (page: string) => void }) {
-  const { filteredTrades, setSelectedTradeForJournal, setSelectedSessionForJournal } = useTrades();
+export default function TradesScreen() {
+  const { filteredTrades } = useTrades();
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [isAddTradeOpen, setIsAddTradeOpen] = useState(false);
-
-  const handleAddJournal = (trade: any) => {
-    setSelectedTradeForJournal(trade);
-    setActivePage('journal');
-  };
-
-  const handleAddDailyJournal = (trade: any) => {
-    setSelectedSessionForJournal({ sessionId: trade.sessionId, sessionDate: trade.sessionDate });
-    setActivePage('journal');
-  };
 
   return (
     <div className="max-w-[1600px] mx-auto space-y-8 pb-12">
@@ -45,11 +35,7 @@ export default function TradesScreen({ setActivePage }: { setActivePage: (page: 
         }
       />
 
-      <TradePerformanceLog
-        trades={filteredTrades}
-        onAddJournal={handleAddJournal}
-        onAddDailyJournal={handleAddDailyJournal}
-      />
+      <TradePerformanceLog trades={filteredTrades} />
 
       <AddTradeModal
         isOpen={isAddTradeOpen}

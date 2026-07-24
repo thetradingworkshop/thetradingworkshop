@@ -21,21 +21,19 @@ import {
   Flag,
   Trash2,
   AlertTriangle,
-  Calendar,
   BarChart3,
-  MessageSquare,
   LineChart,
   Link2
 } from 'lucide-react';
 import { Trade, TradeReview, TagCategory } from '../types';
-import { doc, getDoc, setDoc, serverTimestamp, collection, query, where, onSnapshot, deleteField, deleteDoc } from 'firebase/firestore';
+import { doc, getDoc, getDocs, addDoc, setDoc, serverTimestamp, collection, query, where, onSnapshot, deleteField, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../context/AuthContext';
 import { useTrades } from '../context/TradeContext';
 import { TagCategoriesPicker } from './TagCategoriesPicker';
 import { TradeCandleChart } from './TradeCandleChart';
 import { RunningPnlChart } from './RunningPnlChart';
-import { RichTextEditor, stripHtml } from './RichTextEditor';
+import { RichTextEditor, stripHtml, isContentEmpty } from './RichTextEditor';
 import { TradeAttachments } from './TradeAttachments';
 import { LinkTradeModal } from './LinkTradeModal';
 import { useMarketBars } from '../hooks/useMarketBars';
@@ -43,8 +41,6 @@ import { getPointValue } from '../contractSpecs';
 
 interface TradePerformanceLogProps {
   trades: Trade[];
-  onAddJournal?: (trade: Trade) => void;
-  onAddDailyJournal?: (trade: Trade) => void;
   title?: string;
   subtitle?: string;
 }
@@ -119,7 +115,7 @@ function EditableStatRow({
   );
 }
 
-export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, title, subtitle }: TradePerformanceLogProps) {
+export function TradePerformanceLog({ trades, title, subtitle }: TradePerformanceLogProps) {
   const { user } = useAuth();
   const { deleteTrades } = useTrades();
   const [searchQuery, setSearchQuery] = useState('');
@@ -145,7 +141,7 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
   const [isDeleting, setIsDeleting] = useState(false);
   const [tagCategories, setTagCategories] = useState<TagCategory[]>([]);
   const [leftTab, setLeftTab] = useState<'stats' | 'executions' | 'attachments'>('stats');
-  const [rightTab, setRightTab] = useState<'chart' | 'notes' | 'pnl'>('chart');
+  const [rightTab, setRightTab] = useState<'chart' | 'pnl'>('chart');
 
   useEffect(() => {
     if (!user) return;
@@ -307,6 +303,41 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
     }
   }, [selectedTrade?.id]);
 
+  // Keeps this trade's Verdict/Summary and Lesson Learned in sync with a
+  // tradeId-linked entry in the `journals` collection, so they show up as a
+  // "Trade Note" in the Notebook instead of being invisible outside this
+  // drawer. Looks the entry up by tradeId (rather than a deterministic doc
+  // id) since a Trade Note for this trade may already exist from before this
+  // syncing existed.
+  const syncTradeNote = async (verdict: string, lessonLearned: string) => {
+    if (!selectedTrade || !user) return;
+    const sections: string[] = [];
+    if (!isContentEmpty(verdict)) sections.push(`<p><strong>Verdict / Summary</strong></p>${verdict}`);
+    if (!isContentEmpty(lessonLearned)) sections.push(`<p><strong>Lesson Learned</strong></p>${lessonLearned}`);
+    if (sections.length === 0) return;
+
+    const content = sections.join('');
+    const now = new Date().toISOString();
+    const q = query(collection(db, 'journals'), where('userId', '==', user.uid), where('tradeId', '==', selectedTrade.id));
+    const existing = await getDocs(q);
+    if (!existing.empty) {
+      await setDoc(existing.docs[0].ref, { content, updatedAt: now }, { merge: true });
+    } else {
+      await addDoc(collection(db, 'journals'), {
+        userId: user.uid,
+        tradeId: selectedTrade.id,
+        sessionId: selectedTrade.sessionId,
+        title: `Trade Note — ${selectedTrade.symbol} ${selectedTrade.direction}`,
+        date: selectedTrade.sessionDate,
+        content,
+        tags: [],
+        status: 'private',
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+  };
+
   const saveReview = async () => {
     if (!selectedTrade || !user) return;
     setIsSavingReview(true);
@@ -320,6 +351,7 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
         updatedAt: new Date().toISOString()
       });
       await setDoc(reviewRef, reviewData, { merge: true });
+      await syncTradeNote(review.verdict || '', review.lessonLearned || '');
 
       // Also merge the reviewable fields back onto the trade itself — otherwise a
       // manual score change here never shows up in the Trades table or anywhere
@@ -1063,12 +1095,11 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
                 </div>
               </div>
 
-              {/* Right Pane: Chart / Notes / Running P&L */}
+              {/* Right Pane: Chart / Running P&L */}
               <div className="flex-1 flex flex-col overflow-hidden">
                 <div className="flex items-center gap-1 p-4 border-b border-border shrink-0">
                   {([
                     { id: 'chart', label: 'Chart', icon: BarChart3 },
-                    { id: 'notes', label: 'Notes', icon: MessageSquare },
                     { id: 'pnl', label: 'Running P&L', icon: LineChart },
                   ] as const).map(tab => {
                     const Icon = tab.icon;
@@ -1102,63 +1133,36 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
                       </div>
 
                       <div className="p-4 rounded-2xl bg-accent/10 border border-border/50 space-y-5">
-                        <div className="space-y-2">
-                          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Verdict / Summary</label>
-                          <RichTextEditor
-                            key={`verdict-${selectedTrade.id}`}
-                            initialValue={review.verdict || ''}
-                            onChange={(html) => setReview(prev => ({ ...prev, verdict: html }))}
-                            placeholder="What happened in this trade?"
-                            minHeightClass="min-h-[96px]"
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Lesson Learned</label>
-                          <RichTextEditor
-                            key={`lesson-${selectedTrade.id}`}
-                            initialValue={review.lessonLearned || ''}
-                            onChange={(html) => setReview(prev => ({ ...prev, lessonLearned: html }))}
-                            placeholder="What is the key takeaway?"
-                            minHeightClass="min-h-[96px]"
-                          />
-                        </div>
+                        {isLoadingReview ? (
+                          <p className="text-xs text-muted-foreground italic">Loading notes...</p>
+                        ) : (
+                          <>
+                            <div className="space-y-2">
+                              <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Verdict / Summary</label>
+                              <RichTextEditor
+                                key={`verdict-${selectedTrade.id}`}
+                                initialValue={review.verdict || ''}
+                                onChange={(html) => setReview(prev => ({ ...prev, verdict: html }))}
+                                placeholder="What happened in this trade?"
+                                minHeightClass="min-h-[96px]"
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Lesson Learned</label>
+                              <RichTextEditor
+                                key={`lesson-${selectedTrade.id}`}
+                                initialValue={review.lessonLearned || ''}
+                                onChange={(html) => setReview(prev => ({ ...prev, lessonLearned: html }))}
+                                placeholder="What is the key takeaway?"
+                                minHeightClass="min-h-[96px]"
+                              />
+                            </div>
+                          </>
+                        )}
                       </div>
                     </div>
                   )}
                   {rightTab === 'pnl' && <RunningPnlChart trade={selectedTrade} />}
-                  {rightTab === 'notes' && (
-                    <div className="h-full flex flex-col items-center justify-center space-y-3 max-w-md mx-auto">
-                      {onAddJournal && (
-                        <Button
-                          variant="primary"
-                          className="w-full py-4 rounded-2xl flex items-center justify-center space-x-2"
-                          onClick={() => {
-                            onAddJournal(selectedTrade);
-                            setSelectedId(null);
-                          }}
-                        >
-                          <BookOpen className="w-4 h-4" />
-                          <span>Trade Note</span>
-                        </Button>
-                      )}
-                      {onAddDailyJournal && (
-                        <Button
-                          variant="outline"
-                          className="w-full py-4 rounded-2xl flex items-center justify-center space-x-2"
-                          onClick={() => {
-                            onAddDailyJournal(selectedTrade);
-                            setSelectedId(null);
-                          }}
-                        >
-                          <Calendar className="w-4 h-4" />
-                          <span>Daily Journal</span>
-                        </Button>
-                      )}
-                      {!onAddJournal && !onAddDailyJournal && (
-                        <p className="text-xs text-muted-foreground italic">Journal linking not available here.</p>
-                      )}
-                    </div>
-                  )}
                 </div>
               </div>
             </div>
