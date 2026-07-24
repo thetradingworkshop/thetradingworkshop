@@ -500,102 +500,109 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
   return (
     <div className="flex flex-col h-[calc(100vh-120px)] gap-6">
       <div className="flex flex-1 gap-6 overflow-hidden">
-        {/* Categories */}
-      <div className="w-[220px] flex flex-col gap-4 shrink-0">
+        {/* Categories — each one expands into its note list inline (accordion),
+            instead of the list living in its own always-visible column, so the
+            detail pane on the right gets that width back. */}
+      <div className="w-[300px] flex flex-col gap-4 shrink-0 overflow-y-auto pr-1">
         <h2 className="text-xl font-bold">Notebook</h2>
         <Card className="p-2 space-y-1" noPadding>
           {CATEGORIES.map(cat => {
             const Icon = cat.icon;
             const isActive = activeCategory === cat.id;
             return (
-              <button
-                key={cat.id}
-                onClick={() => setActiveCategory(cat.id)}
-                className={cn(
-                  "w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-medium transition-colors",
-                  isActive ? "bg-primary text-primary-foreground" : "hover:bg-accent text-foreground"
+              <div key={cat.id}>
+                <button
+                  onClick={() => setActiveCategory(cat.id)}
+                  className={cn(
+                    "w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-medium transition-colors",
+                    isActive ? "bg-primary text-primary-foreground" : "hover:bg-accent text-foreground"
+                  )}
+                >
+                  <span className="flex items-center gap-2.5">
+                    <Icon className="w-4 h-4" />
+                    {cat.label}
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className={cn("text-xs font-bold", isActive ? "text-primary-foreground/80" : "text-muted-foreground")}>
+                      {counts[cat.id]}
+                    </span>
+                    <ChevronRight className={cn(
+                      "w-3.5 h-3.5 transition-transform",
+                      isActive && "rotate-90",
+                      isActive ? "text-primary-foreground/80" : "text-muted-foreground"
+                    )} />
+                  </span>
+                </button>
+
+                {isActive && (
+                  <div className="pt-2 pb-1 px-1 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <div className="relative flex-1">
+                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                        <input
+                          type="text"
+                          placeholder="Search journals..."
+                          className="w-full pl-8 pr-3 py-1.5 bg-accent/50 border border-border rounded-lg text-xs focus:outline-none"
+                        />
+                      </div>
+                      <Button
+                        variant="primary"
+                        icon={Plus}
+                        className="px-2.5 py-1.5 h-auto text-xs shrink-0"
+                        onClick={() => activeCategory === 'session_recap' ? openNewRecap() : openNew()}
+                      >
+                        {activeCategory === 'session_recap' ? 'New Recap' : 'New'}
+                      </Button>
+                    </div>
+
+                    <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
+                      {isLoading ? (
+                        <div className="text-center py-6 text-muted-foreground italic text-xs">Loading...</div>
+                      ) : categoryFilteredJournals.length > 0 ? categoryFilteredJournals.map((j) => (
+                        <button
+                          key={j.id}
+                          onClick={() => setSelectedJournal(j)}
+                          className={cn(
+                            "w-full text-left p-3 rounded-xl border transition-all",
+                            selectedJournal?.id === j.id
+                              ? "bg-primary text-primary-foreground border-primary"
+                              : "bg-card border-border hover:bg-accent"
+                          )}
+                        >
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className="text-[10px] font-bold uppercase opacity-70">{j.date}</span>
+                            <div className="flex items-center gap-2">
+                              <span onClick={(e) => toggleFavorite(j, e)} className="p-0.5 -m-0.5">
+                                <Star className={cn(
+                                  "w-3.5 h-3.5",
+                                  j.isFavorite ? "fill-amber-400 text-amber-400" : (selectedJournal?.id === j.id ? "text-primary-foreground/50" : "text-muted-foreground/50")
+                                )} />
+                              </span>
+                              <Badge variant={j.status === 'shared' ? 'positive' : 'neutral'}>
+                                {j.status || 'private'}
+                              </Badge>
+                            </div>
+                          </div>
+                          <h4 className="font-bold text-sm mb-1">{j.title}</h4>
+                          <p className={cn(
+                            "text-xs truncate",
+                            selectedJournal?.id === j.id ? "text-primary-foreground/70" : "text-muted-foreground"
+                          )}>
+                            {j.content ? stripHtml(j.content).slice(0, 80) : j.preview}
+                          </p>
+                        </button>
+                      )) : (
+                        <div className="text-center py-6 text-muted-foreground italic text-xs">
+                          No notes found.
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 )}
-              >
-                <span className="flex items-center gap-2.5">
-                  <Icon className="w-4 h-4" />
-                  {cat.label}
-                </span>
-                <span className={cn("text-xs font-bold", isActive ? "text-primary-foreground/80" : "text-muted-foreground")}>
-                  {counts[cat.id]}
-                </span>
-              </button>
+              </div>
             );
           })}
         </Card>
-      </div>
-
-        {/* Left Column: List */}
-      <div className="w-[320px] flex flex-col gap-4 shrink-0">
-        <div className="flex items-center justify-between">
-          <h2 className="text-xl font-bold">{CATEGORIES.find(c => c.id === activeCategory)?.label}</h2>
-          <Button
-            variant="primary"
-            icon={Plus}
-            className="px-3 py-1.5 h-auto"
-            onClick={() => activeCategory === 'session_recap' ? openNewRecap() : openNew()}
-          >
-            {activeCategory === 'session_recap' ? 'New Recap' : 'New'}
-          </Button>
-        </div>
-
-        <Card className="p-3">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <input
-              type="text"
-              placeholder="Search journals..."
-              className="w-full pl-10 pr-4 py-2 bg-accent/50 border border-border rounded-xl text-sm focus:outline-none"
-            />
-          </div>
-        </Card>
-
-        <div className="flex-1 overflow-y-auto space-y-3 pr-2">
-          {isLoading ? (
-            <div className="text-center py-12 text-muted-foreground italic text-sm">Loading...</div>
-          ) : categoryFilteredJournals.length > 0 ? categoryFilteredJournals.map((j) => (
-            <button
-              key={j.id}
-              onClick={() => setSelectedJournal(j)}
-              className={cn(
-                "w-full text-left p-4 rounded-2xl border transition-all",
-                selectedJournal?.id === j.id
-                  ? "bg-primary text-primary-foreground border-primary"
-                  : "bg-card border-border hover:bg-accent"
-              )}
-            >
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-[10px] font-bold uppercase opacity-70">{j.date}</span>
-                <div className="flex items-center gap-2">
-                  <span onClick={(e) => toggleFavorite(j, e)} className="p-0.5 -m-0.5">
-                    <Star className={cn(
-                      "w-3.5 h-3.5",
-                      j.isFavorite ? "fill-amber-400 text-amber-400" : (selectedJournal?.id === j.id ? "text-primary-foreground/50" : "text-muted-foreground/50")
-                    )} />
-                  </span>
-                  <Badge variant={j.status === 'shared' ? 'positive' : 'neutral'}>
-                    {j.status || 'private'}
-                  </Badge>
-                </div>
-              </div>
-              <h4 className="font-bold text-sm mb-1">{j.title}</h4>
-              <p className={cn(
-                "text-xs truncate",
-                selectedJournal?.id === j.id ? "text-primary-foreground/70" : "text-muted-foreground"
-              )}>
-                {j.content ? stripHtml(j.content).slice(0, 80) : j.preview}
-              </p>
-            </button>
-          )) : (
-            <div className="text-center py-12 text-muted-foreground italic text-sm">
-              No notes found.
-            </div>
-          )}
-        </div>
       </div>
 
       {/* Right Column: Detail */}
