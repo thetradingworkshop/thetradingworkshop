@@ -548,11 +548,11 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
                 </th>
                 <th className="text-left px-6 py-5 font-bold text-[10px] uppercase tracking-widest text-muted-foreground">Symbol</th>
                 <th className="text-left px-6 py-5 font-bold text-[10px] uppercase tracking-widest text-muted-foreground">Side</th>
+                <th className="text-right px-6 py-5 font-bold text-[10px] uppercase tracking-widest text-muted-foreground">Net P&amp;L</th>
                 <th className="text-right px-6 py-5 font-bold text-[10px] uppercase tracking-widest text-muted-foreground">Qty</th>
                 <th className="text-right px-6 py-5 font-bold text-[10px] uppercase tracking-widest text-muted-foreground">Entry</th>
                 <th className="text-right px-6 py-5 font-bold text-[10px] uppercase tracking-widest text-muted-foreground">Exit</th>
                 <th className="text-right px-6 py-5 font-bold text-[10px] uppercase tracking-widest text-muted-foreground">PnL (Pts)</th>
-                <th className="text-right px-6 py-5 font-bold text-[10px] uppercase tracking-widest text-muted-foreground">Net P&amp;L</th>
                 <th className="text-center px-6 py-5 font-bold text-[10px] uppercase tracking-widest text-muted-foreground">Grade</th>
                 <th className="px-6 py-5"></th>
                 <th className="px-6 py-5"></th>
@@ -603,6 +603,12 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
                       {trade.direction}
                     </Badge>
                   </td>
+                  <td className={cn(
+                    "px-6 py-5 text-right font-bold",
+                    trade.realizedPnL >= 0 ? "text-emerald-500" : "text-rose-500"
+                  )}>
+                    {trade.realizedPnL >= 0 ? '+' : '-'}${Math.abs(trade.realizedPnL).toFixed(2)}
+                  </td>
                   <td className="px-6 py-5 text-right font-mono text-xs">{trade.totalQuantity}</td>
                   <td className="px-6 py-5 text-right font-mono text-xs">{trade.avgEntryPrice.toFixed(2)}</td>
                   <td className="px-6 py-5 text-right font-mono text-xs">{trade.avgExitPrice.toFixed(2)}</td>
@@ -611,12 +617,6 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
                     trade.isWinner ? "text-emerald-500" : "text-rose-500"
                   )}>
                     {trade.isWinner ? '+' : ''}{pointsPerContract(trade.pnlPoints, trade.totalQuantity).toFixed(2)}
-                  </td>
-                  <td className={cn(
-                    "px-6 py-5 text-right font-bold",
-                    trade.realizedPnL >= 0 ? "text-emerald-500" : "text-rose-500"
-                  )}>
-                    {trade.realizedPnL >= 0 ? '+' : '-'}${Math.abs(trade.realizedPnL).toFixed(2)}
                   </td>
                   <td className="px-6 py-5 text-center">
                     <Badge variant={gradeBadgeVariant(trade.tradeGrade)}>

@@ -128,8 +128,22 @@ export function TradeProvider({ children }: { children: ReactNode }) {
   const [isLiveSyncing, setIsLiveSyncing] = useState(false);
   const [selectedTradeForJournal, setSelectedTradeForJournal] = useState<Trade | null>(null);
   const [selectedSessionForJournal, setSelectedSessionForJournal] = useState<{ sessionId: string; sessionDate: string } | null>(null);
-  const [accountFilter, setAccountFilter] = useState('all');
+  const [accountFilter, setAccountFilterState] = useState('all');
   const [accountOptions, setAccountOptions] = useState<AccountOption[]>([]);
+
+  // Restore the user's last-picked account filter so they don't have to
+  // reselect it every session. Scoped per-user (not a shared key) since the
+  // same browser/device could be used to log into more than one account.
+  useEffect(() => {
+    if (!user) return;
+    const saved = localStorage.getItem(`accountFilter_${user.uid}`);
+    if (saved) setAccountFilterState(saved);
+  }, [user?.uid]);
+
+  const setAccountFilter = (filter: string) => {
+    setAccountFilterState(filter);
+    if (user) localStorage.setItem(`accountFilter_${user.uid}`, filter);
+  };
   const [filters, setFilters] = useState<TradeFilters>(EMPTY_TRADE_FILTERS);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
