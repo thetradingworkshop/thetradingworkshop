@@ -530,7 +530,7 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
           <table className="w-full text-sm border-collapse">
             <thead>
               <tr className="bg-accent/5 border-b border-border">
-                <th className="w-10 px-6 py-5">
+                <th className="w-10 px-4 py-3">
                   <input
                     type="checkbox"
                     className="w-4 h-4 rounded border-border accent-primary cursor-pointer"
@@ -540,22 +540,22 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
                     aria-label="Select all trades"
                   />
                 </th>
-                <th className="text-left px-6 py-5 font-bold text-[10px] uppercase tracking-widest text-muted-foreground">
+                <th className="text-left px-4 py-3 font-bold text-[10px] uppercase tracking-widest text-muted-foreground">
                   <div className="flex items-center space-x-2">
                     <span>Date / Time</span>
                     <ArrowUpDown className="w-3 h-3" />
                   </div>
                 </th>
-                <th className="text-left px-6 py-5 font-bold text-[10px] uppercase tracking-widest text-muted-foreground">Symbol</th>
-                <th className="text-left px-6 py-5 font-bold text-[10px] uppercase tracking-widest text-muted-foreground">Side</th>
-                <th className="text-right px-6 py-5 font-bold text-[10px] uppercase tracking-widest text-muted-foreground">Net P&amp;L</th>
-                <th className="text-right px-6 py-5 font-bold text-[10px] uppercase tracking-widest text-muted-foreground">Qty</th>
-                <th className="text-right px-6 py-5 font-bold text-[10px] uppercase tracking-widest text-muted-foreground">Entry</th>
-                <th className="text-right px-6 py-5 font-bold text-[10px] uppercase tracking-widest text-muted-foreground">Exit</th>
-                <th className="text-right px-6 py-5 font-bold text-[10px] uppercase tracking-widest text-muted-foreground">PnL (Pts)</th>
-                <th className="text-center px-6 py-5 font-bold text-[10px] uppercase tracking-widest text-muted-foreground">Grade</th>
-                <th className="px-6 py-5"></th>
-                <th className="px-6 py-5"></th>
+                <th className="text-left px-4 py-3 font-bold text-[10px] uppercase tracking-widest text-muted-foreground">Symbol</th>
+                <th className="text-left px-4 py-3 font-bold text-[10px] uppercase tracking-widest text-muted-foreground">Side</th>
+                <th className="text-right px-4 py-3 font-bold text-[10px] uppercase tracking-widest text-muted-foreground">Net P&amp;L</th>
+                <th className="text-right px-4 py-3 font-bold text-[10px] uppercase tracking-widest text-muted-foreground">Qty</th>
+                <th className="text-right px-4 py-3 font-bold text-[10px] uppercase tracking-widest text-muted-foreground">Entry</th>
+                <th className="text-right px-4 py-3 font-bold text-[10px] uppercase tracking-widest text-muted-foreground">Exit</th>
+                <th className="text-right px-4 py-3 font-bold text-[10px] uppercase tracking-widest text-muted-foreground">PnL (Pts)</th>
+                <th className="text-center px-4 py-3 font-bold text-[10px] uppercase tracking-widest text-muted-foreground">Grade</th>
+                <th className="px-4 py-3"></th>
+                <th className="px-4 py-3"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border/50">
@@ -568,7 +568,7 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
                   )}
                   onClick={() => setSelectedId(trade.id)}
                 >
-                  <td className="px-6 py-5" onClick={(e) => e.stopPropagation()}>
+                  <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                     <input
                       type="checkbox"
                       className="w-4 h-4 rounded border-border accent-primary cursor-pointer"
@@ -577,13 +577,13 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
                       aria-label={`Select trade ${trade.id}`}
                     />
                   </td>
-                  <td className="px-6 py-5">
+                  <td className="px-4 py-3">
                     <div className="flex flex-col">
                       <span className="font-bold text-xs">{new Date(trade.entryTime).toLocaleDateString()}</span>
                       <span className="text-[10px] text-muted-foreground">{new Date(trade.entryTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                     </div>
                   </td>
-                  <td className="px-6 py-5">
+                  <td className="px-4 py-3">
                     <div className="flex flex-col">
                       <div className="flex items-center space-x-2">
                         <div className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
@@ -598,32 +598,32 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
                       )}
                     </div>
                   </td>
-                  <td className="px-6 py-5">
+                  <td className="px-4 py-3">
                     <Badge variant={trade.direction === 'LONG' ? 'positive' : 'negative'}>
                       {trade.direction}
                     </Badge>
                   </td>
                   <td className={cn(
-                    "px-6 py-5 text-right font-bold",
+                    "px-4 py-3 text-right font-bold",
                     trade.realizedPnL >= 0 ? "text-emerald-500" : "text-rose-500"
                   )}>
                     {trade.realizedPnL >= 0 ? '+' : '-'}${Math.abs(trade.realizedPnL).toFixed(2)}
                   </td>
-                  <td className="px-6 py-5 text-right font-mono text-xs">{trade.totalQuantity}</td>
-                  <td className="px-6 py-5 text-right font-mono text-xs">{trade.avgEntryPrice.toFixed(2)}</td>
-                  <td className="px-6 py-5 text-right font-mono text-xs">{trade.avgExitPrice.toFixed(2)}</td>
+                  <td className="px-4 py-3 text-right font-mono text-xs">{trade.totalQuantity}</td>
+                  <td className="px-4 py-3 text-right font-mono text-xs">{trade.avgEntryPrice.toFixed(2)}</td>
+                  <td className="px-4 py-3 text-right font-mono text-xs">{trade.avgExitPrice.toFixed(2)}</td>
                   <td className={cn(
-                    "px-6 py-5 text-right font-bold",
+                    "px-4 py-3 text-right font-bold",
                     trade.isWinner ? "text-emerald-500" : "text-rose-500"
                   )}>
                     {trade.isWinner ? '+' : ''}{pointsPerContract(trade.pnlPoints, trade.totalQuantity).toFixed(2)}
                   </td>
-                  <td className="px-6 py-5 text-center">
+                  <td className="px-4 py-3 text-center">
                     <Badge variant={gradeBadgeVariant(trade.tradeGrade)}>
                       {trade.tradeGrade}
                     </Badge>
                   </td>
-                  <td className="px-6 py-5" onClick={(e) => e.stopPropagation()}>
+                  <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                     <button
                       onClick={(e) => requestDeleteOne(trade.id, e)}
                       className="p-2 rounded-lg text-muted-foreground hover:text-rose-600 hover:bg-rose-500/10 transition-colors"
@@ -632,7 +632,7 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
                       <Trash2 className="w-4 h-4" />
                     </button>
                   </td>
-                  <td className="px-6 py-5 text-right">
+                  <td className="px-4 py-3 text-right">
                     <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-foreground transition-colors ml-auto" />
                   </td>
                 </tr>
