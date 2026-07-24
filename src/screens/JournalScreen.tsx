@@ -124,6 +124,11 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [isPublicPreview, setIsPublicPreview] = useState(false);
   const [activeCategory, setActiveCategory] = useState<NoteCategory>('all');
+  // Which category's note list is expanded, if any — separate from
+  // activeCategory (which still drives filtering/the "New" button) so the
+  // Notebook opens with every list collapsed instead of eagerly showing
+  // "All notes" by default.
+  const [expandedCategory, setExpandedCategory] = useState<NoteCategory | null>(null);
   const [recapDraft, setRecapDraft] = useState<RecapDraft | null>(null);
   const [isSavingRecap, setIsSavingRecap] = useState(false);
   const [isStatsExpanded, setIsStatsExpanded] = useState(false);
@@ -508,14 +513,17 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
         <Card className="p-2 space-y-1" noPadding>
           {CATEGORIES.map(cat => {
             const Icon = cat.icon;
-            const isActive = activeCategory === cat.id;
+            const isExpanded = expandedCategory === cat.id;
             return (
               <div key={cat.id}>
                 <button
-                  onClick={() => setActiveCategory(cat.id)}
+                  onClick={() => {
+                    setActiveCategory(cat.id);
+                    setExpandedCategory(prev => prev === cat.id ? null : cat.id);
+                  }}
                   className={cn(
                     "w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-medium transition-colors",
-                    isActive ? "bg-primary text-primary-foreground" : "hover:bg-accent text-foreground"
+                    isExpanded ? "bg-primary text-primary-foreground" : "hover:bg-accent text-foreground"
                   )}
                 >
                   <span className="flex items-center gap-2.5">
@@ -523,18 +531,18 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
                     {cat.label}
                   </span>
                   <span className="flex items-center gap-1.5">
-                    <span className={cn("text-xs font-bold", isActive ? "text-primary-foreground/80" : "text-muted-foreground")}>
+                    <span className={cn("text-xs font-bold", isExpanded ? "text-primary-foreground/80" : "text-muted-foreground")}>
                       {counts[cat.id]}
                     </span>
                     <ChevronRight className={cn(
                       "w-3.5 h-3.5 transition-transform",
-                      isActive && "rotate-90",
-                      isActive ? "text-primary-foreground/80" : "text-muted-foreground"
+                      isExpanded && "rotate-90",
+                      isExpanded ? "text-primary-foreground/80" : "text-muted-foreground"
                     )} />
                   </span>
                 </button>
 
-                {isActive && (
+                {isExpanded && (
                   <div className="pt-2 pb-1 px-1 space-y-2">
                     <div className="flex items-center gap-2">
                       <div className="relative flex-1">
