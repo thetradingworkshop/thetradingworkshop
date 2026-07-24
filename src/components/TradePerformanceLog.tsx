@@ -552,6 +552,7 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
                 <th className="text-right px-6 py-5 font-bold text-[10px] uppercase tracking-widest text-muted-foreground">Entry</th>
                 <th className="text-right px-6 py-5 font-bold text-[10px] uppercase tracking-widest text-muted-foreground">Exit</th>
                 <th className="text-right px-6 py-5 font-bold text-[10px] uppercase tracking-widest text-muted-foreground">PnL (Pts)</th>
+                <th className="text-right px-6 py-5 font-bold text-[10px] uppercase tracking-widest text-muted-foreground">Net P&amp;L</th>
                 <th className="text-center px-6 py-5 font-bold text-[10px] uppercase tracking-widest text-muted-foreground">Grade</th>
                 <th className="px-6 py-5"></th>
                 <th className="px-6 py-5"></th>
@@ -611,6 +612,12 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
                   )}>
                     {trade.isWinner ? '+' : ''}{pointsPerContract(trade.pnlPoints, trade.totalQuantity).toFixed(2)}
                   </td>
+                  <td className={cn(
+                    "px-6 py-5 text-right font-bold",
+                    trade.realizedPnL >= 0 ? "text-emerald-500" : "text-rose-500"
+                  )}>
+                    {trade.realizedPnL >= 0 ? '+' : '-'}${Math.abs(trade.realizedPnL).toFixed(2)}
+                  </td>
                   <td className="px-6 py-5 text-center">
                     <Badge variant={gradeBadgeVariant(trade.tradeGrade)}>
                       {trade.tradeGrade}
@@ -631,7 +638,7 @@ export function TradePerformanceLog({ trades, onAddJournal, onAddDailyJournal, t
                 </tr>
               )) : (
                 <tr>
-                  <td colSpan={11} className="px-6 py-12 text-center text-muted-foreground">
+                  <td colSpan={12} className="px-6 py-12 text-center text-muted-foreground">
                     No trades found for this period.
                   </td>
                 </tr>
