@@ -22,6 +22,7 @@ import {
   Trash2,
   AlertTriangle,
   BarChart3,
+  MessageSquare,
   LineChart,
   Link2
 } from 'lucide-react';
@@ -141,7 +142,7 @@ export function TradePerformanceLog({ trades, title, subtitle }: TradePerformanc
   const [isDeleting, setIsDeleting] = useState(false);
   const [tagCategories, setTagCategories] = useState<TagCategory[]>([]);
   const [leftTab, setLeftTab] = useState<'stats' | 'executions' | 'attachments'>('stats');
-  const [rightTab, setRightTab] = useState<'chart' | 'pnl'>('chart');
+  const [rightTab, setRightTab] = useState<'chart' | 'notes' | 'pnl'>('chart');
 
   useEffect(() => {
     if (!user) return;
@@ -499,6 +500,39 @@ export function TradePerformanceLog({ trades, title, subtitle }: TradePerformanc
       }
       return { ...prev, behaviorFlags: [...flags, flag] };
     });
+  };
+
+  // Shared between the Chart tab (notes shown under the chart) and the
+  // dedicated Notes tab (notes shown on their own) — same `review` state
+  // either way, so there's only ever one mounted RichTextEditor pair at a
+  // time since the two tabs are mutually exclusive.
+  const renderNotesEditors = () => {
+    if (!selectedTrade) return null;
+    if (isLoadingReview) return <p className="text-xs text-muted-foreground italic">Loading notes...</p>;
+    return (
+      <>
+        <div className="space-y-2">
+          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Verdict / Summary</label>
+          <RichTextEditor
+            key={`verdict-${selectedTrade.id}`}
+            initialValue={review.verdict || ''}
+            onChange={(html) => setReview(prev => ({ ...prev, verdict: html }))}
+            placeholder="What happened in this trade?"
+            minHeightClass="min-h-[96px]"
+          />
+        </div>
+        <div className="space-y-2">
+          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Lesson Learned</label>
+          <RichTextEditor
+            key={`lesson-${selectedTrade.id}`}
+            initialValue={review.lessonLearned || ''}
+            onChange={(html) => setReview(prev => ({ ...prev, lessonLearned: html }))}
+            placeholder="What is the key takeaway?"
+            minHeightClass="min-h-[96px]"
+          />
+        </div>
+      </>
+    );
   };
 
   return (
@@ -1095,11 +1129,12 @@ export function TradePerformanceLog({ trades, title, subtitle }: TradePerformanc
                 </div>
               </div>
 
-              {/* Right Pane: Chart / Running P&L */}
+              {/* Right Pane: Chart / Notes / Running P&L */}
               <div className="flex-1 flex flex-col overflow-hidden">
                 <div className="flex items-center gap-1 p-4 border-b border-border shrink-0">
                   {([
                     { id: 'chart', label: 'Chart', icon: BarChart3 },
+                    { id: 'notes', label: 'Notes', icon: MessageSquare },
                     { id: 'pnl', label: 'Running P&L', icon: LineChart },
                   ] as const).map(tab => {
                     const Icon = tab.icon;
@@ -1131,35 +1166,14 @@ export function TradePerformanceLog({ trades, title, subtitle }: TradePerformanc
                           onTimeframeChange={setChartTimeframe}
                         />
                       </div>
-
                       <div className="p-4 rounded-2xl bg-accent/10 border border-border/50 space-y-5">
-                        {isLoadingReview ? (
-                          <p className="text-xs text-muted-foreground italic">Loading notes...</p>
-                        ) : (
-                          <>
-                            <div className="space-y-2">
-                              <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Verdict / Summary</label>
-                              <RichTextEditor
-                                key={`verdict-${selectedTrade.id}`}
-                                initialValue={review.verdict || ''}
-                                onChange={(html) => setReview(prev => ({ ...prev, verdict: html }))}
-                                placeholder="What happened in this trade?"
-                                minHeightClass="min-h-[96px]"
-                              />
-                            </div>
-                            <div className="space-y-2">
-                              <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Lesson Learned</label>
-                              <RichTextEditor
-                                key={`lesson-${selectedTrade.id}`}
-                                initialValue={review.lessonLearned || ''}
-                                onChange={(html) => setReview(prev => ({ ...prev, lessonLearned: html }))}
-                                placeholder="What is the key takeaway?"
-                                minHeightClass="min-h-[96px]"
-                              />
-                            </div>
-                          </>
-                        )}
+                        {renderNotesEditors()}
                       </div>
+                    </div>
+                  )}
+                  {rightTab === 'notes' && (
+                    <div className="h-full overflow-y-auto space-y-5 pr-1">
+                      {renderNotesEditors()}
                     </div>
                   )}
                   {rightTab === 'pnl' && <RunningPnlChart trade={selectedTrade} />}
