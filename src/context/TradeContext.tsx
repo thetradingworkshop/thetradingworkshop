@@ -134,7 +134,7 @@ export function TradeProvider({ children }: { children: ReactNode }) {
   const [isLiveSyncing, setIsLiveSyncing] = useState(false);
   const [selectedTradeForJournal, setSelectedTradeForJournal] = useState<Trade | null>(null);
   const [selectedSessionForJournal, setSelectedSessionForJournal] = useState<{ sessionId: string; sessionDate: string } | null>(null);
-  const [tradeIdToOpen, setTradeIdToOpen] = useState<string | null>(null);
+  const [tradeIdToOpenState, setTradeIdToOpenState] = useState<string | null>(null);
   const [accountFilter, setAccountFilterState] = useState('all');
   const [accountOptions, setAccountOptions] = useState<AccountOption[]>([]);
 
@@ -154,6 +154,21 @@ export function TradeProvider({ children }: { children: ReactNode }) {
   const [filters, setFilters] = useState<TradeFilters>(EMPTY_TRADE_FILTERS);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // A cross-screen "open this trade" request must actually be able to find
+  // the trade — but the receiving screen only ever sees the filtered trade
+  // list, so a persisted account filter or an active Filters selection
+  // could silently exclude the requested trade and leave the drawer never
+  // opening. Clearing both here guarantees the trade is visible wherever
+  // TradePerformanceLog picks up the request next.
+  const tradeIdToOpen = tradeIdToOpenState;
+  const setTradeIdToOpen = (tradeId: string | null) => {
+    if (tradeId) {
+      setAccountFilter('all');
+      setFilters(EMPTY_TRADE_FILTERS);
+    }
+    setTradeIdToOpenState(tradeId);
+  };
 
   // Connection Test
   useEffect(() => {
