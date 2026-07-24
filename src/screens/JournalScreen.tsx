@@ -508,7 +508,7 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
         {/* Categories — each one expands into its note list inline (accordion),
             instead of the list living in its own always-visible column, so the
             detail pane on the right gets that width back. */}
-      <div className="w-[300px] flex flex-col gap-4 shrink-0 overflow-y-auto pr-1">
+      <div className="w-[300px] flex flex-col gap-4 shrink-0 overflow-y-auto pr-1 min-h-0">
         <h2 className="text-xl font-bold">Notebook</h2>
         <Card className="p-2 space-y-1" noPadding>
           {CATEGORIES.map(cat => {
@@ -614,10 +614,10 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
       </div>
 
       {/* Right Column: Detail */}
-      <div className="flex-1 flex flex-col gap-6 overflow-y-auto pr-2">
+      <div className="flex-1 flex flex-col gap-6 overflow-y-auto pr-2 min-h-0">
         {selectedJournal ? (
           <>
-            <Card className="p-8">
+            <Card className="p-8 overflow-visible">
               <div className="flex items-center justify-between mb-8">
                 <div>
                   <div className="flex items-center gap-3">
