@@ -510,7 +510,7 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
             detail pane on the right gets that width back. */}
       <div className="w-[300px] flex flex-col gap-4 shrink-0 overflow-y-auto pr-1 min-h-0">
         <h2 className="text-xl font-bold">Notebook</h2>
-        <Card className="p-2 space-y-1" noPadding>
+        <Card className="p-2 space-y-1 overflow-visible shrink-0" noPadding>
           {CATEGORIES.map(cat => {
             const Icon = cat.icon;
             const isExpanded = expandedCategory === cat.id;

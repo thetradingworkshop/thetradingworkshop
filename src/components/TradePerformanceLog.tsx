@@ -350,7 +350,7 @@ export function TradePerformanceLog({ trades, title, subtitle }: TradePerformanc
     }
   };
 
-  const saveReview = async () => {
+  const saveReview = async (silent: boolean = false) => {
     if (!selectedTrade || !user) return;
     setIsSavingReview(true);
     try {
@@ -391,7 +391,7 @@ export function TradePerformanceLog({ trades, title, subtitle }: TradePerformanc
         updatedAt: serverTimestamp()
       }), { merge: true });
 
-      setToast({ message: 'Trade review saved successfully', type: 'success' });
+      if (!silent) setToast({ message: 'Trade review saved successfully', type: 'success' });
     } catch (error) {
       console.error('Error saving trade review:', error);
       setToast({ message: 'Failed to save trade review', type: 'error' });
@@ -400,6 +400,29 @@ export function TradePerformanceLog({ trades, title, subtitle }: TradePerformanc
       setTimeout(() => setToast(null), 3000);
     }
   };
+
+  // Auto-saves the review a moment after the trader stops typing/adjusting a
+  // field, so nothing is lost if they navigate away without hitting the
+  // (still-available) manual Save Review button. Skips the very first
+  // `review` change after switching trades, since that's loadReview()
+  // populating state from Firestore, not a real edit.
+  const skipNextAutoSaveRef = React.useRef(true);
+  useEffect(() => {
+    skipNextAutoSaveRef.current = true;
+  }, [selectedTrade?.id]);
+
+  useEffect(() => {
+    if (isLoadingReview) return;
+    if (skipNextAutoSaveRef.current) {
+      skipNextAutoSaveRef.current = false;
+      return;
+    }
+    const timeoutId = setTimeout(() => {
+      saveReview(true);
+    }, 1200);
+    return () => clearTimeout(timeoutId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [review, isLoadingReview]);
 
   // Moves a manually-entered trade's journal notes onto a later CSV-imported
   // trade of the same real-world position, then removes the manual trade so
@@ -1137,7 +1160,7 @@ export function TradePerformanceLog({ trades, title, subtitle }: TradePerformanc
                     variant="primary"
                     className="w-full"
                     icon={isSavingReview ? Loader2 : Save}
-                    onClick={saveReview}
+                    onClick={() => saveReview()}
                     disabled={isSavingReview}
                   >
                     {isSavingReview ? 'Saving...' : 'Save Review'}
