@@ -28,15 +28,28 @@ export default function SessionDetailScreen() {
   const [isMentorLoading, setIsMentorLoading] = useState(false);
   const [cooldownRemaining, setCooldownRemaining] = useState(0);
 
-  const [sessionJournal, setSessionJournal] = useState({
+  const [sessionJournal, setSessionJournal] = useState<{
+    premarketPlan: string;
+    sessionNotes: string;
+    whatWentWell: string;
+    whatHurt: string;
+    correctiveAction: string;
+    sessionCategory: NonNullable<Session['sessionCategory']> | '';
+  }>({
     premarketPlan: '',
     sessionNotes: '',
     whatWentWell: '',
     whatHurt: '',
-    correctiveAction: ''
+    correctiveAction: '',
+    sessionCategory: ''
   });
   const [isSavingJournal, setIsSavingJournal] = useState(false);
   const [intents, setIntents] = useState<TradeIntent[]>([]);
+  const [sessionMeta, setSessionMeta] = useState<{ createdAt?: string; updatedAt?: string }>({});
+  // Tracks whether a `sessions` doc already exists for the currently-loaded
+  // date, so saveSessionJournal knows whether to stamp createdAt (first
+  // write) or leave it alone (later edits should only touch updatedAt).
+  const sessionExistsRef = React.useRef(false);
 
   // Memoize mentor service to avoid re-instantiation
   const mentorService = useMemo(() => new MentorService(new AnthropicProvider()), []);
@@ -52,21 +65,27 @@ export default function SessionDetailScreen() {
       const sessionSnap = await getDoc(sessionRef);
       if (sessionSnap.exists()) {
         const data = sessionSnap.data() as Session;
+        sessionExistsRef.current = true;
         setSessionJournal({
           premarketPlan: data.premarketPlan || '',
           sessionNotes: data.sessionNotes || '',
           whatWentWell: data.whatWentWell || '',
           whatHurt: data.whatHurt || '',
-          correctiveAction: data.correctiveAction || ''
+          correctiveAction: data.correctiveAction || '',
+          sessionCategory: data.sessionCategory || ''
         });
+        setSessionMeta({ createdAt: data.createdAt, updatedAt: data.updatedAt });
       } else {
+        sessionExistsRef.current = false;
         setSessionJournal({
           premarketPlan: '',
           sessionNotes: '',
           whatWentWell: '',
           whatHurt: '',
-          correctiveAction: ''
+          correctiveAction: '',
+          sessionCategory: ''
         });
+        setSessionMeta({});
       }
     };
     loadSession();
@@ -104,12 +123,17 @@ export default function SessionDetailScreen() {
     try {
       const sessionId = `${user.uid}_${sessionDateStr}`;
       const sessionRef = doc(db, 'sessions', sessionId);
+      const now = new Date().toISOString();
+      const isFirstWrite = !sessionExistsRef.current;
       await setDoc(sessionRef, {
         ...sessionJournal,
         userId: user.uid,
         date: sessionDateStr,
-        updatedAt: new Date().toISOString()
+        ...(isFirstWrite && { createdAt: now }),
+        updatedAt: now
       }, { merge: true });
+      sessionExistsRef.current = true;
+      setSessionMeta(prev => ({ createdAt: isFirstWrite ? now : prev.createdAt, updatedAt: now }));
       setToast({ message: 'Session journal saved successfully', type: 'success' });
     } catch (error) {
       console.error('Error saving session journal:', error);
@@ -200,9 +224,13 @@ export default function SessionDetailScreen() {
 
   return (
     <div className="space-y-8 pb-20">
-      <SectionHeader 
-        title="Session Detail" 
-        subtitle={`Detailed analysis for ${format(effectiveRange.from, 'MMM d, yyyy')} - ${format(effectiveRange.to, 'MMM d, yyyy')}`}
+      <SectionHeader
+        title="Session Detail"
+        subtitle={
+          `Detailed analysis for ${format(effectiveRange.from, 'MMM d, yyyy')} - ${format(effectiveRange.to, 'MMM d, yyyy')}` +
+          (sessionMeta.createdAt ? ` • Created: ${format(new Date(sessionMeta.createdAt), 'MMM d, yyyy h:mma')}` : '') +
+          (sessionMeta.updatedAt ? ` • Last updated: ${format(new Date(sessionMeta.updatedAt), 'MMM d, yyyy h:mma')}` : '')
+        }
         rightElement={
           <div className="flex flex-wrap items-center gap-3">
             <Button variant="outline" onClick={() => handleAction('Export PDF')}>Export PDF</Button>
@@ -697,6 +725,21 @@ export default function SessionDetailScreen() {
             </Button>
           </div>
           <div className="space-y-6">
+            <div className="space-y-2">
+              <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Session Category</label>
+              <select
+                className="w-full p-3 bg-accent/30 border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+                value={sessionJournal.sessionCategory}
+                onChange={(e) => setSessionJournal(prev => ({ ...prev, sessionCategory: e.target.value as typeof prev.sessionCategory }))}
+              >
+                <option value="">No category</option>
+                <option value="NY_AM">NY AM</option>
+                <option value="NY_PM">NY PM</option>
+                <option value="ASIA">Asia</option>
+                <option value="LONDON">London</option>
+                <option value="WEEKLY">Weekly</option>
+              </select>
+            </div>
             <div className="space-y-2">
               <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Premarket Plan</label>
               <textarea 

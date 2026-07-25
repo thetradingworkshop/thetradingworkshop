@@ -323,7 +323,8 @@ export interface Session {
   whatWentWell?: string;
   whatHurt?: string;
   correctiveAction?: string;
-  
+  sessionCategory?: 'NY_AM' | 'NY_PM' | 'ASIA' | 'LONDON' | 'WEEKLY';
+
   // Trades
   trades?: Trade[];
   
