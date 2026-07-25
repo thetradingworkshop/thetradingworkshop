@@ -9,6 +9,7 @@ import { useAuth } from '../context/AuthContext';
 import { JournalEntry, Trade } from '../types';
 import { RichTextEditor, isContentEmpty, stripHtml } from '../components/RichTextEditor';
 import { RecapEquityChart } from '../components/RecapEquityChart';
+import { format } from 'date-fns';
 
 type JournalDraft = Partial<JournalEntry>;
 type NoteCategory = 'all' | 'favorites' | 'trade' | 'daily' | 'session_recap';
@@ -635,6 +636,13 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
                       <Badge variant="neutral">{selectedJournal.brokerName}</Badge>
                     )}
                   </div>
+                  {(selectedJournal.createdAt || selectedJournal.updatedAt) && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {selectedJournal.createdAt && `Created: ${format(new Date(selectedJournal.createdAt), 'MMM d, yyyy h:mma')}`}
+                      {selectedJournal.createdAt && selectedJournal.updatedAt && ' • '}
+                      {selectedJournal.updatedAt && `Last updated: ${format(new Date(selectedJournal.updatedAt), 'MMM d, yyyy h:mma')}`}
+                    </p>
+                  )}
                 </div>
                 <div className="flex items-center space-x-2">
                   <Button variant="outline" icon={Trash2} className="text-rose-500 hover:text-rose-500" onClick={() => setPendingDeleteId(selectedJournal.id)} />
