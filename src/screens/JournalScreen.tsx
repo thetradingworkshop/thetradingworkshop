@@ -776,12 +776,6 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
                 {selectedJournal.noteType !== 'session_recap' && !linkedTrade && (
                 <div className="p-6 rounded-3xl bg-slate-50 border border-slate-100 space-y-6">
                   <div className="space-y-2">
-                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Why did you enter?</label>
-                    <p className="text-sm font-medium text-slate-900 leading-relaxed">
-                      {selectedJournal.entryReason || "Not specified."}
-                    </p>
-                  </div>
-                  <div className="space-y-2">
                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Did you follow your plan?</label>
                     <div className="flex items-center space-x-2">
                       {selectedJournal.followedPlan === undefined ? (
@@ -1012,6 +1006,10 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
 
             {draft.noteType !== 'session_recap' && (
             <>
+            {/* Single-trade entry reasoning — only relevant when this note is
+                linked to a specific trade, not a daily journal covering the
+                whole session. */}
+            {draft.tradeId && (
             <div className="space-y-2">
               <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Why did you enter?</label>
               <textarea
@@ -1020,6 +1018,7 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
                 onChange={(e) => setDraft(prev => prev && ({ ...prev, entryReason: e.target.value }))}
               />
             </div>
+            )}
 
             <div className="space-y-2">
               <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Did you follow your plan?</label>
