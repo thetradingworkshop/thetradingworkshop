@@ -87,26 +87,33 @@ function computeRecapStats(rangeTrades: Trade[]): NonNullable<JournalEntry['reca
   return { netPnl, grossPnl, totalTrades, winners, losers, winRate, commissions, volume, profitFactor, equityCurve };
 }
 
-// Recap notes saved under an earlier shape of `recapStats` (before
-// equityCurve/winners/losers/winRate/profitFactor existed) would otherwise
-// throw when this screen reads those fields — and with no error boundary
-// anywhere in the app, that crash blanks the entire page, not just this
-// note. Recomputing from the live trades on read makes old notes self-heal
-// instead of crashing.
+// recapStats is only ever a snapshot from when the recap was created or
+// last edited — trades imported or added afterward (e.g. a recap made
+// mid-week that should reflect today's session too) would otherwise leave
+// the recap silently stuck showing stale numbers. Recomputing live from
+// current trades on every read means the recap always reflects reality;
+// the stored value is only a fallback for the rare note missing date
+// fields entirely (or one saved under an earlier shape of `recapStats`,
+// before equityCurve/winners/losers/winRate/profitFactor existed, which
+// would otherwise throw when this screen reads those fields — and with no
+// error boundary anywhere in the app, that crash blanks the entire page,
+// not just this note).
 function getRecapStatsForDisplay(journal: JournalDraft, trades: Trade[]): NonNullable<JournalEntry['recapStats']> | null {
+  if (journal.recapStartDate && journal.recapEndDate) {
+    const rangeTrades = trades.filter(t => {
+      if (t.sessionDate < journal.recapStartDate! || t.sessionDate > journal.recapEndDate!) return false;
+      if (journal.connectionId && journal.accountId) {
+        return t.connectionId === journal.connectionId && t.accountId === journal.accountId;
+      }
+      return true;
+    });
+    return computeRecapStats(rangeTrades);
+  }
   const stats = journal.recapStats;
   if (stats && Array.isArray(stats.equityCurve) && typeof stats.winRate === 'number') {
     return stats;
   }
-  if (!journal.recapStartDate || !journal.recapEndDate) return null;
-  const rangeTrades = trades.filter(t => {
-    if (t.sessionDate < journal.recapStartDate! || t.sessionDate > journal.recapEndDate!) return false;
-    if (journal.connectionId && journal.accountId) {
-      return t.connectionId === journal.connectionId && t.accountId === journal.accountId;
-    }
-    return true;
-  });
-  return computeRecapStats(rangeTrades);
+  return null;
 }
 
 export default function JournalScreen({ setActivePage }: { setActivePage: (page: string) => void }) {
