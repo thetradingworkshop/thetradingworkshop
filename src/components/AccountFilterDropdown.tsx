@@ -60,7 +60,7 @@ export function AccountFilterDropdown({ accountOptions, accountFilter, setAccoun
         className="flex items-center gap-2 px-3 py-2 bg-card border border-border/60 rounded-xl hover:bg-accent transition-all text-sm font-medium shadow-sm max-w-[220px]"
         title="Filter by account"
       >
-        <span className="truncate">{selectedLabel}</span>
+        <span className="truncate" title={selectedLabel}>{selectedLabel}</span>
         {!isAll && (
           <span className="flex items-center justify-center w-5 h-5 rounded-full bg-primary text-primary-foreground text-[10px] font-bold shrink-0">
             {accountFilter.length}
@@ -100,7 +100,7 @@ export function AccountFilterDropdown({ accountOptions, accountFilter, setAccoun
                     onChange={() => toggle(key)}
                     className="w-4 h-4 rounded border-border accent-primary shrink-0"
                   />
-                  <span className="truncate">{a.brokerName} — {a.accountName}</span>
+                  <span className="truncate" title={`${a.brokerName} — ${a.accountName}`}>{a.brokerName} — {a.accountName}</span>
                 </label>
               );
             })}
