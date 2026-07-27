@@ -145,10 +145,26 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
     setIsStatsExpanded(false);
   }, [selectedJournal?.id]);
 
-  const recapStats = useMemo(
-    () => (selectedJournal?.noteType === 'session_recap' ? getRecapStatsForDisplay(selectedJournal, trades) : null),
-    [selectedJournal, trades]
-  );
+  // Same stats box as a Sessions Recap, but for a single Daily Journal
+  // entry — computed live from that day's trades rather than a date range.
+  // Matches by sessionId when the note has one (set for notes linked from
+  // a specific session), otherwise falls back to matching trades by the
+  // note's own `date` field, since most daily notes are created generically
+  // (via "+New") without ever getting a sessionId assigned.
+  const statsBoxData = useMemo(() => {
+    if (!selectedJournal) return null;
+    if (selectedJournal.noteType === 'session_recap') {
+      return getRecapStatsForDisplay(selectedJournal, trades);
+    }
+    if (selectedJournal.tradeId) return null;
+    if (selectedJournal.sessionId) {
+      return computeRecapStats(trades.filter(t => t.sessionId === selectedJournal.sessionId));
+    }
+    if (selectedJournal.date) {
+      return computeRecapStats(trades.filter(t => t.sessionDate === selectedJournal.date));
+    }
+    return null;
+  }, [selectedJournal, trades]);
 
   const linkedTrade = useMemo(
     () => (selectedJournal?.tradeId ? trades.find(t => t.id === selectedJournal.tradeId) ?? null : null),
@@ -657,7 +673,7 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
                 </div>
               </div>
 
-              {selectedJournal.noteType === 'session_recap' && recapStats && (
+              {statsBoxData && (
                 <div className="mb-8 rounded-2xl border border-border/50 overflow-hidden">
                   <button
                     onClick={() => setIsStatsExpanded(v => !v)}
@@ -672,12 +688,12 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
                     <div>
                       <div className="flex items-center gap-2">
                         <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Net P&L</span>
-                        <span className={cn("text-lg font-bold", recapStats.netPnl >= 0 ? "text-emerald-500" : "text-rose-500")}>
-                          {recapStats.netPnl >= 0 ? '+' : '-'}${Math.abs(recapStats.netPnl).toFixed(2)}
+                        <span className={cn("text-lg font-bold", statsBoxData.netPnl >= 0 ? "text-emerald-500" : "text-rose-500")}>
+                          {statsBoxData.netPnl >= 0 ? '+' : '-'}${Math.abs(statsBoxData.netPnl).toFixed(2)}
                         </span>
                       </div>
                       <p className="text-xs text-muted-foreground mt-0.5">
-                        {recapStats.totalTrades} trades · {recapStats.winRate.toFixed(0)}% win rate
+                        {statsBoxData.totalTrades} trades · {statsBoxData.winRate.toFixed(0)}% win rate
                       </p>
                     </div>
                   </button>
@@ -686,54 +702,54 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
                     <div className="p-5 space-y-5 border-t border-border/50">
                       <div className="flex items-center gap-2">
                         <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Net P&L</span>
-                        <span className={cn("text-lg font-bold", recapStats.netPnl >= 0 ? "text-emerald-500" : "text-rose-500")}>
-                          {recapStats.netPnl >= 0 ? '+' : '-'}${Math.abs(recapStats.netPnl).toFixed(2)}
+                        <span className={cn("text-lg font-bold", statsBoxData.netPnl >= 0 ? "text-emerald-500" : "text-rose-500")}>
+                          {statsBoxData.netPnl >= 0 ? '+' : '-'}${Math.abs(statsBoxData.netPnl).toFixed(2)}
                         </span>
                         <span className="text-xs text-muted-foreground">
-                          {recapStats.totalTrades} trades · {recapStats.winRate.toFixed(0)}% win rate
+                          {statsBoxData.totalTrades} trades · {statsBoxData.winRate.toFixed(0)}% win rate
                         </span>
                       </div>
 
-                      {recapStats.equityCurve.length > 1 && (
+                      {statsBoxData.equityCurve.length > 1 && (
                         <div className="h-[140px]">
-                          <RecapEquityChart points={recapStats.equityCurve} />
+                          <RecapEquityChart points={statsBoxData.equityCurve} />
                         </div>
                       )}
 
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
                         <div>
                           <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Total Trades</p>
-                          <p className="text-base font-bold">{recapStats.totalTrades}</p>
+                          <p className="text-base font-bold">{statsBoxData.totalTrades}</p>
                         </div>
                         <div>
                           <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Gross P&L</p>
-                          <p className={cn("text-base font-bold", recapStats.grossPnl >= 0 ? "text-emerald-500" : "text-rose-500")}>
-                            {recapStats.grossPnl >= 0 ? '+' : '-'}${Math.abs(recapStats.grossPnl).toFixed(2)}
+                          <p className={cn("text-base font-bold", statsBoxData.grossPnl >= 0 ? "text-emerald-500" : "text-rose-500")}>
+                            {statsBoxData.grossPnl >= 0 ? '+' : '-'}${Math.abs(statsBoxData.grossPnl).toFixed(2)}
                           </p>
                         </div>
                         <div>
                           <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Winners / Losers</p>
                           <p className="text-base font-bold">
-                            <span className="text-emerald-500">{recapStats.winners}</span>
+                            <span className="text-emerald-500">{statsBoxData.winners}</span>
                             {' / '}
-                            <span className="text-rose-500">{recapStats.losers}</span>
+                            <span className="text-rose-500">{statsBoxData.losers}</span>
                           </p>
                         </div>
                         <div>
                           <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Commissions</p>
-                          <p className="text-base font-bold">${recapStats.commissions.toFixed(2)}</p>
+                          <p className="text-base font-bold">${statsBoxData.commissions.toFixed(2)}</p>
                         </div>
                         <div>
                           <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Win Rate</p>
-                          <p className="text-base font-bold">{recapStats.winRate.toFixed(2)}%</p>
+                          <p className="text-base font-bold">{statsBoxData.winRate.toFixed(2)}%</p>
                         </div>
                         <div>
                           <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Volume</p>
-                          <p className="text-base font-bold">{recapStats.volume}</p>
+                          <p className="text-base font-bold">{statsBoxData.volume}</p>
                         </div>
                         <div>
                           <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Profit Factor</p>
-                          <p className="text-base font-bold">{recapStats.profitFactor.toFixed(2)}</p>
+                          <p className="text-base font-bold">{statsBoxData.profitFactor.toFixed(2)}</p>
                         </div>
                       </div>
                     </div>
