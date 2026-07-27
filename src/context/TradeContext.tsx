@@ -93,12 +93,15 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
 
 interface TradeContextType {
   trades: Trade[];
-  // Trades filtered by `accountFilter` — 'all' | 'unassigned' | '{connectionId}::{accountId}'.
-  // Centralized here (rather than duplicated per-screen) so the Trades,
-  // Dashboard, and Sessions screens all respect the same selected account.
+  // Trades filtered by `accountFilter` — an array of 'all' | 'unassigned' |
+  // '{connectionId}::{accountId}'. A trade matches if it satisfies ANY
+  // selected value (union), so multiple accounts can be reviewed together.
+  // 'all' is mutually exclusive with the rest. Centralized here (rather than
+  // duplicated per-screen) so the Trades, Dashboard, and Sessions screens
+  // all respect the same selected account(s).
   accountFilteredTrades: Trade[];
-  accountFilter: string;
-  setAccountFilter: (filter: string) => void;
+  accountFilter: string[];
+  setAccountFilter: (filter: string[]) => void;
   accountOptions: AccountOption[];
   // Further filtered by `filters` (symbol/side/grade/tag) on top of the
   // account filter above — this is what screens should actually render.
@@ -135,7 +138,7 @@ export function TradeProvider({ children }: { children: ReactNode }) {
   const [selectedTradeForJournal, setSelectedTradeForJournal] = useState<Trade | null>(null);
   const [selectedSessionForJournal, setSelectedSessionForJournal] = useState<{ sessionId: string; sessionDate: string } | null>(null);
   const [tradeIdToOpenState, setTradeIdToOpenState] = useState<string | null>(null);
-  const [accountFilter, setAccountFilterState] = useState('all');
+  const [accountFilter, setAccountFilterState] = useState<string[]>(['all']);
   const [accountOptions, setAccountOptions] = useState<AccountOption[]>([]);
 
   // Restore the user's last-picked account filter so they don't have to
@@ -144,12 +147,20 @@ export function TradeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!user) return;
     const saved = localStorage.getItem(`accountFilter_${user.uid}`);
-    if (saved) setAccountFilterState(saved);
+    if (!saved) return;
+    try {
+      const parsed = JSON.parse(saved);
+      setAccountFilterState(Array.isArray(parsed) && parsed.length > 0 ? parsed : ['all']);
+    } catch {
+      // Pre-multi-select format stored the raw value (e.g. "all"), not JSON.
+      setAccountFilterState([saved]);
+    }
   }, [user?.uid]);
 
-  const setAccountFilter = (filter: string) => {
-    setAccountFilterState(filter);
-    if (user) localStorage.setItem(`accountFilter_${user.uid}`, filter);
+  const setAccountFilter = (filter: string[]) => {
+    const next = filter.length === 0 ? ['all'] : filter;
+    setAccountFilterState(next);
+    if (user) localStorage.setItem(`accountFilter_${user.uid}`, JSON.stringify(next));
   };
   const [filters, setFilters] = useState<TradeFilters>(EMPTY_TRADE_FILTERS);
   const [isLoading, setIsLoading] = useState(true);
@@ -164,7 +175,7 @@ export function TradeProvider({ children }: { children: ReactNode }) {
   const tradeIdToOpen = tradeIdToOpenState;
   const setTradeIdToOpen = (tradeId: string | null) => {
     if (tradeId) {
-      setAccountFilter('all');
+      setAccountFilter(['all']);
       setFilters(EMPTY_TRADE_FILTERS);
     }
     setTradeIdToOpenState(tradeId);
@@ -288,9 +299,9 @@ export function TradeProvider({ children }: { children: ReactNode }) {
   }, [user]);
 
   const accountFilteredTrades = useMemo(() => {
-    if (accountFilter === 'all') return trades;
-    if (accountFilter === 'unassigned') return trades.filter(isUnassigned);
-    return trades.filter(t => `${t.connectionId}::${t.accountId}` === accountFilter);
+    if (accountFilter.length === 0 || accountFilter.includes('all')) return trades;
+    const selected = new Set(accountFilter);
+    return trades.filter(t => (selected.has('unassigned') && isUnassigned(t)) || selected.has(`${t.connectionId}::${t.accountId}`));
   }, [trades, accountFilter]);
 
   const filterOptions = useMemo<TradeFilterOptions>(() => {
