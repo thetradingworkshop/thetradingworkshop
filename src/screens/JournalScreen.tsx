@@ -87,6 +87,19 @@ function computeRecapStats(rangeTrades: Trade[]): NonNullable<JournalEntry['reca
   return { netPnl, grossPnl, totalTrades, winners, losers, winRate, commissions, volume, profitFactor, equityCurve };
 }
 
+// Trade.sessionDate is derived once at import/reconstruction time from the
+// raw UTC timestamp (entryTime.split('T')[0]), with no timezone conversion.
+// The Dashboard calendar instead buckets trades by LOCAL calendar day (via
+// new Date(entryTime).getDate() etc). For a trade entered late in the
+// evening local time — e.g. after 8pm ET, which is already past midnight
+// UTC — those two dates disagree by one day. Matching journal/recap trades
+// against sessionDate directly (as this used to) silently drops those
+// trades from the day the trader actually experienced them on. Deriving
+// the same local date the calendar uses keeps both in sync.
+function localDateOf(trade: Trade): string {
+  return format(new Date(trade.entryTime), 'yyyy-MM-dd');
+}
+
 // recapStats is only ever a snapshot from when the recap was created or
 // last edited — trades imported or added afterward (e.g. a recap made
 // mid-week that should reflect today's session too) would otherwise leave
@@ -101,7 +114,8 @@ function computeRecapStats(rangeTrades: Trade[]): NonNullable<JournalEntry['reca
 function getRecapStatsForDisplay(journal: JournalDraft, trades: Trade[]): NonNullable<JournalEntry['recapStats']> | null {
   if (journal.recapStartDate && journal.recapEndDate) {
     const rangeTrades = trades.filter(t => {
-      if (t.sessionDate < journal.recapStartDate! || t.sessionDate > journal.recapEndDate!) return false;
+      const d = localDateOf(t);
+      if (d < journal.recapStartDate! || d > journal.recapEndDate!) return false;
       if (journal.connectionId && journal.accountId) {
         return t.connectionId === journal.connectionId && t.accountId === journal.accountId;
       }
@@ -164,7 +178,7 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
       return computeRecapStats(accountFilteredTrades.filter(t => t.sessionId === selectedJournal.sessionId));
     }
     if (selectedJournal.date) {
-      return computeRecapStats(accountFilteredTrades.filter(t => t.sessionDate === selectedJournal.date));
+      return computeRecapStats(accountFilteredTrades.filter(t => localDateOf(t) === selectedJournal.date));
     }
     return null;
   }, [selectedJournal, accountFilteredTrades]);
