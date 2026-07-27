@@ -212,6 +212,158 @@ export function parseTradovateCsv(csvText: string, userId: string = 'manual-user
 }
 
 /**
+ * Detects which broker's CSV export a file is, from its header row, so the
+ * caller can pick the right parser without asking the user. Topstep/ProjectX
+ * order exports have a fixed, distinctive column set (ContractName,
+ * ExecutePrice, PositionDisposition) that Tradovate's never uses.
+ */
+export function detectCsvBrokerFormat(csvText: string): 'topstep' | 'tradovate' {
+  const firstLine = csvText.split(/\r?\n/)[0] || '';
+  const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const headers = new Set(firstLine.split(',').map(normalize));
+  if (headers.has('executeprice') && headers.has('contractname') && headers.has('positiondisposition')) {
+    return 'topstep';
+  }
+  return 'tradovate';
+}
+
+/**
+ * Parses a Topstep / ProjectX Gateway order export CSV into standardized
+ * Order objects. Unlike a fills export, this lists every order — filled,
+ * cancelled, rejected — so only Status === 'Filled' rows become Orders.
+ * FilledAt (not CreatedAt, which is when the order was placed) is the
+ * execution timestamp, and ExecutePrice (not StopPrice/LimitPrice, which
+ * are just the trigger/limit level) is the fill price. Side values are
+ * 'Bid' (buy) / 'Ask' (sell) — the order's side of the book, not the word
+ * "Buy"/"Sell".
+ */
+export function parseTopstepCsv(csvText: string, userId: string = 'manual-user'): ParseResult {
+  const result: ParseResult = {
+    orders: [],
+    errors: [],
+    ignored: [],
+    summary: {
+      brokerFormat: 'Topstep (ProjectX)',
+      totalRows: 0,
+      parsedRows: 0,
+      validFilledRows: 0,
+      ignoredRows: 0,
+      symbols: [],
+      allHeaders: []
+    },
+    ignoredRowsDetails: []
+  };
+
+  try {
+    const lines = csvText.split(/\r?\n/).filter(line => line.trim() !== '');
+    if (lines.length === 0) {
+      result.errors.push("The CSV file is empty.");
+      return result;
+    }
+    result.summary.allHeaders = lines[0].split(',').map(h => h.trim());
+
+    const parsed = Papa.parse(csvText, {
+      header: true,
+      skipEmptyLines: true,
+      dynamicTyping: true
+    });
+
+    if (parsed.errors.length > 0) {
+      result.errors.push(`CSV Parsing Error: ${parsed.errors[0].message}`);
+      return result;
+    }
+
+    const data = parsed.data as any[];
+    result.summary.totalRows = data.length;
+    const symbolsSet = new Set<string>();
+
+    data.forEach((row, index) => {
+      const rowNum = index + 2; // +1 for 0-index, +1 for header row
+
+      const status = (row.Status || '').toString().trim();
+      if (status !== 'Filled') {
+        result.ignoredRowsDetails.push({ rowNumber: rowNum, reason: `Not a filled order (Status: ${status || 'N/A'})`, data: row });
+        result.summary.ignoredRows++;
+        return;
+      }
+
+      const rawSymbol = row.ContractName;
+      if (!rawSymbol) {
+        result.ignoredRowsDetails.push({ rowNumber: rowNum, reason: 'Missing contract symbol', data: row });
+        result.summary.ignoredRows++;
+        return;
+      }
+
+      const rawSide = (row.Side || '').toString().trim().toUpperCase();
+      const side: 'BUY' | 'SELL' | null = rawSide === 'BID' ? 'BUY' : rawSide === 'ASK' ? 'SELL' : null;
+      if (!side) {
+        result.ignoredRowsDetails.push({ rowNumber: rowNum, reason: `Unrecognized side: "${row.Side ?? 'N/A'}"`, data: row });
+        result.summary.ignoredRows++;
+        return;
+      }
+
+      const rawQuantity = row.Size;
+      if (rawQuantity === undefined || rawQuantity === null || isNaN(Number(rawQuantity)) || Number(rawQuantity) === 0) {
+        result.ignoredRowsDetails.push({ rowNumber: rowNum, reason: 'Invalid or zero size', data: row });
+        result.summary.ignoredRows++;
+        return;
+      }
+
+      const rawPrice = row.ExecutePrice;
+      if (rawPrice === undefined || rawPrice === null || isNaN(Number(rawPrice))) {
+        result.ignoredRowsDetails.push({ rowNumber: rowNum, reason: 'Invalid execute price', data: row });
+        result.summary.ignoredRows++;
+        return;
+      }
+
+      const rawTimestamp = row.FilledAt;
+      if (!rawTimestamp) {
+        result.ignoredRowsDetails.push({ rowNumber: rowNum, reason: 'Missing FilledAt timestamp', data: row });
+        result.summary.ignoredRows++;
+        return;
+      }
+      const date = new Date(rawTimestamp);
+      if (isNaN(date.getTime())) {
+        result.ignoredRowsDetails.push({ rowNumber: rowNum, reason: `Invalid date format: ${rawTimestamp}`, data: row });
+        result.summary.ignoredRows++;
+        return;
+      }
+
+      const rawOrderId = row.Id;
+      const order: Order = {
+        id: uuidv4(),
+        userId,
+        symbol: rawSymbol.toString(),
+        side,
+        quantity: Math.abs(Number(rawQuantity)),
+        price: Number(rawPrice),
+        timestamp: date.toISOString(),
+        orderType: (row.Type || 'Market').toString(),
+        status: 'Filled',
+        brokerOrderId: rawOrderId?.toString() || `topstep-${uuidv4().slice(0, 8)}`,
+        source: 'csv',
+        order_id: rawOrderId?.toString() || `topstep-${uuidv4().slice(0, 8)}`,
+        avg_price: Number(rawPrice),
+        fill_time: date.toISOString()
+      };
+
+      result.orders.push(order);
+      symbolsSet.add(order.symbol);
+    });
+
+    result.summary.parsedRows = result.orders.length;
+    result.summary.validFilledRows = result.orders.length;
+    result.summary.symbols = Array.from(symbolsSet);
+    result.orders.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+  } catch (error) {
+    result.errors.push(`Unexpected error during CSV parsing: ${error instanceof Error ? error.message : String(error)}`);
+  }
+
+  return result;
+}
+
+/**
  * Statefully processes a single ingestion event against a position state.
  */
 export function processEventStatefully(state: PositionState, event: IngestionEvent): { updatedState: PositionState, closedTrades: Trade[], step?: ReconstructionStep } {

@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { SectionHeader, Card, Button, Badge } from '../components/Shared';
 import { Upload, FileText, CheckCircle2, AlertCircle, ArrowRight, Info, ChevronDown, ChevronUp, Terminal, Loader2, Activity, Wallet } from 'lucide-react';
-import { parseTradovateCsv, reconstructTrades, ParseResult } from '../engine';
+import { parseTradovateCsv, parseTopstepCsv, detectCsvBrokerFormat, reconstructTrades, ParseResult } from '../engine';
 import { Order, Trade, ReconstructionStep, BrokerAccount } from '../types';
 import { cn, pointsPerContract } from '@/src/utils';
 import { useTrades } from '../context/TradeContext';
@@ -96,7 +96,10 @@ export default function ImportOrdersScreen({ setActivePage }: { setActivePage: (
     const reader = new FileReader();
     reader.onload = (e) => {
       const text = e.target?.result as string;
-      const result = parseTradovateCsv(text, user?.uid || 'manual-user');
+      const brokerFormat = detectCsvBrokerFormat(text);
+      const result = brokerFormat === 'topstep'
+        ? parseTopstepCsv(text, user?.uid || 'manual-user')
+        : parseTradovateCsv(text, user?.uid || 'manual-user');
       console.log("Parse Result:", result);
 
       if (result.errors.length > 0) {
@@ -613,9 +616,9 @@ export default function ImportOrdersScreen({ setActivePage }: { setActivePage: (
             <div>
               <h4 className="font-bold text-lg">Supported Formats</h4>
               <p className="text-sm text-muted-foreground mt-2 leading-relaxed">
-                Currently optimized for <span className="font-bold text-primary">Tradovate CSV</span> exports. 
-                Ensure your file includes columns for Order ID, Symbol, Side, Fill Time, Quantity, and Price. 
-                The system will automatically detect and normalize these fields for trade reconstruction.
+                Currently optimized for <span className="font-bold text-primary">Tradovate CSV</span> and{' '}
+                <span className="font-bold text-primary">Topstep (ProjectX) order export CSV</span> files.
+                The system automatically detects which format you uploaded and normalizes it for trade reconstruction.
               </p>
             </div>
           </div>
