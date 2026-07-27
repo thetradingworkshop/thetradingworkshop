@@ -121,7 +121,7 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
   const {
     selectedTradeForJournal, setSelectedTradeForJournal,
     selectedSessionForJournal, setSelectedSessionForJournal,
-    trades, accountOptions, setTradeIdToOpen,
+    trades, accountFilteredTrades, accountOptions, setTradeIdToOpen,
   } = useTrades();
   const [selectedJournal, setSelectedJournal] = useState<any>(null);
   const [journals, setJournals] = useState<any[]>([]);
@@ -150,21 +150,24 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
   // Matches by sessionId when the note has one (set for notes linked from
   // a specific session), otherwise falls back to matching trades by the
   // note's own `date` field, since most daily notes are created generically
-  // (via "+New") without ever getting a sessionId assigned.
+  // (via "+New") without ever getting a sessionId assigned. Uses
+  // accountFilteredTrades (not the raw, all-accounts `trades`) so the box
+  // reflects whichever account(s) are currently selected in the header
+  // filter, same as every other screen.
   const statsBoxData = useMemo(() => {
     if (!selectedJournal) return null;
     if (selectedJournal.noteType === 'session_recap') {
-      return getRecapStatsForDisplay(selectedJournal, trades);
+      return getRecapStatsForDisplay(selectedJournal, accountFilteredTrades);
     }
     if (selectedJournal.tradeId) return null;
     if (selectedJournal.sessionId) {
-      return computeRecapStats(trades.filter(t => t.sessionId === selectedJournal.sessionId));
+      return computeRecapStats(accountFilteredTrades.filter(t => t.sessionId === selectedJournal.sessionId));
     }
     if (selectedJournal.date) {
-      return computeRecapStats(trades.filter(t => t.sessionDate === selectedJournal.date));
+      return computeRecapStats(accountFilteredTrades.filter(t => t.sessionDate === selectedJournal.date));
     }
     return null;
-  }, [selectedJournal, trades]);
+  }, [selectedJournal, accountFilteredTrades]);
 
   const linkedTrade = useMemo(
     () => (selectedJournal?.tradeId ? trades.find(t => t.id === selectedJournal.tradeId) ?? null : null),
