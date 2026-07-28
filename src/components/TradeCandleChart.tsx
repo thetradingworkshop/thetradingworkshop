@@ -136,7 +136,7 @@ const TIMEFRAMES: { id: string | undefined; label: string }[] = [
   { id: '1m', label: '1m' },
   { id: '5m', label: '5m' },
   { id: '15m', label: '15m' },
-  { id: '2w', label: '2W' },
+  { id: 'w', label: 'W' },
   { id: '1h', label: '1H' },
   { id: '1d', label: '1D' },
 ];

@@ -361,14 +361,14 @@ async function startServer() {
   // within what Yahoo's chart API actually serves per interval.
   // Each entry maps a client-facing timeframe id to how far back to look and
   // which Yahoo interval to request. For most entries the id and the Yahoo
-  // interval are the same string, but "2w" is a distinct lookback duration
-  // (not a Yahoo interval on its own) served at 15m granularity — dense
-  // enough to be useful, within Yahoo's ~60-day cap for that interval.
+  // interval are the same string, but "w" is a distinct lookback duration
+  // (not a Yahoo interval on its own) served at 5m granularity — dense
+  // enough to be useful, well within Yahoo's ~60-day cap for that interval.
   const TIMEFRAME_CONFIG: Record<string, { lookbackSeconds: number; interval: string }> = {
     "1m": { lookbackSeconds: 5 * 24 * 3600, interval: "1m" },
     "5m": { lookbackSeconds: 30 * 24 * 3600, interval: "5m" },
     "15m": { lookbackSeconds: 45 * 24 * 3600, interval: "15m" },
-    "2w": { lookbackSeconds: 14 * 24 * 3600, interval: "15m" },
+    "w": { lookbackSeconds: 7 * 24 * 3600, interval: "5m" },
     "1h": { lookbackSeconds: 180 * 24 * 3600, interval: "1h" },
     "1d": { lookbackSeconds: 730 * 24 * 3600, interval: "1d" },
   };
