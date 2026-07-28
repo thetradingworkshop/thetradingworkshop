@@ -305,7 +305,15 @@ export function TradePerformanceLog({ trades, title, subtitle }: TradePerformanc
     };
 
     loadReview();
-  }, [selectedTrade, user]);
+    // selectedTrade is re-derived (new object reference) on every trades
+    // update from the live Firestore listener — including the one this
+    // component's own autosave triggers by writing to the trade doc. Keying
+    // this off selectedTrade.id instead of the object itself means it only
+    // reloads when the user actually switches trades, not on every autosave
+    // round-trip — which previously reset review state (and remounted the
+    // notes editors mid-typing) every ~1-2s while the user was writing notes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedTrade?.id, user]);
 
   // Reset drawer tabs whenever a different trade is opened
   useEffect(() => {
