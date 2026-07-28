@@ -174,13 +174,16 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
       return getRecapStatsForDisplay(selectedJournal, accountFilteredTrades);
     }
     if (selectedJournal.tradeId) return null;
-    if (selectedJournal.sessionId) {
-      return computeRecapStats(accountFilteredTrades.filter(t => t.sessionId === selectedJournal.sessionId));
-    }
-    if (selectedJournal.date) {
-      return computeRecapStats(accountFilteredTrades.filter(t => localDateOf(t) === selectedJournal.date));
-    }
-    return null;
+    if (!selectedJournal.sessionId && !selectedJournal.date) return null;
+    // Union, not either/or: a note's stored sessionId can go stale (e.g. set
+    // once at creation against trades that were later re-imported), which
+    // would otherwise silently exclude trades that plainly belong to this
+    // note's own date. Matching on both means a stale sessionId can only
+    // ever add matches, never hide ones the date already found.
+    return computeRecapStats(accountFilteredTrades.filter(t =>
+      (selectedJournal.sessionId && t.sessionId === selectedJournal.sessionId) ||
+      (selectedJournal.date && localDateOf(t) === selectedJournal.date)
+    ));
   }, [selectedJournal, accountFilteredTrades]);
 
   const linkedTrade = useMemo(
