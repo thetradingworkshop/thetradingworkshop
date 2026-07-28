@@ -359,12 +359,18 @@ async function startServer() {
   // (rather than the default auto-selected narrow trade window) — enough
   // bars for a top-down look at market structure leading into the trade,
   // within what Yahoo's chart API actually serves per interval.
-  const TIMEFRAME_LOOKBACK_SECONDS: Record<string, number> = {
-    "1m": 5 * 24 * 3600,
-    "5m": 30 * 24 * 3600,
-    "15m": 45 * 24 * 3600,
-    "1h": 180 * 24 * 3600,
-    "1d": 730 * 24 * 3600,
+  // Each entry maps a client-facing timeframe id to how far back to look and
+  // which Yahoo interval to request. For most entries the id and the Yahoo
+  // interval are the same string, but "2w" is a distinct lookback duration
+  // (not a Yahoo interval on its own) served at 15m granularity — dense
+  // enough to be useful, within Yahoo's ~60-day cap for that interval.
+  const TIMEFRAME_CONFIG: Record<string, { lookbackSeconds: number; interval: string }> = {
+    "1m": { lookbackSeconds: 5 * 24 * 3600, interval: "1m" },
+    "5m": { lookbackSeconds: 30 * 24 * 3600, interval: "5m" },
+    "15m": { lookbackSeconds: 45 * 24 * 3600, interval: "15m" },
+    "2w": { lookbackSeconds: 14 * 24 * 3600, interval: "15m" },
+    "1h": { lookbackSeconds: 180 * 24 * 3600, interval: "1h" },
+    "1d": { lookbackSeconds: 730 * 24 * 3600, interval: "1d" },
   };
 
   app.get("/api/market/candles", async (req, res) => {
@@ -386,12 +392,12 @@ async function startServer() {
     let period1: number;
     let period2: number;
 
-    const lookbackSec = requestedInterval ? TIMEFRAME_LOOKBACK_SECONDS[requestedInterval] : undefined;
-    if (requestedInterval && lookbackSec) {
-      interval = requestedInterval;
+    const timeframeConfig = requestedInterval ? TIMEFRAME_CONFIG[requestedInterval] : undefined;
+    if (timeframeConfig) {
+      interval = timeframeConfig.interval;
       const padSec = 30 * 60;
       period2 = Math.ceil(endMs / 1000 + padSec);
-      period1 = period2 - lookbackSec;
+      period1 = period2 - timeframeConfig.lookbackSeconds;
     } else {
       const durationSec = (endMs - startMs) / 1000;
       const padSec = Math.min(30 * 60, Math.max(5 * 60, durationSec * 0.25));

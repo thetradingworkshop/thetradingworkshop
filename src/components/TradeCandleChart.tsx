@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   createChart,
   createSeriesMarkers,
@@ -136,6 +136,7 @@ const TIMEFRAMES: { id: string | undefined; label: string }[] = [
   { id: '1m', label: '1m' },
   { id: '5m', label: '5m' },
   { id: '15m', label: '15m' },
+  { id: '2w', label: '2W' },
   { id: '1h', label: '1H' },
   { id: '1d', label: '1D' },
 ];
@@ -154,6 +155,11 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
   const realBars = buildBarsFromFills(trade);
   const bars = market?.bars ?? (realBars.length > 0 ? realBars : buildFallbackBars(trade));
   const source: 'market' | 'fills' | 'synthetic' = market ? 'market' : realBars.length > 0 ? 'fills' : 'synthetic';
+
+  // OHLC legend above the chart — shows the bar under the cursor, or the
+  // most recent bar when the cursor isn't over the chart, matching the
+  // standard candlestick-chart convention.
+  const [hoverBar, setHoverBar] = useState<Bar | null>(null);
 
   useEffect(() => {
     if (!containerRef.current || bars.length === 0 || isLoadingMarket) return;
@@ -191,6 +197,13 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
 
     candleSeries.setData(candleData);
     volumeSeries.setData(volumeData);
+
+    setHoverBar(bars[bars.length - 1]);
+    const barsByTime = new Map(bars.map(b => [b.time, b]));
+    chart.subscribeCrosshairMove(param => {
+      const bar = param.time != null ? barsByTime.get(param.time as unknown as number) : undefined;
+      setHoverBar(bar ?? bars[bars.length - 1]);
+    });
 
     const isLong = trade.direction === 'LONG';
     const entryEpoch = Math.floor(new Date(trade.entryTime).getTime() / 1000);
@@ -246,6 +259,29 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
         </div>
       )}
       <div className="text-[10px] text-muted-foreground shrink-0">{isLoadingMarket ? 'Loading market data...' : caption}</div>
+      {!isLoadingMarket && hoverBar && (
+        <div className="flex items-center gap-3 text-[11px] font-mono shrink-0">
+          {(() => {
+            const up = hoverBar.close >= hoverBar.open;
+            const barColor = up ? 'text-emerald-500' : 'text-rose-500';
+            const fmt = (n: number) => n.toFixed(2);
+            return (
+              <>
+                <span className="text-muted-foreground">
+                  {new Date(hoverBar.time * 1000).toLocaleString(undefined, {
+                    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+                  })}
+                </span>
+                <span className={barColor}>O <span className="font-bold">{fmt(hoverBar.open)}</span></span>
+                <span className={barColor}>H <span className="font-bold">{fmt(hoverBar.high)}</span></span>
+                <span className={barColor}>L <span className="font-bold">{fmt(hoverBar.low)}</span></span>
+                <span className={barColor}>C <span className="font-bold">{fmt(hoverBar.close)}</span></span>
+                <span className="text-muted-foreground">Vol <span className="font-bold">{hoverBar.volume.toLocaleString()}</span></span>
+              </>
+            );
+          })()}
+        </div>
+      )}
       {isLoadingMarket ? (
         <div className="flex flex-1 items-center justify-center text-xs text-muted-foreground">Loading market data...</div>
       ) : bars.length === 0 ? (
