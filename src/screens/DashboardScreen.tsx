@@ -1,4 +1,6 @@
 import React, { useMemo, useState, useEffect, useCallback } from 'react';
+import { collectionGroup, query, where, onSnapshot } from 'firebase/firestore';
+import { db } from '../firebase';
 import { cn, gradeBadgeVariant, pointsPerContract } from '@/src/utils';
 import { SectionHeader, Scorecard, Card, Badge, Button, Table, TableHeader, TableRow, TableHead, TableCell, Toast, Modal } from '../components/Shared';
 import { 
@@ -26,11 +28,13 @@ import {
   Calendar,
   Settings,
   BookOpen,
-  Loader2
+  Loader2,
+  Wallet
 } from 'lucide-react';
 import { useTrades } from '../context/TradeContext';
 import { useDateRange } from '../context/DateContext';
 import { useAuth } from '../context/AuthContext';
+import { AccountTransaction } from '../types';
 
 import { MentorService, StructuredInsight } from '../services/mentorService';
 import { AnthropicProvider } from '../services/aiProviders';
@@ -64,6 +68,30 @@ export default function DashboardScreen() {
     shareIncludeHighlights: true
   });
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+
+  // Real profitability — actual money spent on evals/resets/subscriptions
+  // vs. actual payouts received, across every account. This is distinct
+  // from (and the real answer next to) the in-platform P&L above: a trader
+  // can show a green Net P&L here while still being underwater once every
+  // eval attempt and subscription fee is counted, and vice versa once
+  // payouts land.
+  const [accountTransactions, setAccountTransactions] = useState<AccountTransaction[]>([]);
+  useEffect(() => {
+    if (!user) {
+      setAccountTransactions([]);
+      return;
+    }
+    const unsub = onSnapshot(
+      query(collectionGroup(db, 'transactions'), where('userId', '==', user.uid)),
+      (snap) => setAccountTransactions(snap.docs.map(d => ({ id: d.id, ...d.data() } as AccountTransaction))),
+      () => setAccountTransactions([])
+    );
+    return () => unsub();
+  }, [user?.uid]);
+  const totalSpent = useMemo(() => accountTransactions.filter(t => t.type === 'cost').reduce((s, t) => s + t.amount, 0), [accountTransactions]);
+  const totalPayouts = useMemo(() => accountTransactions.filter(t => t.type === 'payout').reduce((s, t) => s + t.amount, 0), [accountTransactions]);
+  const realNetProfitability = totalPayouts - totalSpent;
+
   const [ruleBasedInsight, setRuleBasedInsight] = useState<RuleBasedInsight | null>(null);
   const [isMentorLoading, setIsMentorLoading] = useState(false);
   const [cooldownRemaining, setCooldownRemaining] = useState(0);
@@ -311,12 +339,53 @@ export default function DashboardScreen() {
       />
 
       {toast && (
-        <Toast 
-          message={toast.message} 
-          type={toast.type} 
-          onClose={() => setToast(null)} 
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
         />
       )}
+
+      {/* Real Profitability — actual cash spent (evals/resets/subscriptions)
+          vs. actual payouts received, across every account. This is the
+          number that answers whether the trader is actually profitable,
+          separate from in-platform P&L above. */}
+      <Card className={cn(
+        "p-6 border-2",
+        accountTransactions.length === 0
+          ? "border-border/50"
+          : realNetProfitability >= 0 ? "border-emerald-500/30 bg-emerald-500/5" : "border-rose-500/30 bg-rose-500/5"
+      )}>
+        <div className="flex items-center justify-between mb-5">
+          <div className="flex items-center gap-2">
+            <Wallet className="w-4 h-4 text-muted-foreground" />
+            <h3 className="text-sm font-bold">Real Profitability</h3>
+          </div>
+          <span className="text-[10px] text-muted-foreground">Actual money spent vs. actual payouts received — across all accounts</span>
+        </div>
+        {accountTransactions.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No costs or payouts logged yet. Add them under <span className="font-bold">Settings → Accounts</span> (the $ icon on each account) to see your real, out-of-pocket profitability here.
+          </p>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Total Spent</p>
+              <p className="text-2xl font-bold text-rose-500">${totalSpent.toLocaleString()}</p>
+            </div>
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Total Payouts</p>
+              <p className="text-2xl font-bold text-emerald-500">${totalPayouts.toLocaleString()}</p>
+            </div>
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Net Profitability</p>
+              <p className={cn("text-2xl font-bold", realNetProfitability >= 0 ? "text-emerald-500" : "text-rose-500")}>
+                {realNetProfitability >= 0 ? '+' : '-'}${Math.abs(realNetProfitability).toLocaleString()}
+              </p>
+            </div>
+          </div>
+        )}
+      </Card>
 
       {/* Section 1: Key Metrics & Equity */}
       <section className="space-y-8">

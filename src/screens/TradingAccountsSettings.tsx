@@ -1,10 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, doc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, doc, orderBy } from 'firebase/firestore';
 import { db } from '../firebase';
+import { cn } from '@/src/utils';
 import { useAuth } from '../context/AuthContext';
-import { Card, Button, Badge, Toast } from '../components/Shared';
-import { Plus, Trash2, Wallet, Pencil } from 'lucide-react';
-import { BrokerAccount, TradingAccountType, TRADING_ACCOUNT_TYPES, ACCOUNT_SIZE_PRESETS, BROKERS, Broker } from '../types';
+import { Card, Button, Badge, Toast, Modal } from '../components/Shared';
+import { Plus, Trash2, Wallet, Pencil, DollarSign, ArrowUpCircle, ArrowDownCircle } from 'lucide-react';
+import {
+  BrokerAccount, TradingAccountType, TRADING_ACCOUNT_TYPES, ACCOUNT_SIZE_PRESETS, BROKERS, Broker,
+  AccountTransaction, AccountTransactionType, ACCOUNT_TRANSACTION_TYPES, ACCOUNT_TRANSACTION_CATEGORIES,
+} from '../types';
 
 const ACCOUNT_SIZES = [25000, 50000, 100000];
 
@@ -49,6 +53,16 @@ export default function TradingAccountsSettings() {
   const [typeFilter, setTypeFilter] = useState<'all' | TradingAccountType>('all');
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [form, setForm] = useState<FormState>(defaultForm);
+
+  // Itemized cost/payout ledger — lazy-loaded only for whichever account's
+  // "Manage Transactions" modal is currently open, rather than eagerly
+  // subscribing to every account's transactions up front.
+  const [activeLedgerAccount, setActiveLedgerAccount] = useState<AccountRow | null>(null);
+  const [transactions, setTransactions] = useState<AccountTransaction[]>([]);
+  const [isLoadingTransactions, setIsLoadingTransactions] = useState(false);
+  const [txnForm, setTxnForm] = useState({ type: 'cost' as AccountTransactionType, category: ACCOUNT_TRANSACTION_CATEGORIES.cost[0], amount: '', date: new Date().toISOString().slice(0, 10), note: '' });
+  const [isSavingTxn, setIsSavingTxn] = useState(false);
+  const [pendingDeleteTxnId, setPendingDeleteTxnId] = useState<string | null>(null);
 
   // Same accounts Import Orders tags CSVs with, flattened across every
   // broker connection the user has, subscribed live at both levels so
@@ -228,6 +242,89 @@ export default function TradingAccountsSettings() {
     }
   };
 
+  // Subscribe to the open account's transaction ledger, tearing down the
+  // previous account's listener when switching or closing the modal.
+  useEffect(() => {
+    if (!activeLedgerAccount) {
+      setTransactions([]);
+      return;
+    }
+    setIsLoadingTransactions(true);
+    const unsub = onSnapshot(
+      query(
+        collection(db, 'broker_connections', activeLedgerAccount.connectionId, 'accounts', activeLedgerAccount.id, 'transactions'),
+        orderBy('date', 'desc')
+      ),
+      (snap) => {
+        setTransactions(snap.docs.map(d => ({ id: d.id, ...d.data() } as AccountTransaction)));
+        setIsLoadingTransactions(false);
+      },
+      () => setIsLoadingTransactions(false)
+    );
+    return () => unsub();
+  }, [activeLedgerAccount?.connectionId, activeLedgerAccount?.id]);
+
+  const openLedger = (acc: AccountRow) => {
+    setActiveLedgerAccount(acc);
+    setTxnForm({ type: 'cost', category: ACCOUNT_TRANSACTION_CATEGORIES.cost[0], amount: '', date: new Date().toISOString().slice(0, 10), note: '' });
+  };
+
+  const closeLedger = () => {
+    setActiveLedgerAccount(null);
+    setPendingDeleteTxnId(null);
+  };
+
+  const handleTxnTypeChange = (type: AccountTransactionType) => {
+    setTxnForm(f => ({ ...f, type, category: ACCOUNT_TRANSACTION_CATEGORIES[type][0] }));
+  };
+
+  const handleAddTransaction = async () => {
+    if (!user || !activeLedgerAccount) return;
+    const amount = Number(txnForm.amount);
+    if (!amount || amount <= 0) {
+      setToast({ message: 'Enter an amount greater than 0', type: 'error' });
+      setTimeout(() => setToast(null), 3000);
+      return;
+    }
+    setIsSavingTxn(true);
+    try {
+      const now = new Date().toISOString();
+      const trimmedNote = txnForm.note.trim();
+      await addDoc(collection(db, 'broker_connections', activeLedgerAccount.connectionId, 'accounts', activeLedgerAccount.id, 'transactions'), {
+        userId: user.uid,
+        connectionId: activeLedgerAccount.connectionId,
+        accountId: activeLedgerAccount.id,
+        type: txnForm.type,
+        category: txnForm.category,
+        amount,
+        date: txnForm.date,
+        ...(trimmedNote ? { note: trimmedNote } : {}),
+        createdAt: now,
+        updatedAt: now,
+      });
+      setTxnForm(f => ({ ...f, amount: '', note: '' }));
+    } catch (err: any) {
+      setToast({ message: `Failed to add transaction: ${err?.message || 'Unknown error'}`, type: 'error' });
+    } finally {
+      setIsSavingTxn(false);
+    }
+  };
+
+  const handleDeleteTransaction = async (txnId: string) => {
+    if (!activeLedgerAccount) return;
+    try {
+      await deleteDoc(doc(db, 'broker_connections', activeLedgerAccount.connectionId, 'accounts', activeLedgerAccount.id, 'transactions', txnId));
+    } catch (err: any) {
+      setToast({ message: `Failed to delete transaction: ${err?.message || 'Unknown error'}`, type: 'error' });
+    } finally {
+      setPendingDeleteTxnId(null);
+    }
+  };
+
+  const totalSpent = transactions.filter(t => t.type === 'cost').reduce((s, t) => s + t.amount, 0);
+  const totalPayouts = transactions.filter(t => t.type === 'payout').reduce((s, t) => s + t.amount, 0);
+  const netProfitability = totalPayouts - totalSpent;
+
   const filteredAccounts = typeFilter === 'all' ? accounts : accounts.filter(a => a.accountType === typeFilter);
 
   const renderForm = (onSubmit: () => void, submitLabel: string) => (
@@ -401,6 +498,13 @@ export default function TradingAccountsSettings() {
                 </div>
                 <div className="flex items-center space-x-1">
                   <button
+                    onClick={() => openLedger(acc)}
+                    className="p-2 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+                    title="Manage cost/payout transactions"
+                  >
+                    <DollarSign className="w-4 h-4" />
+                  </button>
+                  <button
                     onClick={() => startEdit(acc)}
                     className="p-2 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
                     title="Edit account"
@@ -420,6 +524,134 @@ export default function TradingAccountsSettings() {
           })}
         </div>
       )}
+
+      <Modal
+        isOpen={!!activeLedgerAccount}
+        onClose={closeLedger}
+        title={activeLedgerAccount ? `${activeLedgerAccount.displayName} — Transactions` : 'Transactions'}
+        maxWidth="lg"
+      >
+        <div className="space-y-6">
+          <p className="text-xs text-muted-foreground -mt-2">
+            Real money in and out of this account — eval/reset/subscription fees you paid, and payouts you actually received. This is what determines whether you're profitable, separate from the account's in-platform P&L.
+          </p>
+
+          <div className="grid grid-cols-3 gap-3">
+            <div className="p-4 rounded-2xl bg-accent/30">
+              <p className="text-[10px] font-bold uppercase text-muted-foreground mb-1">Total Spent</p>
+              <p className="text-lg font-bold text-rose-500">${totalSpent.toLocaleString()}</p>
+            </div>
+            <div className="p-4 rounded-2xl bg-accent/30">
+              <p className="text-[10px] font-bold uppercase text-muted-foreground mb-1">Total Payouts</p>
+              <p className="text-lg font-bold text-emerald-500">${totalPayouts.toLocaleString()}</p>
+            </div>
+            <div className={cn("p-4 rounded-2xl", netProfitability >= 0 ? "bg-emerald-500/10" : "bg-rose-500/10")}>
+              <p className="text-[10px] font-bold uppercase text-muted-foreground mb-1">Net</p>
+              <p className={cn("text-lg font-bold", netProfitability >= 0 ? "text-emerald-500" : "text-rose-500")}>
+                {netProfitability >= 0 ? '+' : '-'}${Math.abs(netProfitability).toLocaleString()}
+              </p>
+            </div>
+          </div>
+
+          <div className="p-4 bg-accent/20 rounded-2xl space-y-3">
+            <div className="flex gap-2">
+              {ACCOUNT_TRANSACTION_TYPES.map(t => (
+                <button
+                  key={t}
+                  onClick={() => handleTxnTypeChange(t)}
+                  className={cn(
+                    "flex-1 py-2 rounded-xl text-xs font-bold capitalize transition-colors",
+                    txnForm.type === t
+                      ? (t === 'cost' ? "bg-rose-500 text-white" : "bg-emerald-500 text-white")
+                      : "bg-background border border-border text-muted-foreground hover:bg-accent"
+                  )}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <select
+                value={txnForm.category}
+                onChange={(e) => setTxnForm(f => ({ ...f, category: e.target.value }))}
+                className="bg-background border border-border rounded-xl px-3 py-2 text-sm"
+              >
+                {ACCOUNT_TRANSACTION_CATEGORIES[txnForm.type].map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+              <input
+                type="number"
+                placeholder="Amount (USD)"
+                value={txnForm.amount}
+                onChange={(e) => setTxnForm(f => ({ ...f, amount: e.target.value }))}
+                className="bg-background border border-border rounded-xl px-3 py-2 text-sm"
+              />
+              <input
+                type="date"
+                value={txnForm.date}
+                onChange={(e) => setTxnForm(f => ({ ...f, date: e.target.value }))}
+                className="bg-background border border-border rounded-xl px-3 py-2 text-sm"
+              />
+              <input
+                type="text"
+                placeholder="Note (optional)"
+                value={txnForm.note}
+                onChange={(e) => setTxnForm(f => ({ ...f, note: e.target.value }))}
+                className="bg-background border border-border rounded-xl px-3 py-2 text-sm"
+              />
+            </div>
+            <Button variant="primary" className="w-full" disabled={isSavingTxn} onClick={handleAddTransaction}>
+              {isSavingTxn ? 'Saving...' : `Add ${txnForm.type === 'cost' ? 'Cost' : 'Payout'}`}
+            </Button>
+          </div>
+
+          <div className="space-y-2 max-h-64 overflow-y-auto">
+            {isLoadingTransactions ? (
+              <p className="text-sm text-muted-foreground text-center py-6">Loading...</p>
+            ) : transactions.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-6">No transactions logged yet.</p>
+            ) : transactions.map(t => (
+              <div key={t.id} className="flex items-center justify-between p-3 rounded-xl bg-accent/20">
+                <div className="flex items-center gap-3">
+                  {t.type === 'cost'
+                    ? <ArrowDownCircle className="w-4 h-4 text-rose-500 shrink-0" />
+                    : <ArrowUpCircle className="w-4 h-4 text-emerald-500 shrink-0" />}
+                  <div>
+                    <p className="text-sm font-bold">{t.category}</p>
+                    <p className="text-xs text-muted-foreground">{t.date}{t.note ? ` · ${t.note}` : ''}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className={cn("text-sm font-bold", t.type === 'cost' ? 'text-rose-500' : 'text-emerald-500')}>
+                    {t.type === 'cost' ? '-' : '+'}${t.amount.toLocaleString()}
+                  </span>
+                  <button
+                    onClick={() => setPendingDeleteTxnId(t.id)}
+                    className="p-1.5 rounded-lg hover:bg-rose-500/10 text-muted-foreground hover:text-rose-500 transition-colors"
+                    title="Delete transaction"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={!!pendingDeleteTxnId}
+        onClose={() => setPendingDeleteTxnId(null)}
+        title="Delete Transaction?"
+        maxWidth="sm"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setPendingDeleteTxnId(null)}>Cancel</Button>
+            <Button variant="primary" className="bg-rose-500 hover:bg-rose-600" onClick={() => pendingDeleteTxnId && handleDeleteTransaction(pendingDeleteTxnId)}>Delete</Button>
+          </>
+        }
+      >
+        <p className="text-sm text-muted-foreground">This transaction will be permanently deleted. This can't be undone.</p>
+      </Modal>
 
       {toast && (
         <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />

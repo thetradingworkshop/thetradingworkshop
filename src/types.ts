@@ -46,6 +46,35 @@ export const ACCOUNT_SIZE_PRESETS: Record<number, { evaluationTarget: number; dr
   100000: { evaluationTarget: 6000 },
 };
 
+// Itemized ledger of real money in and out of a trading account — separate
+// from initialCost/activationFees below (which are just single running
+// totals). This is what actually determines whether a trader is
+// profitable: in-platform P&L only reflects what happened inside a
+// funded account, not what it cost to acquire/maintain across every
+// eval attempt, reset, and subscription charge, or what was ever
+// actually paid out and withdrawn.
+export const ACCOUNT_TRANSACTION_TYPES = ['cost', 'payout'] as const;
+export type AccountTransactionType = typeof ACCOUNT_TRANSACTION_TYPES[number];
+
+export const ACCOUNT_TRANSACTION_CATEGORIES: Record<AccountTransactionType, string[]> = {
+  cost: ['Evaluation Fee', 'Reset Fee', 'Activation Fee', 'Monthly Subscription', 'Other Cost'],
+  payout: ['Payout', 'Other Income'],
+};
+
+export interface AccountTransaction {
+  id: string;
+  userId: string;
+  connectionId: string;
+  accountId: string;
+  type: AccountTransactionType;
+  category: string;
+  amount: number; // USD, always positive — `type` determines the sign in aggregation
+  date: string; // yyyy-MM-dd
+  note?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface BrokerAccount {
   id: string;
   connectionId: string;
