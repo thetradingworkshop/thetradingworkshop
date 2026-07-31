@@ -16,6 +16,7 @@ import {
   Save,
   Loader2,
   CheckCircle2,
+  Circle,
   AlertCircle,
   Tag,
   Flag,
@@ -662,6 +663,7 @@ export function TradePerformanceLog({ trades, title, subtitle }: TradePerformanc
                 <th className="text-right px-4 py-3 font-bold text-[10px] uppercase tracking-widest text-muted-foreground">Exit</th>
                 <th className="text-right px-4 py-3 font-bold text-[10px] uppercase tracking-widest text-muted-foreground">PnL (Pts)</th>
                 <th className="text-center px-4 py-3 font-bold text-[10px] uppercase tracking-widest text-muted-foreground">Grade</th>
+                <th className="text-center px-4 py-3 font-bold text-[10px] uppercase tracking-widest text-muted-foreground">Reviewed</th>
                 <th className="px-4 py-3"></th>
                 <th className="px-4 py-3"></th>
               </tr>
@@ -731,6 +733,13 @@ export function TradePerformanceLog({ trades, title, subtitle }: TradePerformanc
                       {trade.tradeGrade}
                     </Badge>
                   </td>
+                  <td className="px-4 py-3 text-center">
+                    {trade.reviewed ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-500 mx-auto" aria-label="Reviewed" />
+                    ) : (
+                      <Circle className="w-4 h-4 text-muted-foreground/30 mx-auto" aria-label="Not reviewed" />
+                    )}
+                  </td>
                   <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                     <button
                       onClick={(e) => requestDeleteOne(trade.id, e)}
@@ -746,7 +755,7 @@ export function TradePerformanceLog({ trades, title, subtitle }: TradePerformanc
                 </tr>
               )) : (
                 <tr>
-                  <td colSpan={12} className="px-6 py-12 text-center text-muted-foreground">
+                  <td colSpan={13} className="px-6 py-12 text-center text-muted-foreground">
                     No trades found for this period.
                   </td>
                 </tr>
@@ -774,6 +783,20 @@ export function TradePerformanceLog({ trades, title, subtitle }: TradePerformanc
                 <p className="text-sm text-muted-foreground">Reconstructed from {selectedTrade.fills.length} execution fills</p>
               </div>
               <div className="flex items-center gap-2">
+                <button
+                  onClick={() => updateTradeFields({ reviewed: !selectedTrade.reviewed })}
+                  className={cn(
+                    "flex items-center gap-2 px-3 py-2 rounded-full text-xs font-bold transition-colors",
+                    selectedTrade.reviewed
+                      ? "bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20"
+                      : "text-muted-foreground hover:bg-accent hover:text-foreground"
+                  )}
+                  aria-label={selectedTrade.reviewed ? "Mark as not reviewed" : "Mark as reviewed"}
+                  title={selectedTrade.reviewed ? "Reviewed" : "Mark as Reviewed"}
+                >
+                  <CheckCircle2 className="w-5 h-5" />
+                  <span>{selectedTrade.reviewed ? "Reviewed" : "Mark as Reviewed"}</span>
+                </button>
                 {selectedTrade.isManualEntry && (
                   <button
                     onClick={() => setIsLinkModalOpen(true)}

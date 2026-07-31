@@ -292,6 +292,7 @@ export interface TradeReview {
   realizedRMultiple?: number;
   bestExitPrice?: number;
   bestExitTime?: string;
+  reviewed?: boolean;
 }
 
 export type Trade = TradeTruth & TradeDerivedMetrics & TradeReview;
