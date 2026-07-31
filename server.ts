@@ -381,7 +381,10 @@ async function startServer() {
 
     const startMs = Date.parse(start);
     const endMs = Date.parse(end);
-    if (isNaN(startMs) || isNaN(endMs) || endMs <= startMs) {
+    // endMs === startMs is a valid, real case — an instant scratch trade
+    // (entry and exit fills at the same timestamp). Only reject end strictly
+    // before start, a genuine data error.
+    if (isNaN(startMs) || isNaN(endMs) || endMs < startMs) {
       return res.status(400).json({ error: "Invalid start/end" });
     }
 
