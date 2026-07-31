@@ -75,6 +75,14 @@ export interface AccountTransaction {
   updatedAt: string;
 }
 
+export interface RiskSettings {
+  maxDailyLossUsd?: number;
+  maxDailyLossPct?: number;
+  riskPerTradePct?: number;
+  maxPositionSize?: number;
+  maxConsecutiveLosses?: number;
+}
+
 export interface BrokerAccount {
   id: string;
   connectionId: string;

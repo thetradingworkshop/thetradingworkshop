@@ -1,13 +1,64 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { SectionHeader, Card, Button, Badge, Toast } from '../components/Shared';
-import { Settings as SettingsIcon, Bell, Shield, User, Database, Globe, Wallet } from 'lucide-react';
+import { Settings as SettingsIcon, Bell, Shield, User, Database, Globe, Wallet, AlertTriangle } from 'lucide-react';
 import { useTrades } from '../context/TradeContext';
+import { useAuth } from '../context/AuthContext';
+import { db } from '../firebase';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { RiskSettings } from '../types';
 import TradingAccountsSettings from './TradingAccountsSettings';
+
+const EMPTY_RISK_FORM = {
+  maxDailyLossUsd: '',
+  maxDailyLossPct: '',
+  riskPerTradePct: '',
+  maxPositionSize: '',
+  maxConsecutiveLosses: '',
+};
 
 export default function SettingsScreen() {
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
-  const [activeTab, setActiveTab] = useState<'trading-parameters' | 'accounts'>('trading-parameters');
+  const [activeTab, setActiveTab] = useState<'trading-parameters' | 'risk-parameters' | 'accounts'>('trading-parameters');
   const { clearTrades } = useTrades();
+  const { user } = useAuth();
+
+  const [riskForm, setRiskForm] = useState(EMPTY_RISK_FORM);
+  const [isLoadingRisk, setIsLoadingRisk] = useState(true);
+  const [isSavingRisk, setIsSavingRisk] = useState(false);
+
+  useEffect(() => {
+    if (!user) { setIsLoadingRisk(false); return; }
+    setIsLoadingRisk(true);
+    getDoc(doc(db, 'users', user.uid)).then(snap => {
+      const risk: RiskSettings = snap.data()?.riskSettings || {};
+      setRiskForm({
+        maxDailyLossUsd: risk.maxDailyLossUsd?.toString() ?? '',
+        maxDailyLossPct: risk.maxDailyLossPct?.toString() ?? '',
+        riskPerTradePct: risk.riskPerTradePct?.toString() ?? '',
+        maxPositionSize: risk.maxPositionSize?.toString() ?? '',
+        maxConsecutiveLosses: risk.maxConsecutiveLosses?.toString() ?? '',
+      });
+    }).finally(() => setIsLoadingRisk(false));
+  }, [user?.uid]);
+
+  const handleSaveRisk = async () => {
+    if (!user) return;
+    setIsSavingRisk(true);
+    try {
+      const riskSettings: RiskSettings = {};
+      (Object.keys(riskForm) as (keyof typeof riskForm)[]).forEach(key => {
+        const raw = riskForm[key];
+        if (raw !== '') riskSettings[key] = Number(raw);
+      });
+      await setDoc(doc(db, 'users', user.uid), { riskSettings }, { merge: true });
+      setToast({ message: 'Risk parameters saved.', type: 'success' });
+    } catch (err: any) {
+      setToast({ message: `Failed to save risk parameters: ${err?.message || 'Unknown error'}`, type: 'error' });
+    } finally {
+      setIsSavingRisk(false);
+      setTimeout(() => setToast(null), 3000);
+    }
+  };
 
   const handleAction = (action: string) => {
     setToast({ message: `${action} action performed (Simulated)`, type: 'success' });
@@ -37,6 +88,13 @@ export default function SettingsScreen() {
           >
             <Database className="w-4 h-4" />
             <span>Trading Parameters</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('risk-parameters')}
+            className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-colors ${activeTab === 'risk-parameters' ? 'bg-primary text-primary-foreground font-medium' : 'hover:bg-accent text-muted-foreground'}`}
+          >
+            <AlertTriangle className="w-4 h-4" />
+            <span>Risk Parameters</span>
           </button>
           <button
             onClick={() => setActiveTab('accounts')}
@@ -105,6 +163,77 @@ export default function SettingsScreen() {
             <div className="mt-8 pt-8 border-t border-border flex justify-end">
               <Button variant="primary" onClick={() => handleAction('Save Changes')}>Save Changes</Button>
             </div>
+          </Card>
+          )}
+
+          {activeTab === 'risk-parameters' && (
+          <Card className="p-8">
+            <h3 className="text-lg font-bold mb-2">Risk Parameters</h3>
+            <p className="text-sm text-muted-foreground mb-6">Limits used to flag when a session or trade breaks your risk rules.</p>
+            {isLoadingRisk ? (
+              <p className="text-sm text-muted-foreground">Loading...</p>
+            ) : (
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold uppercase text-muted-foreground">Max Daily Loss (USD)</label>
+                    <input
+                      type="number"
+                      placeholder="e.g. 500"
+                      value={riskForm.maxDailyLossUsd}
+                      onChange={e => setRiskForm(f => ({ ...f, maxDailyLossUsd: e.target.value }))}
+                      className="w-full bg-accent/50 border border-border rounded-xl px-4 py-2 text-sm"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold uppercase text-muted-foreground">Max Daily Loss (%)</label>
+                    <input
+                      type="number"
+                      placeholder="e.g. 2"
+                      value={riskForm.maxDailyLossPct}
+                      onChange={e => setRiskForm(f => ({ ...f, maxDailyLossPct: e.target.value }))}
+                      className="w-full bg-accent/50 border border-border rounded-xl px-4 py-2 text-sm"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold uppercase text-muted-foreground">Risk Per Trade (%)</label>
+                    <input
+                      type="number"
+                      placeholder="e.g. 1"
+                      value={riskForm.riskPerTradePct}
+                      onChange={e => setRiskForm(f => ({ ...f, riskPerTradePct: e.target.value }))}
+                      className="w-full bg-accent/50 border border-border rounded-xl px-4 py-2 text-sm"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold uppercase text-muted-foreground">Max Position Size (Contracts)</label>
+                    <input
+                      type="number"
+                      placeholder="e.g. 5"
+                      value={riskForm.maxPositionSize}
+                      onChange={e => setRiskForm(f => ({ ...f, maxPositionSize: e.target.value }))}
+                      className="w-full bg-accent/50 border border-border rounded-xl px-4 py-2 text-sm"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold uppercase text-muted-foreground">Max Consecutive Losses</label>
+                    <input
+                      type="number"
+                      placeholder="e.g. 3"
+                      value={riskForm.maxConsecutiveLosses}
+                      onChange={e => setRiskForm(f => ({ ...f, maxConsecutiveLosses: e.target.value }))}
+                      className="w-full bg-accent/50 border border-border rounded-xl px-4 py-2 text-sm"
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-8 pt-8 border-t border-border flex justify-end">
+                  <Button variant="primary" disabled={isSavingRisk} onClick={handleSaveRisk}>
+                    {isSavingRisk ? 'Saving...' : 'Save Changes'}
+                  </Button>
+                </div>
+              </>
+            )}
           </Card>
           )}
 
