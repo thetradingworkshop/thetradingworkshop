@@ -227,7 +227,22 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
 
     chart.timeScale().fitContent();
 
-    return () => chart.remove();
+    // The chart is often created while its container is still animating in
+    // (e.g. the Trade Details drawer's slide-in) or before flex layout has
+    // settled, so the initial fitContent() can lock in a bar spacing sized
+    // for a narrower width than the container ends up at. `autoSize` resizes
+    // the canvas but keeps that bar spacing, leaving the extra width blank
+    // instead of stretching the existing bars to fill it — refitting on every
+    // container resize keeps the full range visible once layout settles.
+    const resizeObserver = new ResizeObserver(() => {
+      chart.timeScale().fitContent();
+    });
+    resizeObserver.observe(containerRef.current);
+
+    return () => {
+      resizeObserver.disconnect();
+      chart.remove();
+    };
     // `market` (not just `source`) is a dependency because switching
     // timeframes can produce a new dataset while `source` stays 'market'
     // both before and after, which wouldn't otherwise trigger a redraw.
