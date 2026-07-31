@@ -194,8 +194,8 @@ export function BiasVsOutcome({ className, data: propData }: { className?: strin
             <div className="ml-8 space-y-2.5">
               {chartData.map((item) => (
                 <div key={item.name} className="flex items-center text-[11px]">
-                  <div className="w-2 h-2 rounded-full mr-2.5" style={{ backgroundColor: item.color }} />
-                  <span className="font-bold w-16">{item.name}</span>
+                  <div className="w-2 h-2 rounded-full mr-2.5 shrink-0" style={{ backgroundColor: item.color }} />
+                  <span className="font-bold whitespace-nowrap">{item.name}</span>
                   <span className="text-muted-foreground/80 font-medium ml-3">{item.value}%</span>
                 </div>
               ))}

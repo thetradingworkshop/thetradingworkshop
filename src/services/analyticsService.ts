@@ -169,6 +169,29 @@ export const buildTradeStats = (trades: Trade[]): TradeStats | null => {
     { name: 'F', value: gradePct('F'), color: '#ef4444' },
   ].filter(g => g.value > 0);
 
+  // "Bias" here means whether the trade followed the trader's model/rules
+  // (mirrors the fallback used in computeDisciplineScore: isViolation when
+  // the backend computed it, otherwise modelValidation.followsModel).
+  // Crossed with outcome (win/loss) to show whether discipline actually
+  // correlates with winning, not just a raw follow-rate.
+  const biasCategories = validTrades.reduce((acc, t) => {
+    const followedModel = t.isViolation !== undefined ? !t.isViolation : (t.modelValidation?.followsModel ?? true);
+    const key = followedModel
+      ? (t.isWinner ? 'Aligned Win' : 'Aligned Loss')
+      : (t.isWinner ? 'Deviated Win' : 'Deviated Loss');
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
+
+  const biasPct = (key: string) => validTrades.length > 0 ? Math.round((biasCategories[key] || 0) / validTrades.length * 100) : 0;
+
+  const biasVsOutcomeData = [
+    { name: 'Aligned Win', value: biasPct('Aligned Win'), color: '#16a34a' },
+    { name: 'Aligned Loss', value: biasPct('Aligned Loss'), color: '#eab308' },
+    { name: 'Deviated Win', value: biasPct('Deviated Win'), color: '#3b82f6' },
+    { name: 'Deviated Loss', value: biasPct('Deviated Loss'), color: '#ef4444' },
+  ].filter(g => g.value > 0);
+
   const pnlByTrade = validTrades.slice(-10).map((t, i) => ({
     id: `T${Math.max(0, validTrades.length - 10) + i + 1}`,
     pnl: Number((t.realizedPnL || 0).toFixed(2)) || 0
@@ -207,6 +230,7 @@ export const buildTradeStats = (trades: Trade[]): TradeStats | null => {
     equityData,
     equityDataDollars,
     gradeData,
+    biasVsOutcomeData,
     pnlByTrade,
     hourlyData,
     holdData,

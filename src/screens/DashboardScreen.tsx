@@ -906,7 +906,7 @@ export default function DashboardScreen() {
 
         <div className="grid grid-cols-1 lg:grid-cols-6 gap-6">
           <TradeGradeBreakdown className="lg:col-span-2" data={stats?.gradeData} />
-          <BiasVsOutcome className="lg:col-span-2" />
+          <BiasVsOutcome className="lg:col-span-2" data={stats?.biasVsOutcomeData} />
           <PnlByTradeChart className="lg:col-span-2" data={stats?.pnlByTrade} />
           <HourlyPerformanceChart className="lg:col-span-3" data={stats?.hourlyData} />
           <HoldTimeHistogram className="lg:col-span-3" data={stats?.holdData} />

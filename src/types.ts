@@ -483,6 +483,7 @@ export interface TradeStats {
   hourlyData: { hour: string; pnl: number }[];
   holdData: { range: string; count: number }[];
   gradeData: { name: string; value: number; color: string }[];
+  biasVsOutcomeData: { name: string; value: number; color: string }[];
 }
 
 export interface PositionState {

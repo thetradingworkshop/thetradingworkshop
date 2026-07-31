@@ -316,7 +316,7 @@ export default function SessionDetailScreen() {
         </div>
         <div className="lg:col-span-4 space-y-6">
           <div className="relative group">
-            <BiasVsOutcome />
+            <BiasVsOutcome data={stats?.biasVsOutcomeData} />
             <div className="absolute top-4 right-4">
               <Badge variant={hasData ? "positive" : "neutral"} className="shadow-lg backdrop-blur-md bg-emerald-500/20">
                 {hasData ? (behaviorMetrics.biasScore > 70 ? "High Alignment" : "Partial Alignment") : "No Data"}
