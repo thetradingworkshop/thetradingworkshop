@@ -399,7 +399,14 @@ async function startServer() {
     if (timeframeConfig) {
       interval = timeframeConfig.interval;
       const padSec = 30 * 60;
-      period2 = Math.ceil(endMs / 1000 + padSec);
+      // These presets are for top-down context around the trade, not just a
+      // window ending at it — capping period2 at the trade's own exit+pad
+      // cut the chart off shortly after entry/exit even though the market
+      // kept trading for hours afterward. Extend through "now" (real trading
+      // continues past the trade until this request is made), falling back
+      // to exit+pad only for the unusual case of a trade whose exit is
+      // itself still in the future relative to this request.
+      period2 = Math.ceil(Math.max(endMs / 1000 + padSec, Date.now() / 1000));
       period1 = period2 - timeframeConfig.lookbackSeconds;
     } else {
       const durationSec = (endMs - startMs) / 1000;
