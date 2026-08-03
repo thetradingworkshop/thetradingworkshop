@@ -69,14 +69,13 @@ export function AddTradeModal({ isOpen, onClose, onSuccess }: AddTradeModalProps
       setError('Entry and exit price are required.');
       return;
     }
-    if (!entryTime || !exitTime) {
-      setError('Entry and exit time are required.');
-      return;
-    }
-    const entryIso = new Date(entryTime).toISOString();
-    const exitIso = new Date(exitTime).toISOString();
-    if (new Date(exitIso) <= new Date(entryIso)) {
-      setError('Exit time must be after entry time.');
+    // Time is optional — default entry to now, and exit to entry (an
+    // instant/zero-duration trade) when left blank, rather than blocking
+    // submission on it.
+    const entryIso = entryTime ? new Date(entryTime).toISOString() : new Date().toISOString();
+    const exitIso = exitTime ? new Date(exitTime).toISOString() : entryIso;
+    if (new Date(exitIso) < new Date(entryIso)) {
+      setError('Exit time must be at or after entry time.');
       return;
     }
 
@@ -196,11 +195,11 @@ export function AddTradeModal({ isOpen, onClose, onSuccess }: AddTradeModalProps
 
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-2">
-            <label className={labelClass}>Entry Time</label>
+            <label className={labelClass}>Entry Time <span className="normal-case text-muted-foreground/70">(optional — defaults to now)</span></label>
             <input type="datetime-local" value={entryTime} onChange={(e) => setEntryTime(e.target.value)} className={inputClass} />
           </div>
           <div className="space-y-2">
-            <label className={labelClass}>Exit Time</label>
+            <label className={labelClass}>Exit Time <span className="normal-case text-muted-foreground/70">(optional — defaults to entry time)</span></label>
             <input type="datetime-local" value={exitTime} onChange={(e) => setExitTime(e.target.value)} className={inputClass} />
           </div>
         </div>
