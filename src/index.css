@@ -112,8 +112,7 @@ body {
 .rich-content img {
   width: 100%;
   height: 420px;
-  object-fit: contain;
-  background: rgba(148, 163, 184, 0.08);
+  object-fit: cover;
   border-radius: 0.5rem;
   margin: 0.5em 0;
   display: block;
