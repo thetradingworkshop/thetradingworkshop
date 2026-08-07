@@ -442,11 +442,11 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
               <div className="max-w-none">
                 {selectedJournal.content ? (
                   <div
-                    className="rich-content text-lg leading-relaxed text-slate-600 font-medium"
+                    className="rich-content text-lg leading-relaxed text-slate-900 font-medium"
                     dangerouslySetInnerHTML={{ __html: selectedJournal.content }}
                   />
                 ) : (
-                  <p className="text-lg leading-relaxed text-slate-600 font-medium">No content provided.</p>
+                  <p className="text-lg leading-relaxed text-slate-900 font-medium">No content provided.</p>
                 )}
               </div>
 
@@ -845,7 +845,7 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
                 <div className="max-w-none">
                   {selectedJournal.content ? (
                     <div
-                      className="rich-content text-muted-foreground leading-relaxed"
+                      className="rich-content text-foreground leading-relaxed"
                       dangerouslySetInnerHTML={{ __html: selectedJournal.content }}
                     />
                   ) : (
