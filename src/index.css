@@ -110,12 +110,13 @@ body {
   margin: 0.4em 0;
 }
 .rich-content img {
+  display: block;
   width: 100%;
-  height: 420px;
-  object-fit: cover;
+  height: auto;
+  max-height: 420px;
+  object-fit: contain;
   border-radius: 0.5rem;
   margin: 0.5em 0;
-  display: block;
 }
 .rich-content a {
   text-decoration: underline;
