@@ -385,6 +385,14 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
     const handleMouseDown = (e: MouseEvent) => {
       if (pendingTextAnchor) return; // resolve the open text input first
 
+      // Without this, a real mouse drag over the canvas also kicks off the
+      // browser's native text-selection drag (nothing on the chart itself is
+      // selectable, but the gesture still highlights surrounding page text
+      // and can interfere with our own drag tracking) — only synthetic,
+      // programmatically-dispatched MouseEvents were exempt from this, which
+      // is why it slipped past testing.
+      if (pendingChannel || toolRef.current !== 'none') e.preventDefault();
+
       const { x, y } = toPixel(e);
 
       // Third click of a price channel: fix its width and commit.
@@ -434,6 +442,8 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
     };
 
     const handleMouseMove = (e: MouseEvent) => {
+      if (pendingChannel || dragState) e.preventDefault();
+
       const { x, y } = toPixel(e);
       const time = chart.timeScale().coordinateToTime(x);
       const price = candleSeries.coordinateToPrice(y);
@@ -642,7 +652,7 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
         <div className="flex flex-1 items-center justify-center text-xs text-muted-foreground">No fill data to chart.</div>
       ) : (
         <div className="relative w-full flex-1">
-          <div ref={containerRef} className="w-full h-full" />
+          <div ref={containerRef} className="w-full h-full select-none" />
           {pendingText && (
             <input
               autoFocus
