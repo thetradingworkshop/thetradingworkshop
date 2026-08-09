@@ -229,6 +229,13 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
   const applyStyleRef = useRef<((patch: DrawingStylePatch) => void) | null>(null);
   const applyCoordinatesRef = useRef<((p1: { time: number; price: number }, p2: { time: number; price: number } | null, offset: number | null) => void) | null>(null);
   const [propertiesOpen, setPropertiesOpen] = useState(false);
+  // Deleting a selected drawing (Delete/Backspace or the toolbar's trash
+  // icon) asks for confirmation first — mirrored into a ref since the
+  // chart-build effect's keydown handler is a long-lived closure that
+  // would otherwise only ever see this state's value from mount time.
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const confirmDeleteOpenRef = useRef(false);
+  useEffect(() => { confirmDeleteOpenRef.current = confirmDeleteOpen; }, [confirmDeleteOpen]);
   const [propTab, setPropTab] = useState<'style' | 'text' | 'coordinates'>('style');
   const [propForm, setPropForm] = useState<DrawingProps | null>(null);
 
@@ -515,8 +522,16 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
       emitDrawings();
     };
 
+    // Just the chart's own pan/zoom, with none of setInteractive's other
+    // side effects — used to suspend panning for the duration of a single
+    // drag (editing an existing drawing) without also clearing the
+    // selection that drag is supposed to be acting on.
+    const setChartPanZoom = (enabled: boolean) => {
+      chart.applyOptions({ handleScroll: enabled, handleScale: enabled });
+    };
+
     const setInteractive = (interactive: boolean) => {
-      chart.applyOptions({ handleScroll: interactive, handleScale: interactive });
+      setChartPanZoom(interactive);
       // A draw tool just got selected — drop the leftover "move" hover
       // cursor from hovering an existing drawing beforehand, and any
       // selection (drawing a new shape isn't a reason to keep one selected).
@@ -629,6 +644,10 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
           origOffset: prim instanceof PriceChannelPrimitive ? prim.offset : null,
           origPoint: prim instanceof TextNotePrimitive ? { ...prim.point } : null,
         };
+        // Suspend the chart's own pan/zoom for the duration of this drag —
+        // otherwise dragging a handle also scrolls the chart underneath it,
+        // fighting the edit and making it impossible to land precisely.
+        setChartPanZoom(false);
         return;
       }
 
@@ -708,6 +727,7 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
       const edit = editState;
       editState = null;
       if (edit) {
+        setChartPanZoom(true); // restore panning now that the drag is done
         const { x, y } = toPixel(e);
         const dragDistance = Math.hypot(x - edit.startX, y - edit.startY);
         if (dragDistance < 4) {
@@ -742,7 +762,11 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { cancelActive(); return; }
+      if (e.key === 'Escape') {
+        if (confirmDeleteOpenRef.current) { setConfirmDeleteOpen(false); return; }
+        cancelActive();
+        return;
+      }
       if (e.key === 'Delete' || e.key === 'Backspace') {
         // This listener is on `window`, so it also sees Backspace while the
         // user is typing in an unrelated field (the verdict editor, entry
@@ -750,7 +774,7 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
         // when nothing editable currently has focus.
         const active = document.activeElement as HTMLElement | null;
         const isEditable = !!active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable);
-        if (!isEditable && activeSelection) { e.preventDefault(); deleteSelectedRef.current?.(); }
+        if (!isEditable && activeSelection) { e.preventDefault(); setConfirmDeleteOpen(true); }
       }
     };
 
@@ -929,7 +953,7 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
             <Settings2 className="w-3.5 h-3.5" />
           </button>
           <button
-            onClick={() => deleteSelectedRef.current?.()}
+            onClick={() => setConfirmDeleteOpen(true)}
             disabled={!selectedId}
             title="Delete selected drawing"
             aria-label="Delete selected drawing"
@@ -1188,6 +1212,25 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
             )}
           </div>
         )}
+      </Modal>
+      <Modal
+        isOpen={confirmDeleteOpen}
+        onClose={() => setConfirmDeleteOpen(false)}
+        title="Delete drawing?"
+        maxWidth="sm"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setConfirmDeleteOpen(false)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              onClick={() => { deleteSelectedRef.current?.(); setConfirmDeleteOpen(false); }}
+            >
+              Delete
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-muted-foreground">This removes the selected drawing from the chart. This can't be undone.</p>
       </Modal>
     </div>
   );
