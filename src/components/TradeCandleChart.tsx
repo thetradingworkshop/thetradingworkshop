@@ -30,10 +30,12 @@ import {
   DRAWING_HIT_TOLERANCE_PX,
   priceOnLineAtTime,
   segmentDistance,
+  defaultChannelLevels,
   TrendLinePoint,
   LineStyle,
   Extend,
   DrawingStylePatch,
+  ChannelLevel,
 } from '../lib/chartDrawingPrimitives';
 
 // Snapshot of a selected drawing's editable properties, read by the
@@ -53,6 +55,10 @@ interface DrawingProps {
   direction: 'long' | 'short' | null; // position only
   targetOffset: number | null; // position only
   stopOffset: number | null; // position only
+  levels: ChannelLevel[] | null; // channel only
+  backgroundVisible: boolean | null; // channel only
+  backgroundColor: string | null; // channel only
+  backgroundOpacity: number | null; // channel only
 }
 
 type DrawingPrimitive = TrendLinePrimitive | PriceChannelPrimitive | RectanglePrimitive | FibRetracementPrimitive | TextNotePrimitive
@@ -241,6 +247,7 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
   const applyStyleRef = useRef<((patch: DrawingStylePatch) => void) | null>(null);
   const applyCoordinatesRef = useRef<((p1: { time: number; price: number }, p2: { time: number; price: number } | null, offset: number | null) => void) | null>(null);
   const applyPositionRef = useRef<((direction: 'long' | 'short', targetOffset: number, stopOffset: number) => void) | null>(null);
+  const applyChannelLevelsRef = useRef<((levels: ChannelLevel[], background: { visible: boolean; color: string; opacity: number }) => void) | null>(null);
   const commitPropertiesRef = useRef<(() => void) | null>(null);
   const [propertiesOpen, setPropertiesOpen] = useState(false);
   // Deleting a selected drawing (Delete/Backspace or the toolbar's trash
@@ -379,7 +386,7 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
       };
       let prim: DrawingPrimitive;
       switch (d.type) {
-        case 'channel': prim = new PriceChannelPrimitive(d.id, p1, p2, d.offset ?? 0, color, { ...style, label: d.text ?? '' }); break;
+        case 'channel': prim = new PriceChannelPrimitive(d.id, p1, p2, d.offset ?? 0, color, { ...style, label: d.text ?? '' }, d.levels, d.backgroundVisible !== undefined ? { visible: d.backgroundVisible, color: d.backgroundColor ?? color, opacity: d.backgroundOpacity ?? 0.12 } : undefined); break;
         case 'box': prim = new RectanglePrimitive(d.id, p1, p2, color, { ...style, label: d.text ?? '' }); break;
         case 'fib': prim = new FibRetracementPrimitive(d.id, p1, p2, color, { ...style, label: d.text ?? '' }); break;
         case 'text': prim = new TextNotePrimitive(d.id, p1, d.text ?? '', color, d.labelSize ?? 11, d.labelBold ?? true); break;
@@ -404,7 +411,7 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
     const emitDrawings = () => {
       const next: ChartDrawing[] = Array.from(primitives.values()).map(prim => {
         if (prim instanceof PriceChannelPrimitive) {
-          return withLabel({ id: prim.id, type: 'channel', time1: prim.p1.time as unknown as number, price1: prim.p1.price, time2: prim.p2.time as unknown as number, price2: prim.p2.price, offset: prim.offset, color: prim.color, lineStyle: prim.lineStyle, extend: prim.extend, labelColor: prim.labelColor, labelSize: prim.labelSize, labelBold: prim.labelBold }, prim.label);
+          return withLabel({ id: prim.id, type: 'channel', time1: prim.p1.time as unknown as number, price1: prim.p1.price, time2: prim.p2.time as unknown as number, price2: prim.p2.price, offset: prim.offset, color: prim.color, lineStyle: prim.lineStyle, extend: prim.extend, labelColor: prim.labelColor, labelSize: prim.labelSize, labelBold: prim.labelBold, levels: prim.levels, backgroundVisible: prim.backgroundVisible, backgroundColor: prim.backgroundColor, backgroundOpacity: prim.backgroundOpacity }, prim.label);
         }
         if (prim instanceof PositionPrimitive) {
           return withLabel({ id: prim.id, type: 'position', time1: prim.p1.time as unknown as number, price1: prim.p1.price, time2: prim.p2.time as unknown as number, price2: prim.p2.price, color: prim.color, direction: prim.direction, targetOffset: prim.targetOffset, stopOffset: prim.stopOffset, labelColor: prim.labelColor, labelSize: prim.labelSize, labelBold: prim.labelBold }, prim.label);
@@ -571,6 +578,10 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
           direction: null,
           targetOffset: null,
           stopOffset: null,
+          levels: null,
+          backgroundVisible: null,
+          backgroundColor: null,
+          backgroundOpacity: null,
         };
       }
       if (prim instanceof HorizontalLinePrimitive) {
@@ -589,6 +600,10 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
           direction: null,
           targetOffset: null,
           stopOffset: null,
+          levels: null,
+          backgroundVisible: null,
+          backgroundColor: null,
+          backgroundOpacity: null,
         };
       }
       if (prim instanceof VerticalLinePrimitive) {
@@ -607,6 +622,10 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
           direction: null,
           targetOffset: null,
           stopOffset: null,
+          levels: null,
+          backgroundVisible: null,
+          backgroundColor: null,
+          backgroundOpacity: null,
         };
       }
       const type: ChartDrawing['type'] =
@@ -633,6 +652,10 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
         direction: prim instanceof PositionPrimitive ? prim.direction : null,
         targetOffset: prim instanceof PositionPrimitive ? prim.targetOffset : null,
         stopOffset: prim instanceof PositionPrimitive ? prim.stopOffset : null,
+        levels: prim instanceof PriceChannelPrimitive ? prim.levels : null,
+        backgroundVisible: prim instanceof PriceChannelPrimitive ? prim.backgroundVisible : null,
+        backgroundColor: prim instanceof PriceChannelPrimitive ? prim.backgroundColor : null,
+        backgroundOpacity: prim instanceof PriceChannelPrimitive ? prim.backgroundOpacity : null,
       };
     };
     // Style/Coordinates/Position each just mutate the primitive — none of
@@ -674,6 +697,13 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
       prim.direction = direction;
       prim.setTargetOffset(targetOffset);
       prim.setStopOffset(stopOffset);
+    };
+    applyChannelLevelsRef.current = (levels, background) => {
+      if (!activeSelection) return;
+      const prim = primitives.get(activeSelection);
+      if (!(prim instanceof PriceChannelPrimitive)) return;
+      prim.setLevels(levels);
+      prim.setBackground(background.visible, background.color, background.opacity);
     };
     commitPropertiesRef.current = () => emitDrawings();
 
@@ -1068,6 +1098,7 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
       applyStyleRef.current = null;
       applyCoordinatesRef.current = null;
       applyPositionRef.current = null;
+      applyChannelLevelsRef.current = null;
       commitPropertiesRef.current = null;
       takeScreenshotRef.current = null;
       chart.remove();
@@ -1141,11 +1172,25 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
     if (propForm.type === 'position' && propForm.direction) {
       applyPositionRef.current?.(propForm.direction, propForm.targetOffset ?? 0, propForm.stopOffset ?? 0);
     }
+    if (propForm.type === 'channel' && propForm.levels) {
+      applyChannelLevelsRef.current?.(propForm.levels, {
+        visible: propForm.backgroundVisible ?? true,
+        color: propForm.backgroundColor ?? propForm.color,
+        opacity: propForm.backgroundOpacity ?? 0.12,
+      });
+    }
     commitPropertiesRef.current?.();
     setPropertiesOpen(false);
   };
   const patchProp = <K extends keyof DrawingProps>(key: K, value: DrawingProps[K]) => {
     setPropForm(prev => (prev ? { ...prev, [key]: value } : prev));
+  };
+  const patchChannelLevel = (index: number, patch: Partial<ChannelLevel>) => {
+    setPropForm(prev => {
+      if (!prev || !prev.levels) return prev;
+      const levels = prev.levels.map((l, i) => (i === index ? { ...l, ...patch } : l));
+      return { ...prev, levels };
+    });
   };
 
   // datetime-local inputs work in local-time strings, not epoch seconds.
@@ -1403,7 +1448,103 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
               ))}
             </div>
 
-            {propTab === 'style' && (
+            {propTab === 'style' && propForm.type === 'channel' && propForm.levels && (
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-muted-foreground mb-1.5">Extend</label>
+                  <select
+                    value={propForm.extend}
+                    onChange={e => patchProp('extend', e.target.value as Extend)}
+                    className="w-full h-9 rounded-lg border border-border bg-background px-3 text-sm"
+                  >
+                    <option value="none">Don't extend</option>
+                    <option value="left">Extend left</option>
+                    <option value="right">Extend right</option>
+                    <option value="both">Extend both</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-muted-foreground mb-1.5">Levels</label>
+                  <div className="space-y-1.5">
+                    {propForm.levels.map((lvl, i) => {
+                      const isBoundary = lvl.ratio === 0 || lvl.ratio === 1;
+                      return (
+                        <div key={lvl.ratio} className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={lvl.visible}
+                            disabled={isBoundary}
+                            onChange={e => patchChannelLevel(i, { visible: e.target.checked })}
+                            className="rounded border-border shrink-0 disabled:opacity-40"
+                            title={isBoundary ? "The channel's own boundary line is always shown" : 'Show this level'}
+                          />
+                          <span className="w-10 shrink-0 text-xs font-mono text-muted-foreground">{lvl.ratio}</span>
+                          <input
+                            type="color"
+                            value={lvl.color}
+                            onChange={e => patchChannelLevel(i, { color: e.target.value })}
+                            className="h-7 w-8 shrink-0 rounded border border-border bg-background cursor-pointer"
+                          />
+                          <select
+                            value={lvl.lineStyle}
+                            onChange={e => patchChannelLevel(i, { lineStyle: e.target.value as LineStyle })}
+                            className="h-7 flex-1 min-w-0 rounded border border-border bg-background px-1.5 text-xs"
+                          >
+                            <option value="solid">Solid</option>
+                            <option value="dashed">Dashed</option>
+                            <option value="dotted">Dotted</option>
+                          </select>
+                          <select
+                            value={lvl.lineWidth}
+                            onChange={e => patchChannelLevel(i, { lineWidth: Number(e.target.value) })}
+                            className="h-7 w-14 shrink-0 rounded border border-border bg-background px-1 text-xs"
+                          >
+                            <option value={1}>1px</option>
+                            <option value={2}>2px</option>
+                            <option value={3}>3px</option>
+                            <option value={4}>4px</option>
+                          </select>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div>
+                  <label className="flex items-center gap-2 text-xs font-bold text-muted-foreground mb-1.5">
+                    <input
+                      type="checkbox"
+                      checked={propForm.backgroundVisible ?? true}
+                      onChange={e => patchProp('backgroundVisible', e.target.checked)}
+                      className="rounded border-border"
+                    />
+                    Background
+                  </label>
+                  {(propForm.backgroundVisible ?? true) && (
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="color"
+                        value={propForm.backgroundColor ?? propForm.color}
+                        onChange={e => patchProp('backgroundColor', e.target.value)}
+                        className="h-9 w-12 rounded-lg border border-border bg-background cursor-pointer"
+                      />
+                      <input
+                        type="range"
+                        min={0}
+                        max={100}
+                        value={Math.round((propForm.backgroundOpacity ?? 0.12) * 100)}
+                        onChange={e => patchProp('backgroundOpacity', Number(e.target.value) / 100)}
+                        className="flex-1"
+                      />
+                      <span className="w-10 shrink-0 text-right text-xs font-mono text-muted-foreground">
+                        {Math.round((propForm.backgroundOpacity ?? 0.12) * 100)}%
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {propTab === 'style' && propForm.type !== 'channel' && (
               <div className="space-y-4">
                 <div>
                   <label className="block text-xs font-bold text-muted-foreground mb-1.5">Color</label>
@@ -1435,7 +1576,7 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
                     </select>
                   </div>
                 )}
-                {(propForm.type === 'trendline' || propForm.type === 'channel' || propForm.type === 'box') && (
+                {(propForm.type === 'trendline' || propForm.type === 'box') && (
                   <div>
                     <label className="block text-xs font-bold text-muted-foreground mb-1.5">Extend</label>
                     <select

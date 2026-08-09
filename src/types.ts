@@ -1,3 +1,5 @@
+import type { ChannelLevel } from './lib/chartDrawingPrimitives';
+
 export type Role = 'admin' | 'user' | 'guest' | 'Admin' | 'Mentor' | 'Student' | 'Viewer';
 
 // Fixed broker list — a user picks one of these when creating a named
@@ -287,6 +289,13 @@ export interface ChartDrawing {
   labelColor?: string; // color for `text`, defaults to `color`
   labelSize?: number; // font size for `text`, defaults to 12 (11 for type 'text')
   labelBold?: boolean;
+  // type 'channel' only: the boundary (ratio 0/1) and quadrant/extension
+  // lines (-0.25, 0.25, 0.5, 0.75, 1.25 by default), each independently
+  // toggleable and styleable, plus the fill between the two boundaries.
+  levels?: ChannelLevel[];
+  backgroundVisible?: boolean;
+  backgroundColor?: string;
+  backgroundOpacity?: number; // 0-1
   // type 'position' only: entry is price1 at time1..time2; target/stop are
   // price offsets from entry (target above/stop below entry for 'long',
   // reversed for 'short'). Also doubles as the risk/reward box — same

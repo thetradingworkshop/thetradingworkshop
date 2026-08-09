@@ -44,6 +44,31 @@ export interface DrawingStylePatch {
   labelBold?: boolean;
 }
 
+// A price channel's boundary + quadrant/extension lines, each independently
+// styleable — mirrors TradingView's Parallel Channel "Style" tab. Ratio 0 is
+// the drawn line (p1-p2), ratio 1 is the parallel line offset by `offset`;
+// everything else divides or extends past that band (e.g. 0.5 = the
+// midline, -0.25/1.25 = extensions beyond either edge).
+export interface ChannelLevel {
+  ratio: number;
+  visible: boolean;
+  color: string;
+  lineStyle: LineStyle;
+  lineWidth: number;
+}
+
+export const CHANNEL_LEVEL_RATIOS = [-0.25, 0, 0.25, 0.5, 0.75, 1, 1.25];
+
+// Matches the channel's own boundaries (0/1) on, solid, 2px by default;
+// every quadrant/extension level off, dashed, 1px — so a fresh channel looks
+// exactly like it did before this feature existed until the user opts in.
+export function defaultChannelLevels(color: string): ChannelLevel[] {
+  return CHANNEL_LEVEL_RATIOS.map(ratio => {
+    const boundary = ratio === 0 || ratio === 1;
+    return { ratio, visible: boundary, color, lineStyle: boundary ? 'solid' : 'dashed', lineWidth: boundary ? 2 : 1 };
+  });
+}
+
 // Pixel distance (or, for filled shapes, "am I inside it") a click needs to
 // satisfy to count as "on" a drawing, for click-to-delete hit testing.
 export const DRAWING_HIT_TOLERANCE_PX = 6;
@@ -68,9 +93,9 @@ function applyLineDash(ctx: CanvasRenderingContext2D, style: LineStyle, scale: n
   else ctx.setLineDash([]);
 }
 
-function strokeLine(ctx: CanvasRenderingContext2D, x1: number, y1: number, x2: number, y2: number, color: string, style: LineStyle, scale: number) {
+function strokeLine(ctx: CanvasRenderingContext2D, x1: number, y1: number, x2: number, y2: number, color: string, style: LineStyle, scale: number, lineWidth = 2) {
   ctx.strokeStyle = color;
-  ctx.lineWidth = 2;
+  ctx.lineWidth = lineWidth;
   ctx.lineCap = style === 'dotted' ? 'round' : 'butt';
   applyLineDash(ctx, style, scale);
   ctx.beginPath();
@@ -343,12 +368,22 @@ export class RectanglePrimitive extends TwoPointPrimitive {
 
 // ---- Price channel (trend line + a parallel line offset in price) --------
 
+interface ChannelLevelCoord {
+  ratio: number;
+  y1: number | null;
+  y2: number | null;
+}
+
 class PriceChannelPaneRenderer implements IPrimitivePaneRenderer {
   constructor(private _source: PriceChannelPrimitive) {}
 
   draw(target: CanvasRenderingTarget2D): void {
     target.useBitmapCoordinateSpace(scope => {
-      const { p1Coord: p1, p2Coord: p2, p1OffsetCoord: p1o, p2OffsetCoord: p2o, color, lineStyle, extend, selected, label, labelColor, labelSize, labelBold } = this._source;
+      const {
+        p1Coord: p1, p2Coord: p2, p1OffsetCoord: p1o, p2OffsetCoord: p2o,
+        color, levels, levelCoords, extend, selected, label, labelColor, labelSize, labelBold,
+        backgroundVisible, backgroundColor, backgroundOpacity,
+      } = this._source;
       if (p1.x === null || p1.y === null || p2.x === null || p2.y === null || p1o.x === null || p1o.y === null || p2o.x === null || p2o.y === null) return;
       const ctx = scope.context;
       const hr = scope.horizontalPixelRatio;
@@ -356,18 +391,28 @@ class PriceChannelPaneRenderer implements IPrimitivePaneRenderer {
       const [a, b] = extendLine(p1, p2, extend, 0, scope.mediaSize.width);
       const [ao, bo] = extendLine(p1o, p2o, extend, 0, scope.mediaSize.width);
       ctx.save();
-      ctx.beginPath();
-      ctx.moveTo(a.x! * hr, a.y! * vr);
-      ctx.lineTo(b.x! * hr, b.y! * vr);
-      ctx.lineTo(bo.x! * hr, bo.y! * vr);
-      ctx.lineTo(ao.x! * hr, ao.y! * vr);
-      ctx.closePath();
-      ctx.globalAlpha = 0.12;
-      ctx.fillStyle = color;
-      ctx.fill();
-      ctx.globalAlpha = 1;
-      strokeLine(ctx, a.x! * hr, a.y! * vr, b.x! * hr, b.y! * vr, color, lineStyle, hr);
-      strokeLine(ctx, ao.x! * hr, ao.y! * vr, bo.x! * hr, bo.y! * vr, color, lineStyle, hr);
+      if (backgroundVisible) {
+        ctx.beginPath();
+        ctx.moveTo(a.x! * hr, a.y! * vr);
+        ctx.lineTo(b.x! * hr, b.y! * vr);
+        ctx.lineTo(bo.x! * hr, bo.y! * vr);
+        ctx.lineTo(ao.x! * hr, ao.y! * vr);
+        ctx.closePath();
+        ctx.globalAlpha = backgroundOpacity;
+        ctx.fillStyle = backgroundColor;
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+      // Boundary (ratio 0/1) and quadrant/extension lines are all driven by
+      // the same `levels` list now, each with its own color/style/width and
+      // an independent on/off toggle.
+      for (const lvl of levels) {
+        if (!lvl.visible) continue;
+        const coord = levelCoords.find(lc => lc.ratio === lvl.ratio);
+        if (!coord || coord.y1 === null || coord.y2 === null || p1.x === null || p2.x === null) continue;
+        const [la, lb] = extendLine({ x: p1.x, y: coord.y1 }, { x: p2.x, y: coord.y2 }, extend, 0, scope.mediaSize.width);
+        strokeLine(ctx, la.x! * hr, la.y! * vr, lb.x! * hr, lb.y! * vr, lvl.color, lvl.lineStyle, hr, lvl.lineWidth);
+      }
       if (label) drawLabel(ctx, p2.x * hr, p2.y * vr, label, labelColor, labelSize, labelBold, vr);
       if (selected) {
         drawHandle(ctx, p1.x, p1.y, color, hr, vr);
@@ -391,18 +436,42 @@ export class PriceChannelPrimitive extends TwoPointPrimitive {
   offset: number; // price units, applied to both points for the second line
   p1OffsetCoord: PixelPoint = { x: null, y: null };
   p2OffsetCoord: PixelPoint = { x: null, y: null };
+  levels: ChannelLevel[];
+  levelCoords: ChannelLevelCoord[] = [];
+  backgroundVisible: boolean;
+  backgroundColor: string;
+  backgroundOpacity: number;
 
-  constructor(id: string, p1: TrendLinePoint, p2: TrendLinePoint, offset = 0, color = '#5a7d9f', style?: DrawingStylePatch) {
+  constructor(
+    id: string,
+    p1: TrendLinePoint,
+    p2: TrendLinePoint,
+    offset = 0,
+    color = '#5a7d9f',
+    style?: DrawingStylePatch,
+    levels?: ChannelLevel[],
+    background?: { visible: boolean; color: string; opacity: number },
+  ) {
     super(id, p1, p2, color, style);
     this.offset = offset;
+    this.levels = levels && levels.length ? levels : defaultChannelLevels(color);
+    this.backgroundVisible = background?.visible ?? true;
+    this.backgroundColor = background?.color ?? color;
+    this.backgroundOpacity = background?.opacity ?? 0.12;
     this._paneViews = [new PriceChannelPaneView(this)];
   }
 
   updateAllViews(): void {
     super.updateAllViews();
     if (!this._series) return;
-    this.p1OffsetCoord = { x: this.p1Coord.x, y: this._series.priceToCoordinate(this.p1.price + this.offset) };
-    this.p2OffsetCoord = { x: this.p2Coord.x, y: this._series.priceToCoordinate(this.p2.price + this.offset) };
+    const series = this._series;
+    this.p1OffsetCoord = { x: this.p1Coord.x, y: series.priceToCoordinate(this.p1.price + this.offset) };
+    this.p2OffsetCoord = { x: this.p2Coord.x, y: series.priceToCoordinate(this.p2.price + this.offset) };
+    this.levelCoords = this.levels.map(lvl => ({
+      ratio: lvl.ratio,
+      y1: series.priceToCoordinate(this.p1.price + lvl.ratio * this.offset),
+      y2: series.priceToCoordinate(this.p2.price + lvl.ratio * this.offset),
+    }));
   }
 
   setOffset(offset: number): void {
@@ -411,10 +480,27 @@ export class PriceChannelPrimitive extends TwoPointPrimitive {
     this._requestUpdate?.();
   }
 
+  setLevels(levels: ChannelLevel[]): void {
+    this.levels = levels;
+    this.updateAllViews();
+    this._requestUpdate?.();
+  }
+
+  setBackground(visible: boolean, color: string, opacity: number): void {
+    this.backgroundVisible = visible;
+    this.backgroundColor = color;
+    this.backgroundOpacity = opacity;
+    this._requestUpdate?.();
+  }
+
   distanceToPoint(x: number, y: number): number {
-    const dMain = segmentDistance(this.p1Coord.x, this.p1Coord.y, this.p2Coord.x, this.p2Coord.y, x, y);
-    const dOffset = segmentDistance(this.p1OffsetCoord.x, this.p1OffsetCoord.y, this.p2OffsetCoord.x, this.p2OffsetCoord.y, x, y);
-    return Math.min(dMain, dOffset);
+    let best = Infinity;
+    for (const lc of this.levelCoords) {
+      const lvl = this.levels.find(l => l.ratio === lc.ratio);
+      if (!lvl?.visible) continue;
+      best = Math.min(best, segmentDistance(this.p1Coord.x, lc.y1, this.p2Coord.x, lc.y2, x, y));
+    }
+    return best;
   }
 }
 
