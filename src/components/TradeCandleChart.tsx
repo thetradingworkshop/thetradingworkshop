@@ -10,7 +10,7 @@ import {
   CandlestickData,
   HistogramData,
 } from 'lightweight-charts';
-import { Pencil, Waves, Square, Percent, Type, Eraser, Settings2, Trash2 } from 'lucide-react';
+import { Pencil, Waves, Square, Percent, Type, Eraser, Settings2, Trash2, Minus, SeparatorVertical, ArrowUpRight, Ruler, CalendarRange, TrendingUp, TrendingDown } from 'lucide-react';
 import { Trade, ChartDrawing } from '../types';
 import { MarketBarsData } from '../hooks/useMarketBars';
 import { cn } from '@/src/utils';
@@ -21,6 +21,12 @@ import {
   RectanglePrimitive,
   FibRetracementPrimitive,
   TextNotePrimitive,
+  ArrowPrimitive,
+  PriceRangePrimitive,
+  TimeRangePrimitive,
+  HorizontalLinePrimitive,
+  VerticalLinePrimitive,
+  PositionPrimitive,
   DRAWING_HIT_TOLERANCE_PX,
   priceOnLineAtTime,
   segmentDistance,
@@ -42,16 +48,22 @@ interface DrawingProps {
   labelSize: number;
   labelBold: boolean;
   p1: { time: number; price: number };
-  p2: { time: number; price: number } | null; // null for text notes (single point)
+  p2: { time: number; price: number } | null; // null for text notes / hline / vline (single point)
   offset: number | null; // channel only
+  direction: 'long' | 'short' | null; // position only
+  targetOffset: number | null; // position only
+  stopOffset: number | null; // position only
 }
 
-type DrawingPrimitive = TrendLinePrimitive | PriceChannelPrimitive | RectanglePrimitive | FibRetracementPrimitive | TextNotePrimitive;
-type DrawTool = 'none' | 'trendline' | 'channel' | 'box' | 'fib' | 'text';
+type DrawingPrimitive = TrendLinePrimitive | PriceChannelPrimitive | RectanglePrimitive | FibRetracementPrimitive | TextNotePrimitive
+  | ArrowPrimitive | PriceRangePrimitive | TimeRangePrimitive | HorizontalLinePrimitive | VerticalLinePrimitive | PositionPrimitive;
+type DrawTool = 'none' | 'trendline' | 'channel' | 'box' | 'fib' | 'text' | 'hline' | 'vline' | 'arrow' | 'pricerange' | 'timerange' | 'long' | 'short';
 // Tools that are drawn with a single click-drag (start point on mousedown,
-// end point on mouseup). 'channel' needs a third click for its width and
-// 'text' needs a click plus typed input, so those are handled separately.
-const DRAG_TOOLS: DrawTool[] = ['trendline', 'box', 'fib'];
+// end point on mouseup). 'channel'/'long'/'short' need a third click for
+// their width and 'text' needs a click plus typed input, so those are
+// handled separately. 'hline'/'vline' are a single click, no drag at all.
+const DRAG_TOOLS: DrawTool[] = ['trendline', 'box', 'fib', 'arrow', 'pricerange', 'timerange'];
+const POSITION_TOOLS: DrawTool[] = ['long', 'short'];
 
 interface Bar {
   time: number;
@@ -228,6 +240,7 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
   const getSelectedPropsRef = useRef<(() => DrawingProps | null) | null>(null);
   const applyStyleRef = useRef<((patch: DrawingStylePatch) => void) | null>(null);
   const applyCoordinatesRef = useRef<((p1: { time: number; price: number }, p2: { time: number; price: number } | null, offset: number | null) => void) | null>(null);
+  const applyPositionRef = useRef<((direction: 'long' | 'short', targetOffset: number, stopOffset: number) => void) | null>(null);
   const [propertiesOpen, setPropertiesOpen] = useState(false);
   // Deleting a selected drawing (Delete/Backspace or the toolbar's trash
   // icon) asks for confirmation first — mirrored into a ref since the
@@ -259,6 +272,12 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
     : tool === 'box' ? 'Click-drag to draw a box.'
     : tool === 'fib' ? 'Click-drag from the start to the end of the move.'
     : tool === 'text' ? 'Click on the chart to place a note.'
+    : tool === 'hline' ? 'Click to place a horizontal line.'
+    : tool === 'vline' ? 'Click to place a vertical line.'
+    : tool === 'arrow' ? 'Click-drag to draw an arrow.'
+    : tool === 'pricerange' ? 'Click-drag to measure a price range.'
+    : tool === 'timerange' ? 'Click-drag to measure a date/time range.'
+    : tool === 'long' || tool === 'short' ? 'Click-drag for the entry/target zone, then click once more to set the stop-loss.'
     : null;
   const selectionHint = tool === 'none' && selectedId ? 'Drawing selected — drag a handle to edit, or use the toolbar to edit/delete it.' : null;
 
@@ -349,27 +368,57 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
         case 'box': prim = new RectanglePrimitive(d.id, p1, p2, color, { ...style, label: d.text ?? '' }); break;
         case 'fib': prim = new FibRetracementPrimitive(d.id, p1, p2, color, { ...style, label: d.text ?? '' }); break;
         case 'text': prim = new TextNotePrimitive(d.id, p1, d.text ?? '', color, d.labelSize ?? 11, d.labelBold ?? true); break;
+        case 'arrow': prim = new ArrowPrimitive(d.id, p1, p2, color, { ...style, label: d.text ?? '' }); break;
+        case 'pricerange': prim = new PriceRangePrimitive(d.id, p1, p2, color, { ...style, label: d.text ?? '' }); break;
+        case 'timerange': prim = new TimeRangePrimitive(d.id, p1, p2, color, { ...style, label: d.text ?? '' }); break;
+        case 'hline': prim = new HorizontalLinePrimitive(d.id, d.price1, color, { ...style, label: d.text ?? '' }); break;
+        case 'vline': prim = new VerticalLinePrimitive(d.id, d.time1 as UTCTimestamp, color, { ...style, label: d.text ?? '' }); break;
+        case 'position': prim = new PositionPrimitive(d.id, p1, p2, d.direction ?? 'long', d.targetOffset ?? 0, d.stopOffset ?? 0, color, { ...style, label: d.text ?? '' }); break;
         default: prim = new TrendLinePrimitive(d.id, p1, p2, color, { ...style, label: d.text ?? '' }); break;
       }
       candleSeries.attachPrimitive(prim);
       primitives.set(d.id, prim);
     }
 
+    // Firestore rejects a literal `undefined` anywhere in a write payload —
+    // `text: someLabel || undefined` produces exactly that the moment a
+    // drawing has no label, so build the optional `text` key by omission
+    // instead of assignment.
+    const withLabel = (base: Omit<ChartDrawing, 'text'>, label: string): ChartDrawing => (label ? { ...base, text: label } : base);
+
     const emitDrawings = () => {
       const next: ChartDrawing[] = Array.from(primitives.values()).map(prim => {
         if (prim instanceof PriceChannelPrimitive) {
-          return { id: prim.id, type: 'channel', time1: prim.p1.time as unknown as number, price1: prim.p1.price, time2: prim.p2.time as unknown as number, price2: prim.p2.price, offset: prim.offset, color: prim.color, lineStyle: prim.lineStyle, extend: prim.extend, text: prim.label || undefined, labelColor: prim.labelColor, labelSize: prim.labelSize, labelBold: prim.labelBold };
+          return withLabel({ id: prim.id, type: 'channel', time1: prim.p1.time as unknown as number, price1: prim.p1.price, time2: prim.p2.time as unknown as number, price2: prim.p2.price, offset: prim.offset, color: prim.color, lineStyle: prim.lineStyle, extend: prim.extend, labelColor: prim.labelColor, labelSize: prim.labelSize, labelBold: prim.labelBold }, prim.label);
+        }
+        if (prim instanceof PositionPrimitive) {
+          return withLabel({ id: prim.id, type: 'position', time1: prim.p1.time as unknown as number, price1: prim.p1.price, time2: prim.p2.time as unknown as number, price2: prim.p2.price, color: prim.color, direction: prim.direction, targetOffset: prim.targetOffset, stopOffset: prim.stopOffset, labelColor: prim.labelColor, labelSize: prim.labelSize, labelBold: prim.labelBold }, prim.label);
         }
         if (prim instanceof RectanglePrimitive) {
-          return { id: prim.id, type: 'box', time1: prim.p1.time as unknown as number, price1: prim.p1.price, time2: prim.p2.time as unknown as number, price2: prim.p2.price, color: prim.color, lineStyle: prim.lineStyle, extend: prim.extend, text: prim.label || undefined, labelColor: prim.labelColor, labelSize: prim.labelSize, labelBold: prim.labelBold };
+          return withLabel({ id: prim.id, type: 'box', time1: prim.p1.time as unknown as number, price1: prim.p1.price, time2: prim.p2.time as unknown as number, price2: prim.p2.price, color: prim.color, lineStyle: prim.lineStyle, extend: prim.extend, labelColor: prim.labelColor, labelSize: prim.labelSize, labelBold: prim.labelBold }, prim.label);
         }
         if (prim instanceof FibRetracementPrimitive) {
-          return { id: prim.id, type: 'fib', time1: prim.p1.time as unknown as number, price1: prim.p1.price, time2: prim.p2.time as unknown as number, price2: prim.p2.price, color: prim.color, lineStyle: prim.lineStyle, text: prim.label || undefined, labelColor: prim.labelColor, labelSize: prim.labelSize, labelBold: prim.labelBold };
+          return withLabel({ id: prim.id, type: 'fib', time1: prim.p1.time as unknown as number, price1: prim.p1.price, time2: prim.p2.time as unknown as number, price2: prim.p2.price, color: prim.color, lineStyle: prim.lineStyle, labelColor: prim.labelColor, labelSize: prim.labelSize, labelBold: prim.labelBold }, prim.label);
         }
         if (prim instanceof TextNotePrimitive) {
-          return { id: prim.id, type: 'text', time1: prim.point.time as unknown as number, price1: prim.point.price, time2: 0, price2: 0, text: prim.text, color: prim.color, labelSize: prim.fontSize, labelBold: prim.bold };
+          return withLabel({ id: prim.id, type: 'text', time1: prim.point.time as unknown as number, price1: prim.point.price, time2: 0, price2: 0, color: prim.color, labelSize: prim.fontSize, labelBold: prim.bold }, prim.text);
         }
-        return { id: prim.id, type: 'trendline', time1: prim.p1.time as unknown as number, price1: prim.p1.price, time2: prim.p2.time as unknown as number, price2: prim.p2.price, color: prim.color, lineStyle: prim.lineStyle, extend: prim.extend, text: prim.label || undefined, labelColor: prim.labelColor, labelSize: prim.labelSize, labelBold: prim.labelBold };
+        if (prim instanceof ArrowPrimitive) {
+          return withLabel({ id: prim.id, type: 'arrow', time1: prim.p1.time as unknown as number, price1: prim.p1.price, time2: prim.p2.time as unknown as number, price2: prim.p2.price, color: prim.color, lineStyle: prim.lineStyle, labelColor: prim.labelColor, labelSize: prim.labelSize, labelBold: prim.labelBold }, prim.label);
+        }
+        if (prim instanceof PriceRangePrimitive) {
+          return withLabel({ id: prim.id, type: 'pricerange', time1: prim.p1.time as unknown as number, price1: prim.p1.price, time2: prim.p2.time as unknown as number, price2: prim.p2.price, color: prim.color, labelColor: prim.labelColor, labelSize: prim.labelSize, labelBold: prim.labelBold }, prim.label);
+        }
+        if (prim instanceof TimeRangePrimitive) {
+          return withLabel({ id: prim.id, type: 'timerange', time1: prim.p1.time as unknown as number, price1: prim.p1.price, time2: prim.p2.time as unknown as number, price2: prim.p2.price, color: prim.color, labelColor: prim.labelColor, labelSize: prim.labelSize, labelBold: prim.labelBold }, prim.label);
+        }
+        if (prim instanceof HorizontalLinePrimitive) {
+          return withLabel({ id: prim.id, type: 'hline', time1: 0, price1: prim.price, time2: 0, price2: 0, color: prim.color, lineStyle: prim.lineStyle, labelColor: prim.labelColor, labelSize: prim.labelSize, labelBold: prim.labelBold }, prim.label);
+        }
+        if (prim instanceof VerticalLinePrimitive) {
+          return withLabel({ id: prim.id, type: 'vline', time1: prim.time as unknown as number, price1: 0, time2: 0, price2: 0, color: prim.color, lineStyle: prim.lineStyle, labelColor: prim.labelColor, labelSize: prim.labelSize, labelBold: prim.labelBold }, prim.label);
+        }
+        return withLabel({ id: prim.id, type: 'trendline', time1: prim.p1.time as unknown as number, price1: prim.p1.price, time2: prim.p2.time as unknown as number, price2: prim.p2.price, color: prim.color, lineStyle: prim.lineStyle, extend: prim.extend, labelColor: prim.labelColor, labelSize: prim.labelSize, labelBold: prim.labelBold }, prim.label);
       });
       onDrawingsChangeRef.current(next);
     };
@@ -387,7 +436,7 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
     // single anchor. Endpoints are checked with a slightly larger tolerance
     // than DRAWING_HIT_TOLERANCE_PX since they're a much smaller target than
     // the line/shape itself.
-    type EditHandle = 'p1' | 'p2' | 'offset' | 'point' | 'body';
+    type EditHandle = 'p1' | 'p2' | 'offset' | 'point' | 'body' | 'target' | 'stop';
     const HANDLE_HIT_TOLERANCE_PX = 10;
 
     const hitHandle = (x: number, y: number): { id: string; handle: EditHandle } | null => {
@@ -398,6 +447,14 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
         if (prim instanceof TextNotePrimitive) {
           const d = prim.distanceToPoint(x, y);
           if (d <= DRAWING_HIT_TOLERANCE_PX && d < bestDist) { bestDist = d; best = { id, handle: 'point' }; }
+          return;
+        }
+
+        // Single-parameter lines (a whole price level or a whole moment in
+        // time) have no endpoints to grab — the entire line is the handle.
+        if (prim instanceof HorizontalLinePrimitive || prim instanceof VerticalLinePrimitive) {
+          const d = prim.distanceToPoint(x, y);
+          if (d <= DRAWING_HIT_TOLERANCE_PX && d < bestDist) { bestDist = d; best = { id, handle: 'body' }; }
           return;
         }
 
@@ -420,6 +477,18 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
           if (dOffset <= DRAWING_HIT_TOLERANCE_PX && dOffset < bestDist) { bestDist = dOffset; best = { id, handle: 'offset' }; }
         }
 
+        if (prim instanceof PositionPrimitive) {
+          const midX = prim.p1Coord.x !== null && prim.p2Coord.x !== null ? (prim.p1Coord.x + prim.p2Coord.x) / 2 : null;
+          if (midX !== null && prim.targetCoordY !== null) {
+            const dTarget = Math.hypot(midX - x, prim.targetCoordY - y);
+            if (dTarget <= HANDLE_HIT_TOLERANCE_PX && dTarget < bestDist) { bestDist = dTarget; best = { id, handle: 'target' }; }
+          }
+          if (midX !== null && prim.stopCoordY !== null) {
+            const dStop = Math.hypot(midX - x, prim.stopCoordY - y);
+            if (dStop <= HANDLE_HIT_TOLERANCE_PX && dStop < bestDist) { bestDist = dStop; best = { id, handle: 'stop' }; }
+          }
+        }
+
         const dBody = prim.distanceToPoint(x, y);
         if (dBody <= DRAWING_HIT_TOLERANCE_PX && dBody < bestDist) { bestDist = dBody; best = { id, handle: 'body' }; }
       });
@@ -427,8 +496,9 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
       return best;
     };
 
-    let dragState: { primitive: TrendLinePrimitive | RectanglePrimitive | FibRetracementPrimitive | PriceChannelPrimitive; startX: number; startY: number } | null = null;
+    let dragState: { primitive: TrendLinePrimitive | RectanglePrimitive | FibRetracementPrimitive | PriceChannelPrimitive | ArrowPrimitive | PriceRangePrimitive | TimeRangePrimitive | PositionPrimitive; startX: number; startY: number } | null = null;
     let pendingChannel: PriceChannelPrimitive | null = null;
+    let pendingPosition: PositionPrimitive | null = null;
     let pendingTextAnchor: TrendLinePoint | null = null;
     // An in-progress edit (resize/move) of an *existing* drawing, started by
     // a mousedown on one of its handles while no tool is active.
@@ -443,6 +513,10 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
       origP2: TrendLinePoint | null;
       origOffset: number | null;
       origPoint: TrendLinePoint | null;
+      origPrice: number | null; // horizontal line only
+      origTime: number | null; // vertical line only
+      origTargetOffset: number | null; // position only
+      origStopOffset: number | null; // position only
     } | null = null;
 
     // The drawing currently selected by a plain click (no drag) in 'none'
@@ -479,9 +553,56 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
           p1: { time: prim.point.time as unknown as number, price: prim.point.price },
           p2: null,
           offset: null,
+          direction: null,
+          targetOffset: null,
+          stopOffset: null,
         };
       }
-      const type: ChartDrawing['type'] = prim instanceof PriceChannelPrimitive ? 'channel' : prim instanceof RectanglePrimitive ? 'box' : prim instanceof FibRetracementPrimitive ? 'fib' : 'trendline';
+      if (prim instanceof HorizontalLinePrimitive) {
+        return {
+          type: 'hline',
+          color: prim.color,
+          lineStyle: prim.lineStyle,
+          extend: 'none',
+          label: prim.label,
+          labelColor: prim.labelColor,
+          labelSize: prim.labelSize,
+          labelBold: prim.labelBold,
+          p1: { time: 0, price: prim.price },
+          p2: null,
+          offset: null,
+          direction: null,
+          targetOffset: null,
+          stopOffset: null,
+        };
+      }
+      if (prim instanceof VerticalLinePrimitive) {
+        return {
+          type: 'vline',
+          color: prim.color,
+          lineStyle: prim.lineStyle,
+          extend: 'none',
+          label: prim.label,
+          labelColor: prim.labelColor,
+          labelSize: prim.labelSize,
+          labelBold: prim.labelBold,
+          p1: { time: prim.time as unknown as number, price: 0 },
+          p2: null,
+          offset: null,
+          direction: null,
+          targetOffset: null,
+          stopOffset: null,
+        };
+      }
+      const type: ChartDrawing['type'] =
+        prim instanceof PriceChannelPrimitive ? 'channel'
+        : prim instanceof RectanglePrimitive ? 'box'
+        : prim instanceof FibRetracementPrimitive ? 'fib'
+        : prim instanceof ArrowPrimitive ? 'arrow'
+        : prim instanceof PriceRangePrimitive ? 'pricerange'
+        : prim instanceof TimeRangePrimitive ? 'timerange'
+        : prim instanceof PositionPrimitive ? 'position'
+        : 'trendline';
       return {
         type,
         color: prim.color,
@@ -494,6 +615,9 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
         p1: { time: prim.p1.time as unknown as number, price: prim.p1.price },
         p2: { time: prim.p2.time as unknown as number, price: prim.p2.price },
         offset: prim instanceof PriceChannelPrimitive ? prim.offset : null,
+        direction: prim instanceof PositionPrimitive ? prim.direction : null,
+        targetOffset: prim instanceof PositionPrimitive ? prim.targetOffset : null,
+        stopOffset: prim instanceof PositionPrimitive ? prim.stopOffset : null,
       };
     };
     applyStyleRef.current = (patch: DrawingStylePatch) => {
@@ -514,11 +638,24 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
       const point1: TrendLinePoint = { time: p1.time as UTCTimestamp, price: p1.price };
       if (prim instanceof TextNotePrimitive) {
         prim.setPoint(point1);
+      } else if (prim instanceof HorizontalLinePrimitive) {
+        prim.setPrice(p1.price);
+      } else if (prim instanceof VerticalLinePrimitive) {
+        prim.setTime(point1.time);
       } else if (p2) {
         const point2: TrendLinePoint = { time: p2.time as UTCTimestamp, price: p2.price };
         prim.setCoordinates(point1, point2);
         if (prim instanceof PriceChannelPrimitive && offset !== null) prim.setOffset(offset);
       }
+      emitDrawings();
+    };
+    applyPositionRef.current = (direction, targetOffset, stopOffset) => {
+      if (!activeSelection) return;
+      const prim = primitives.get(activeSelection);
+      if (!(prim instanceof PositionPrimitive)) return;
+      prim.direction = direction;
+      prim.setTargetOffset(targetOffset);
+      prim.setStopOffset(stopOffset);
       emitDrawings();
     };
 
@@ -550,6 +687,7 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
     const cancelActive = () => {
       if (dragState) { removePrimitive(dragState.primitive.id); dragState = null; }
       if (pendingChannel) { removePrimitive(pendingChannel.id); pendingChannel = null; }
+      if (pendingPosition) { removePrimitive(pendingPosition.id); pendingPosition = null; }
       if (editState) {
         // Put the drawing being edited back exactly how it was before this
         // drag started, rather than leaving it wherever the cursor happened
@@ -558,10 +696,18 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
         if (prim) {
           if (prim instanceof TextNotePrimitive) {
             if (editState.origPoint) prim.setPoint(editState.origPoint);
+          } else if (prim instanceof HorizontalLinePrimitive) {
+            if (editState.origPrice !== null) prim.setPrice(editState.origPrice);
+          } else if (prim instanceof VerticalLinePrimitive) {
+            if (editState.origTime !== null) prim.setTime(editState.origTime as UTCTimestamp);
           } else {
             if (editState.origP1) prim.setPoint('p1', editState.origP1);
             if (editState.origP2) prim.setPoint('p2', editState.origP2);
             if (prim instanceof PriceChannelPrimitive && editState.origOffset !== null) prim.setOffset(editState.origOffset);
+            if (prim instanceof PositionPrimitive) {
+              if (editState.origTargetOffset !== null) prim.setTargetOffset(editState.origTargetOffset);
+              if (editState.origStopOffset !== null) prim.setStopOffset(editState.origStopOffset);
+            }
           }
         }
         editState = null;
@@ -607,7 +753,7 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
       // and can interfere with our own drag tracking) — only synthetic,
       // programmatically-dispatched MouseEvents were exempt from this, which
       // is why it slipped past testing.
-      if (pendingChannel || toolRef.current !== 'none') e.preventDefault();
+      if (pendingChannel || pendingPosition || toolRef.current !== 'none') e.preventDefault();
 
       const { x, y } = toPixel(e);
 
@@ -624,6 +770,19 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
         return;
       }
 
+      // Third click of a long/short position: fix the stop-loss level and commit.
+      if (pendingPosition) {
+        const price = candleSeries.coordinateToPrice(y);
+        if (price !== null) {
+          const entry = pendingPosition.p1.price;
+          pendingPosition.setStopOffset(pendingPosition.direction === 'long' ? entry - price : price - entry);
+        }
+        pendingPosition = null;
+        resetTool();
+        emitDrawings();
+        return;
+      }
+
       if (toolRef.current === 'none') {
         const hit = hitHandle(x, y);
         if (!hit) { selectDrawing(null); return; }
@@ -632,6 +791,7 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
         if (!prim) return;
         const time = chart.timeScale().coordinateToTime(x);
         const price = candleSeries.coordinateToPrice(y);
+        const hasPoints = !(prim instanceof TextNotePrimitive || prim instanceof HorizontalLinePrimitive || prim instanceof VerticalLinePrimitive);
         editState = {
           id: hit.id,
           handle: hit.handle,
@@ -639,10 +799,14 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
           startY: y,
           startTime: (time as unknown as number) ?? 0,
           startPrice: price ?? 0,
-          origP1: prim instanceof TextNotePrimitive ? null : { ...prim.p1 },
-          origP2: prim instanceof TextNotePrimitive ? null : { ...prim.p2 },
+          origP1: hasPoints ? { ...prim.p1 } : null,
+          origP2: hasPoints ? { ...prim.p2 } : null,
           origOffset: prim instanceof PriceChannelPrimitive ? prim.offset : null,
           origPoint: prim instanceof TextNotePrimitive ? { ...prim.point } : null,
+          origPrice: prim instanceof HorizontalLinePrimitive ? prim.price : null,
+          origTime: prim instanceof VerticalLinePrimitive ? (prim.time as unknown as number) : null,
+          origTargetOffset: prim instanceof PositionPrimitive ? prim.targetOffset : null,
+          origStopOffset: prim instanceof PositionPrimitive ? prim.stopOffset : null,
         };
         // Suspend the chart's own pan/zoom for the duration of this drag —
         // otherwise dragging a handle also scrolls the chart underneath it,
@@ -662,15 +826,47 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
         return;
       }
 
+      // Single-click placement, no drag at all.
+      const id = `drawing-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      if (toolRef.current === 'hline') {
+        const prim = new HorizontalLinePrimitive(id, price);
+        candleSeries.attachPrimitive(prim);
+        primitives.set(id, prim);
+        resetTool();
+        emitDrawings();
+        return;
+      }
+      if (toolRef.current === 'vline') {
+        const prim = new VerticalLinePrimitive(id, time);
+        candleSeries.attachPrimitive(prim);
+        primitives.set(id, prim);
+        resetTool();
+        emitDrawings();
+        return;
+      }
+
+      // A long/short position's entry line is dragged exactly like a trend
+      // line — the third click (handled via pendingPosition, once this drag
+      // finishes in handleMouseUp) sets the stop-loss level.
+      if (toolRef.current === 'long' || toolRef.current === 'short') {
+        const prim = new PositionPrimitive(id, point, point, toolRef.current, 0, 0);
+        candleSeries.attachPrimitive(prim);
+        primitives.set(id, prim);
+        dragState = { primitive: prim, startX: x, startY: y };
+        return;
+      }
+
       // Channel's first line is dragged exactly like a trend line — only
       // the second click (handled via pendingChannel, once this drag
       // finishes in handleMouseUp) is different.
-      const id = `drawing-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       if (toolRef.current === 'channel' || DRAG_TOOLS.includes(toolRef.current)) {
         const prim =
           toolRef.current === 'channel' ? new PriceChannelPrimitive(id, point, point, 0)
           : toolRef.current === 'box' ? new RectanglePrimitive(id, point, point)
           : toolRef.current === 'fib' ? new FibRetracementPrimitive(id, point, point)
+          : toolRef.current === 'arrow' ? new ArrowPrimitive(id, point, point)
+          : toolRef.current === 'pricerange' ? new PriceRangePrimitive(id, point, point)
+          : toolRef.current === 'timerange' ? new TimeRangePrimitive(id, point, point)
           : new TrendLinePrimitive(id, point, point);
         candleSeries.attachPrimitive(prim);
         primitives.set(id, prim);
@@ -690,21 +886,44 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
         pendingChannel.setOffset(price - priceOnLineAtTime(pendingChannel.p1, pendingChannel.p2, time as unknown as number));
         return;
       }
-      if (dragState) { dragState.primitive.setPoint('p2', { time, price }); return; }
+      if (dragState) {
+        if (dragState.primitive instanceof PositionPrimitive) {
+          // The entry line stays flat (p2.price === p1.price) — only the
+          // time span extends with the drag; the vertical distance instead
+          // sets the profit-zone height.
+          const entry = dragState.primitive.p1.price;
+          dragState.primitive.setPoint('p2', { time, price: entry });
+          dragState.primitive.setTargetOffset(dragState.primitive.direction === 'long' ? price - entry : entry - price);
+        } else {
+          dragState.primitive.setPoint('p2', { time, price });
+        }
+        return;
+      }
 
       if (editState) {
         const prim = primitives.get(editState.id);
         if (!prim) { editState = null; return; }
         const numericTime = time as unknown as number;
+        const hasPoints = !(prim instanceof TextNotePrimitive || prim instanceof HorizontalLinePrimitive || prim instanceof VerticalLinePrimitive);
         if (editState.handle === 'point' && prim instanceof TextNotePrimitive) {
           prim.setPoint({ time, price });
+        } else if (editState.handle === 'body' && prim instanceof HorizontalLinePrimitive) {
+          prim.setPrice(price);
+        } else if (editState.handle === 'body' && prim instanceof VerticalLinePrimitive) {
+          prim.setTime(time);
         } else if (editState.handle === 'offset' && prim instanceof PriceChannelPrimitive) {
           prim.setOffset(price - priceOnLineAtTime(prim.p1, prim.p2, numericTime));
-        } else if (editState.handle === 'p1' && !(prim instanceof TextNotePrimitive)) {
+        } else if (editState.handle === 'target' && prim instanceof PositionPrimitive) {
+          const entry = prim.p1.price;
+          prim.setTargetOffset(prim.direction === 'long' ? price - entry : entry - price);
+        } else if (editState.handle === 'stop' && prim instanceof PositionPrimitive) {
+          const entry = prim.p1.price;
+          prim.setStopOffset(prim.direction === 'long' ? entry - price : price - entry);
+        } else if (editState.handle === 'p1' && hasPoints) {
           prim.setPoint('p1', { time, price });
-        } else if (editState.handle === 'p2' && !(prim instanceof TextNotePrimitive)) {
+        } else if (editState.handle === 'p2' && hasPoints) {
           prim.setPoint('p2', { time, price });
-        } else if (editState.handle === 'body' && !(prim instanceof TextNotePrimitive) && editState.origP1 && editState.origP2) {
+        } else if (editState.handle === 'body' && hasPoints && editState.origP1 && editState.origP2) {
           const deltaTime = numericTime - editState.startTime;
           const deltaPrice = price - editState.startPrice;
           const newP1: TrendLinePoint = { time: ((editState.origP1.time as unknown as number) + deltaTime) as UTCTimestamp, price: editState.origP1.price + deltaPrice };
@@ -755,6 +974,11 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
       if (drag.primitive instanceof PriceChannelPrimitive) {
         // Main line is drawn — now wait for one more click to set the channel width.
         pendingChannel = drag.primitive;
+        return;
+      }
+      if (drag.primitive instanceof PositionPrimitive) {
+        // Entry line + profit zone are drawn — now wait for one more click to set the stop-loss level.
+        pendingPosition = drag.primitive;
         return;
       }
       resetTool();
@@ -820,6 +1044,7 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
       getSelectedPropsRef.current = null;
       applyStyleRef.current = null;
       applyCoordinatesRef.current = null;
+      applyPositionRef.current = null;
       chart.remove();
     };
     // `market` (not just `source`) is a dependency because switching
@@ -867,7 +1092,13 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
       labelSize: propForm.labelSize,
       labelBold: propForm.labelBold,
     });
-    applyCoordinatesRef.current?.(propForm.p1, propForm.p2, propForm.offset);
+    // A position's entry line is always flat — p2's price follows p1's
+    // regardless of what (now-hidden) value it happened to carry.
+    const p2ForSave = propForm.type === 'position' && propForm.p2 ? { ...propForm.p2, price: propForm.p1.price } : propForm.p2;
+    applyCoordinatesRef.current?.(propForm.p1, p2ForSave, propForm.offset);
+    if (propForm.type === 'position' && propForm.direction) {
+      applyPositionRef.current?.(propForm.direction, propForm.targetOffset ?? 0, propForm.stopOffset ?? 0);
+    }
     setPropertiesOpen(false);
   };
   const patchProp = <K extends keyof DrawingProps>(key: K, value: DrawingProps[K]) => {
@@ -941,6 +1172,62 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
             className={cn("p-1.5 rounded-lg transition-colors", tool === 'text' ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent")}
           >
             <Type className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={() => handleToolClick('arrow')}
+            title="Arrow"
+            aria-label="Arrow"
+            className={cn("p-1.5 rounded-lg transition-colors", tool === 'arrow' ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent")}
+          >
+            <ArrowUpRight className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={() => handleToolClick('hline')}
+            title="Horizontal line"
+            aria-label="Horizontal line"
+            className={cn("p-1.5 rounded-lg transition-colors", tool === 'hline' ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent")}
+          >
+            <Minus className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={() => handleToolClick('vline')}
+            title="Vertical line"
+            aria-label="Vertical line"
+            className={cn("p-1.5 rounded-lg transition-colors", tool === 'vline' ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent")}
+          >
+            <SeparatorVertical className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={() => handleToolClick('pricerange')}
+            title="Price range"
+            aria-label="Price range"
+            className={cn("p-1.5 rounded-lg transition-colors", tool === 'pricerange' ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent")}
+          >
+            <Ruler className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={() => handleToolClick('timerange')}
+            title="Date/time range"
+            aria-label="Date/time range"
+            className={cn("p-1.5 rounded-lg transition-colors", tool === 'timerange' ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent")}
+          >
+            <CalendarRange className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={() => handleToolClick('long')}
+            title="Long position"
+            aria-label="Long position"
+            className={cn("p-1.5 rounded-lg transition-colors", tool === 'long' ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent")}
+          >
+            <TrendingUp className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={() => handleToolClick('short')}
+            title="Short position"
+            aria-label="Short position"
+            className={cn("p-1.5 rounded-lg transition-colors", tool === 'short' ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent")}
+          >
+            <TrendingDown className="w-3.5 h-3.5" />
           </button>
           <div className="w-px h-4 bg-border mx-0.5" />
           <button
@@ -1071,7 +1358,7 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
                     />
                   </div>
                 </div>
-                {propForm.type !== 'text' && (
+                {propForm.type !== 'text' && propForm.type !== 'position' && (
                   <div>
                     <label className="block text-xs font-bold text-muted-foreground mb-1.5">Line style</label>
                     <select
@@ -1160,33 +1447,43 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
             {propTab === 'coordinates' && (
               <div className="space-y-4">
                 <div>
-                  <div className="text-xs font-bold text-muted-foreground mb-1.5">Point 1 (price, time)</div>
+                  <div className="text-xs font-bold text-muted-foreground mb-1.5">
+                    {propForm.type === 'hline' ? 'Price' : propForm.type === 'vline' ? 'Time' : propForm.type === 'position' ? 'Entry price / start time' : 'Point 1 (price, time)'}
+                  </div>
                   <div className="flex items-center gap-2">
-                    <Input
-                      type="number"
-                      value={propForm.p1.price}
-                      onChange={e => patchProp('p1', { ...propForm.p1, price: Number(e.target.value) })}
-                      className="h-9 w-32"
-                    />
-                    <Input
-                      type="datetime-local"
-                      step={1}
-                      value={epochToLocalInput(propForm.p1.time)}
-                      onChange={e => patchProp('p1', { ...propForm.p1, time: localInputToEpoch(e.target.value) })}
-                      className="h-9 flex-1 text-xs"
-                    />
+                    {propForm.type !== 'vline' && (
+                      <Input
+                        type="number"
+                        value={propForm.p1.price}
+                        onChange={e => patchProp('p1', { ...propForm.p1, price: Number(e.target.value) })}
+                        className="h-9 w-32"
+                      />
+                    )}
+                    {propForm.type !== 'hline' && (
+                      <Input
+                        type="datetime-local"
+                        step={1}
+                        value={epochToLocalInput(propForm.p1.time)}
+                        onChange={e => patchProp('p1', { ...propForm.p1, time: localInputToEpoch(e.target.value) })}
+                        className="h-9 flex-1 text-xs"
+                      />
+                    )}
                   </div>
                 </div>
                 {propForm.p2 && (
                   <div>
-                    <div className="text-xs font-bold text-muted-foreground mb-1.5">Point 2 (price, time)</div>
+                    <div className="text-xs font-bold text-muted-foreground mb-1.5">
+                      {propForm.type === 'position' ? 'End time' : 'Point 2 (price, time)'}
+                    </div>
                     <div className="flex items-center gap-2">
-                      <Input
-                        type="number"
-                        value={propForm.p2.price}
-                        onChange={e => patchProp('p2', propForm.p2 ? { ...propForm.p2, price: Number(e.target.value) } : propForm.p2)}
-                        className="h-9 w-32"
-                      />
+                      {propForm.type !== 'position' && (
+                        <Input
+                          type="number"
+                          value={propForm.p2.price}
+                          onChange={e => patchProp('p2', propForm.p2 ? { ...propForm.p2, price: Number(e.target.value) } : propForm.p2)}
+                          className="h-9 w-32"
+                        />
+                      )}
                       <Input
                         type="datetime-local"
                         step={1}
@@ -1207,6 +1504,41 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
                       className="h-9 w-32"
                     />
                   </div>
+                )}
+                {propForm.type === 'position' && (
+                  <>
+                    <div>
+                      <label className="block text-xs font-bold text-muted-foreground mb-1.5">Direction</label>
+                      <select
+                        value={propForm.direction ?? 'long'}
+                        onChange={e => patchProp('direction', e.target.value as 'long' | 'short')}
+                        className="w-full h-9 rounded-lg border border-border bg-background px-3 text-sm"
+                      >
+                        <option value="long">Long</option>
+                        <option value="short">Short</option>
+                      </select>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <div className="flex-1">
+                        <label className="block text-xs font-bold text-emerald-500 mb-1.5">Target (price offset)</label>
+                        <Input
+                          type="number"
+                          value={propForm.targetOffset ?? 0}
+                          onChange={e => patchProp('targetOffset', Number(e.target.value))}
+                          className="h-9"
+                        />
+                      </div>
+                      <div className="flex-1">
+                        <label className="block text-xs font-bold text-rose-500 mb-1.5">Stop (price offset)</label>
+                        <Input
+                          type="number"
+                          value={propForm.stopOffset ?? 0}
+                          onChange={e => patchProp('stopOffset', Number(e.target.value))}
+                          className="h-9"
+                        />
+                      </div>
+                    </div>
+                  </>
                 )}
               </div>
             )}

@@ -274,7 +274,7 @@ export interface ModelValidation {
 // are unused (0) for text notes, which only anchor a single point.
 export interface ChartDrawing {
   id: string;
-  type: 'trendline' | 'channel' | 'box' | 'fib' | 'text';
+  type: 'trendline' | 'channel' | 'box' | 'fib' | 'text' | 'hline' | 'vline' | 'arrow' | 'pricerange' | 'timerange' | 'position';
   time1: number; // epoch seconds
   price1: number;
   time2: number; // epoch seconds
@@ -282,11 +282,19 @@ export interface ChartDrawing {
   offset?: number; // price units; the channel's second line, only for type 'channel'
   text?: string; // note content for type 'text'; an optional overlay label for every other type
   color?: string;
-  lineStyle?: 'solid' | 'dashed' | 'dotted'; // trendline/channel/box/fib only
+  lineStyle?: 'solid' | 'dashed' | 'dotted'; // trendline/channel/box/fib/hline/vline only
   extend?: 'none' | 'left' | 'right' | 'both'; // trendline/channel/box only
   labelColor?: string; // color for `text`, defaults to `color`
   labelSize?: number; // font size for `text`, defaults to 12 (11 for type 'text')
   labelBold?: boolean;
+  // type 'position' only: entry is price1 at time1..time2; target/stop are
+  // price offsets from entry (target above/stop below entry for 'long',
+  // reversed for 'short'). Also doubles as the risk/reward box — same
+  // entry/target/stop/R:R visualization, just without a bias toward a
+  // particular direction being implied by the tool name.
+  direction?: 'long' | 'short';
+  targetOffset?: number;
+  stopOffset?: number;
 }
 
 export interface TradeReview {

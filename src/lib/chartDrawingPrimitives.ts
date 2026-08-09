@@ -657,3 +657,544 @@ export class TextNotePrimitive implements ISeriesPrimitive<Time> {
     return Math.hypot(x - px, y - py);
   }
 }
+
+// ---- Arrow -------------------------------------------------------------
+// A trend line with an arrowhead at p2, otherwise identical.
+
+class ArrowPaneRenderer implements IPrimitivePaneRenderer {
+  constructor(private _source: ArrowPrimitive) {}
+
+  draw(target: CanvasRenderingTarget2D): void {
+    target.useBitmapCoordinateSpace(scope => {
+      const { p1Coord: p1, p2Coord: p2, color, lineStyle, selected, label, labelColor, labelSize, labelBold } = this._source;
+      if (p1.x === null || p1.y === null || p2.x === null || p2.y === null) return;
+      const ctx = scope.context;
+      const hr = scope.horizontalPixelRatio;
+      const vr = scope.verticalPixelRatio;
+      const x1 = p1.x * hr, y1 = p1.y * vr, x2 = p2.x * hr, y2 = p2.y * vr;
+      ctx.save();
+      strokeLine(ctx, x1, y1, x2, y2, color, lineStyle, hr);
+      const angle = Math.atan2(y2 - y1, x2 - x1);
+      const headLen = 10 * hr;
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.moveTo(x2, y2);
+      ctx.lineTo(x2 - headLen * Math.cos(angle - Math.PI / 7), y2 - headLen * Math.sin(angle - Math.PI / 7));
+      ctx.lineTo(x2 - headLen * Math.cos(angle + Math.PI / 7), y2 - headLen * Math.sin(angle + Math.PI / 7));
+      ctx.closePath();
+      ctx.fill();
+      if (label) drawLabel(ctx, x2, y2, label, labelColor, labelSize, labelBold, vr);
+      if (selected) { drawHandle(ctx, p1.x, p1.y, color, hr, vr); drawHandle(ctx, p2.x, p2.y, color, hr, vr); }
+      ctx.restore();
+    });
+  }
+}
+
+class ArrowPaneView implements IPrimitivePaneView {
+  constructor(private _source: ArrowPrimitive) {}
+  renderer(): IPrimitivePaneRenderer | null {
+    return new ArrowPaneRenderer(this._source);
+  }
+}
+
+export class ArrowPrimitive extends TwoPointPrimitive {
+  constructor(id: string, p1: TrendLinePoint, p2: TrendLinePoint, color = '#5a7d9f', style?: DrawingStylePatch) {
+    super(id, p1, p2, color, style);
+    this._paneViews = [new ArrowPaneView(this)];
+  }
+
+  distanceToPoint(x: number, y: number): number {
+    return segmentDistance(this.p1Coord.x, this.p1Coord.y, this.p2Coord.x, this.p2Coord.y, x, y);
+  }
+}
+
+// ---- Price range (measuring tool) ---------------------------------------
+// A shaded box between two price levels, labeled with the $ and % delta —
+// green if p2 is higher than p1, red otherwise, matching the usual
+// "measure this move" convention.
+
+class PriceRangePaneRenderer implements IPrimitivePaneRenderer {
+  constructor(private _source: PriceRangePrimitive) {}
+
+  draw(target: CanvasRenderingTarget2D): void {
+    target.useBitmapCoordinateSpace(scope => {
+      const { p1Coord: p1, p2Coord: p2, selected } = this._source;
+      if (p1.x === null || p1.y === null || p2.x === null || p2.y === null) return;
+      const ctx = scope.context;
+      const hr = scope.horizontalPixelRatio;
+      const vr = scope.verticalPixelRatio;
+      const priceDelta = this._source.p2.price - this._source.p1.price;
+      const up = priceDelta >= 0;
+      const color = up ? '#22c55e' : '#ef4444';
+      const left = Math.min(p1.x, p2.x) * hr;
+      const right = Math.max(p1.x, p2.x) * hr;
+      const top = Math.min(p1.y, p2.y) * vr;
+      const bottom = Math.max(p1.y, p2.y) * vr;
+      ctx.save();
+      ctx.globalAlpha = 0.15;
+      ctx.fillStyle = color;
+      ctx.fillRect(left, top, right - left, bottom - top);
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(left, top, right - left, bottom - top);
+      const pct = this._source.p1.price !== 0 ? (priceDelta / this._source.p1.price) * 100 : 0;
+      const text = `${up ? '+' : ''}${priceDelta.toFixed(2)} (${up ? '+' : ''}${pct.toFixed(2)}%)`;
+      ctx.font = `700 ${11 * vr}px sans-serif`;
+      ctx.fillStyle = color;
+      ctx.textBaseline = 'middle';
+      ctx.textAlign = 'center';
+      ctx.fillText(text, (left + right) / 2, (top + bottom) / 2);
+      ctx.textAlign = 'left';
+      if (selected) { drawHandle(ctx, p1.x, p1.y, color, hr, vr); drawHandle(ctx, p2.x, p2.y, color, hr, vr); }
+      ctx.restore();
+    });
+  }
+}
+
+class PriceRangePaneView implements IPrimitivePaneView {
+  constructor(private _source: PriceRangePrimitive) {}
+  renderer(): IPrimitivePaneRenderer | null {
+    return new PriceRangePaneRenderer(this._source);
+  }
+}
+
+export class PriceRangePrimitive extends TwoPointPrimitive {
+  constructor(id: string, p1: TrendLinePoint, p2: TrendLinePoint, color = '#5a7d9f', style?: DrawingStylePatch) {
+    super(id, p1, p2, color, style);
+    this._paneViews = [new PriceRangePaneView(this)];
+  }
+
+  distanceToPoint(x: number, y: number): number {
+    const { x: x1, y: y1 } = this.p1Coord;
+    const { x: x2, y: y2 } = this.p2Coord;
+    if (x1 === null || y1 === null || x2 === null || y2 === null) return Infinity;
+    const left = Math.min(x1, x2);
+    const right = Math.max(x1, x2);
+    const top = Math.min(y1, y2);
+    const bottom = Math.max(y1, y2);
+    if (x >= left && x <= right && y >= top && y <= bottom) return 0;
+    const dx = x < left ? left - x : x > right ? x - right : 0;
+    const dy = y < top ? top - y : y > bottom ? y - bottom : 0;
+    return Math.hypot(dx, dy);
+  }
+}
+
+// ---- Date/time range (measuring tool) -----------------------------------
+// Same shape as price range, but labeled with the elapsed time instead of a
+// price delta, and always drawn in a single neutral color.
+
+function formatDuration(seconds: number): string {
+  const abs = Math.abs(seconds);
+  if (abs < 60) return `${Math.round(abs)}s`;
+  if (abs < 3600) return `${Math.round(abs / 60)}m`;
+  if (abs < 86400) return `${(abs / 3600).toFixed(1)}h`;
+  return `${(abs / 86400).toFixed(1)}d`;
+}
+
+class TimeRangePaneRenderer implements IPrimitivePaneRenderer {
+  constructor(private _source: TimeRangePrimitive) {}
+
+  draw(target: CanvasRenderingTarget2D): void {
+    target.useBitmapCoordinateSpace(scope => {
+      const { p1Coord: p1, p2Coord: p2, color, selected } = this._source;
+      if (p1.x === null || p1.y === null || p2.x === null || p2.y === null) return;
+      const ctx = scope.context;
+      const hr = scope.horizontalPixelRatio;
+      const vr = scope.verticalPixelRatio;
+      const left = Math.min(p1.x, p2.x) * hr;
+      const right = Math.max(p1.x, p2.x) * hr;
+      const top = Math.min(p1.y, p2.y) * vr;
+      const bottom = Math.max(p1.y, p2.y) * vr;
+      ctx.save();
+      ctx.globalAlpha = 0.12;
+      ctx.fillStyle = color;
+      ctx.fillRect(left, top, right - left, bottom - top);
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(left, top, right - left, bottom - top);
+      const seconds = (this._source.p2.time as unknown as number) - (this._source.p1.time as unknown as number);
+      ctx.font = `700 ${11 * vr}px sans-serif`;
+      ctx.fillStyle = color;
+      ctx.textBaseline = 'bottom';
+      ctx.textAlign = 'center';
+      ctx.fillText(formatDuration(seconds), (left + right) / 2, top - 4 * vr);
+      ctx.textAlign = 'left';
+      if (selected) { drawHandle(ctx, p1.x, p1.y, color, hr, vr); drawHandle(ctx, p2.x, p2.y, color, hr, vr); }
+      ctx.restore();
+    });
+  }
+}
+
+class TimeRangePaneView implements IPrimitivePaneView {
+  constructor(private _source: TimeRangePrimitive) {}
+  renderer(): IPrimitivePaneRenderer | null {
+    return new TimeRangePaneRenderer(this._source);
+  }
+}
+
+export class TimeRangePrimitive extends TwoPointPrimitive {
+  constructor(id: string, p1: TrendLinePoint, p2: TrendLinePoint, color = '#5a7d9f', style?: DrawingStylePatch) {
+    super(id, p1, p2, color, style);
+    this._paneViews = [new TimeRangePaneView(this)];
+  }
+
+  distanceToPoint(x: number, y: number): number {
+    const { x: x1, y: y1 } = this.p1Coord;
+    const { x: x2, y: y2 } = this.p2Coord;
+    if (x1 === null || y1 === null || x2 === null || y2 === null) return Infinity;
+    const left = Math.min(x1, x2);
+    const right = Math.max(x1, x2);
+    const top = Math.min(y1, y2);
+    const bottom = Math.max(y1, y2);
+    if (x >= left && x <= right && y >= top && y <= bottom) return 0;
+    const dx = x < left ? left - x : x > right ? x - right : 0;
+    const dy = y < top ? top - y : y > bottom ? y - bottom : 0;
+    return Math.hypot(dx, dy);
+  }
+}
+
+// ---- Horizontal line ------------------------------------------------------
+// A single price level spanning the full width of the chart.
+
+class HorizontalLinePaneRenderer implements IPrimitivePaneRenderer {
+  constructor(private _source: HorizontalLinePrimitive) {}
+
+  draw(target: CanvasRenderingTarget2D): void {
+    target.useBitmapCoordinateSpace(scope => {
+      const { priceCoord: y, color, lineStyle, selected, label, labelColor, labelSize, labelBold } = this._source;
+      if (y === null) return;
+      const ctx = scope.context;
+      const hr = scope.horizontalPixelRatio;
+      const vr = scope.verticalPixelRatio;
+      const py = y * vr;
+      const width = scope.mediaSize.width * hr;
+      ctx.save();
+      strokeLine(ctx, 0, py, width, py, color, lineStyle, hr);
+      if (label) drawLabel(ctx, width - 60 * hr, py, label, labelColor, labelSize, labelBold, vr);
+      if (selected) drawHandle(ctx, width / 2, py, color, hr, vr);
+      ctx.restore();
+    });
+  }
+}
+
+class HorizontalLinePaneView implements IPrimitivePaneView {
+  constructor(private _source: HorizontalLinePrimitive) {}
+  renderer(): IPrimitivePaneRenderer | null {
+    return new HorizontalLinePaneRenderer(this._source);
+  }
+}
+
+export class HorizontalLinePrimitive implements ISeriesPrimitive<Time> {
+  readonly id: string;
+  color: string;
+  price: number;
+  lineStyle: LineStyle;
+  label: string;
+  labelColor: string;
+  labelSize: number;
+  labelBold: boolean;
+  selected = false;
+
+  priceCoord: number | null = null;
+
+  private _chart: IChartApi | null = null;
+  private _series: ISeriesApi<SeriesType> | null = null;
+  private _requestUpdate: (() => void) | null = null;
+  private _paneViews: IPrimitivePaneView[];
+
+  constructor(id: string, price: number, color = '#5a7d9f', style?: DrawingStylePatch) {
+    this.id = id;
+    this.price = price;
+    this.color = color;
+    this.lineStyle = style?.lineStyle ?? 'solid';
+    this.label = style?.label ?? '';
+    this.labelColor = style?.labelColor ?? color;
+    this.labelSize = style?.labelSize ?? 12;
+    this.labelBold = style?.labelBold ?? false;
+    this._paneViews = [new HorizontalLinePaneView(this)];
+  }
+
+  attached(param: SeriesAttachedParameter<Time>): void {
+    this._chart = param.chart;
+    this._series = param.series;
+    this._requestUpdate = param.requestUpdate;
+    this.updateAllViews();
+  }
+
+  detached(): void {
+    this._chart = null;
+    this._series = null;
+    this._requestUpdate = null;
+  }
+
+  updateAllViews(): void {
+    if (!this._series) return;
+    this.priceCoord = this._series.priceToCoordinate(this.price);
+  }
+
+  paneViews(): readonly IPrimitivePaneView[] {
+    return this._paneViews;
+  }
+
+  setPrice(price: number): void {
+    this.price = price;
+    this.updateAllViews();
+    this._requestUpdate?.();
+  }
+
+  setSelected(selected: boolean): void {
+    if (this.selected === selected) return;
+    this.selected = selected;
+    this._requestUpdate?.();
+  }
+
+  setStyle(patch: DrawingStylePatch): void {
+    if (patch.color !== undefined) this.color = patch.color;
+    if (patch.lineStyle !== undefined) this.lineStyle = patch.lineStyle;
+    if (patch.label !== undefined) this.label = patch.label;
+    if (patch.labelColor !== undefined) this.labelColor = patch.labelColor;
+    if (patch.labelSize !== undefined) this.labelSize = patch.labelSize;
+    if (patch.labelBold !== undefined) this.labelBold = patch.labelBold;
+    this._requestUpdate?.();
+  }
+
+  distanceToPoint(x: number, y: number): number {
+    if (this.priceCoord === null) return Infinity;
+    return Math.abs(y - this.priceCoord);
+  }
+}
+
+// ---- Vertical line ----------------------------------------------------------
+// A single point in time spanning the full height of the chart's pane.
+
+class VerticalLinePaneRenderer implements IPrimitivePaneRenderer {
+  constructor(private _source: VerticalLinePrimitive) {}
+
+  draw(target: CanvasRenderingTarget2D): void {
+    target.useBitmapCoordinateSpace(scope => {
+      const { timeCoord: x, color, lineStyle, selected, label, labelColor, labelSize, labelBold } = this._source;
+      if (x === null) return;
+      const ctx = scope.context;
+      const hr = scope.horizontalPixelRatio;
+      const vr = scope.verticalPixelRatio;
+      const px = x * hr;
+      const height = scope.mediaSize.height * vr;
+      ctx.save();
+      strokeLine(ctx, px, 0, px, height, color, lineStyle, vr);
+      if (label) drawLabel(ctx, px, 20 * vr, label, labelColor, labelSize, labelBold, vr);
+      if (selected) drawHandle(ctx, px, height / 2, color, hr, vr);
+      ctx.restore();
+    });
+  }
+}
+
+class VerticalLinePaneView implements IPrimitivePaneView {
+  constructor(private _source: VerticalLinePrimitive) {}
+  renderer(): IPrimitivePaneRenderer | null {
+    return new VerticalLinePaneRenderer(this._source);
+  }
+}
+
+export class VerticalLinePrimitive implements ISeriesPrimitive<Time> {
+  readonly id: string;
+  color: string;
+  time: Time;
+  lineStyle: LineStyle;
+  label: string;
+  labelColor: string;
+  labelSize: number;
+  labelBold: boolean;
+  selected = false;
+
+  timeCoord: number | null = null;
+
+  private _chart: IChartApi | null = null;
+  private _series: ISeriesApi<SeriesType> | null = null;
+  private _requestUpdate: (() => void) | null = null;
+  private _paneViews: IPrimitivePaneView[];
+
+  constructor(id: string, time: Time, color = '#5a7d9f', style?: DrawingStylePatch) {
+    this.id = id;
+    this.time = time;
+    this.color = color;
+    this.lineStyle = style?.lineStyle ?? 'solid';
+    this.label = style?.label ?? '';
+    this.labelColor = style?.labelColor ?? color;
+    this.labelSize = style?.labelSize ?? 12;
+    this.labelBold = style?.labelBold ?? false;
+    this._paneViews = [new VerticalLinePaneView(this)];
+  }
+
+  attached(param: SeriesAttachedParameter<Time>): void {
+    this._chart = param.chart;
+    this._series = param.series;
+    this._requestUpdate = param.requestUpdate;
+    this.updateAllViews();
+  }
+
+  detached(): void {
+    this._chart = null;
+    this._series = null;
+    this._requestUpdate = null;
+  }
+
+  updateAllViews(): void {
+    if (!this._chart) return;
+    this.timeCoord = this._chart.timeScale().timeToCoordinate(this.time);
+  }
+
+  paneViews(): readonly IPrimitivePaneView[] {
+    return this._paneViews;
+  }
+
+  setTime(time: Time): void {
+    this.time = time;
+    this.updateAllViews();
+    this._requestUpdate?.();
+  }
+
+  setSelected(selected: boolean): void {
+    if (this.selected === selected) return;
+    this.selected = selected;
+    this._requestUpdate?.();
+  }
+
+  setStyle(patch: DrawingStylePatch): void {
+    if (patch.color !== undefined) this.color = patch.color;
+    if (patch.lineStyle !== undefined) this.lineStyle = patch.lineStyle;
+    if (patch.label !== undefined) this.label = patch.label;
+    if (patch.labelColor !== undefined) this.labelColor = patch.labelColor;
+    if (patch.labelSize !== undefined) this.labelSize = patch.labelSize;
+    if (patch.labelBold !== undefined) this.labelBold = patch.labelBold;
+    this._requestUpdate?.();
+  }
+
+  distanceToPoint(x: number, y: number): number {
+    if (this.timeCoord === null) return Infinity;
+    return Math.abs(x - this.timeCoord);
+  }
+}
+
+// ---- Long/short position (also serves as the risk/reward box) -------------
+// A flat entry line spanning [p1.time, p2.time] at p1.price === p2.price,
+// with a profit zone (green, `targetOffset` above entry for 'long', below
+// for 'short') and a loss zone (red, `stopOffset` the other way), labeled
+// with the $/% of each and the resulting risk:reward ratio.
+
+class PositionPaneRenderer implements IPrimitivePaneRenderer {
+  constructor(private _source: PositionPrimitive) {}
+
+  draw(target: CanvasRenderingTarget2D): void {
+    target.useBitmapCoordinateSpace(scope => {
+      const { p1Coord: p1, p2Coord: p2, targetCoordY, stopCoordY, targetOffset, stopOffset, selected } = this._source;
+      if (p1.x === null || p1.y === null || p2.x === null || targetCoordY === null || stopCoordY === null) return;
+      const ctx = scope.context;
+      const hr = scope.horizontalPixelRatio;
+      const vr = scope.verticalPixelRatio;
+      const left = Math.min(p1.x, p2.x) * hr;
+      const right = Math.max(p1.x, p2.x) * hr;
+      const entryY = p1.y * vr;
+      const targetY = targetCoordY * vr;
+      const stopY = stopCoordY * vr;
+      ctx.save();
+      ctx.globalAlpha = 0.22;
+      ctx.fillStyle = '#22c55e';
+      ctx.fillRect(left, Math.min(entryY, targetY), right - left, Math.abs(targetY - entryY));
+      ctx.fillStyle = '#ef4444';
+      ctx.fillRect(left, Math.min(entryY, stopY), right - left, Math.abs(stopY - entryY));
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = '#e2e8f0';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4 * hr, 3 * hr]);
+      ctx.beginPath();
+      ctx.moveTo(left, entryY);
+      ctx.lineTo(right, entryY);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      const entryPrice = this._source.p1.price;
+      const pctTarget = entryPrice !== 0 ? (targetOffset / entryPrice) * 100 : 0;
+      const pctStop = entryPrice !== 0 ? (stopOffset / entryPrice) * 100 : 0;
+      const rr = stopOffset > 0 ? targetOffset / stopOffset : 0;
+      ctx.font = `700 ${11 * vr}px sans-serif`;
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#22c55e';
+      ctx.fillText(`+${targetOffset.toFixed(2)} (${pctTarget.toFixed(2)}%)`, left + 6 * hr, Math.min(entryY, targetY) + Math.abs(targetY - entryY) / 2);
+      ctx.fillStyle = '#ef4444';
+      ctx.fillText(`-${stopOffset.toFixed(2)} (${pctStop.toFixed(2)}%)`, left + 6 * hr, Math.min(entryY, stopY) + Math.abs(stopY - entryY) / 2);
+      ctx.fillStyle = '#e2e8f0';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText(`R:R ${rr.toFixed(2)}`, left + 6 * hr, Math.min(entryY, targetY, stopY) - 4 * vr);
+
+      if (selected) {
+        drawHandle(ctx, p1.x, p1.y, '#e2e8f0', hr, vr);
+        drawHandle(ctx, p2.x, p2.y, '#e2e8f0', hr, vr);
+        const midX = (p1.x + p2.x) / 2;
+        drawHandle(ctx, midX, targetCoordY, '#22c55e', hr, vr);
+        drawHandle(ctx, midX, stopCoordY, '#ef4444', hr, vr);
+      }
+      ctx.restore();
+    });
+  }
+}
+
+class PositionPaneView implements IPrimitivePaneView {
+  constructor(private _source: PositionPrimitive) {}
+  renderer(): IPrimitivePaneRenderer | null {
+    return new PositionPaneRenderer(this._source);
+  }
+}
+
+export class PositionPrimitive extends TwoPointPrimitive {
+  direction: 'long' | 'short';
+  targetOffset: number; // price units, always >= 0
+  stopOffset: number; // price units, always >= 0
+  targetCoordY: number | null = null;
+  stopCoordY: number | null = null;
+
+  constructor(id: string, p1: TrendLinePoint, p2: TrendLinePoint, direction: 'long' | 'short' = 'long', targetOffset = 0, stopOffset = 0, color = '#5a7d9f', style?: DrawingStylePatch) {
+    super(id, p1, p2, color, style);
+    this.direction = direction;
+    this.targetOffset = targetOffset;
+    this.stopOffset = stopOffset;
+    this._paneViews = [new PositionPaneView(this)];
+  }
+
+  updateAllViews(): void {
+    super.updateAllViews();
+    if (!this._series) return;
+    const entry = this.p1.price;
+    const targetPrice = this.direction === 'long' ? entry + this.targetOffset : entry - this.targetOffset;
+    const stopPrice = this.direction === 'long' ? entry - this.stopOffset : entry + this.stopOffset;
+    this.targetCoordY = this._series.priceToCoordinate(targetPrice);
+    this.stopCoordY = this._series.priceToCoordinate(stopPrice);
+  }
+
+  setTargetOffset(offset: number): void {
+    this.targetOffset = Math.max(0, offset);
+    this.updateAllViews();
+    this._requestUpdate?.();
+  }
+
+  setStopOffset(offset: number): void {
+    this.stopOffset = Math.max(0, offset);
+    this.updateAllViews();
+    this._requestUpdate?.();
+  }
+
+  distanceToPoint(x: number, y: number): number {
+    const { x: x1, y: y1 } = this.p1Coord;
+    const x2 = this.p2Coord.x;
+    if (x1 === null || y1 === null || x2 === null || this.targetCoordY === null || this.stopCoordY === null) return Infinity;
+    const left = Math.min(x1, x2);
+    const right = Math.max(x1, x2);
+    const top = Math.min(y1, this.targetCoordY, this.stopCoordY);
+    const bottom = Math.max(y1, this.targetCoordY, this.stopCoordY);
+    if (x >= left && x <= right && y >= top && y <= bottom) return 0;
+    const dx = x < left ? left - x : x > right ? x - right : 0;
+    const dy = y < top ? top - y : y > bottom ? y - bottom : 0;
+    return Math.hypot(dx, dy);
+  }
+}
