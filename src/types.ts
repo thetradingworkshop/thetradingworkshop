@@ -266,6 +266,24 @@ export interface ModelValidation {
   isUnconfirmed?: boolean;
 }
 
+// A trend line, price channel, rectangle, or text note drawn on a trade's
+// candlestick chart, for annotating the setup when reviewing the trade
+// later. Flat/plain shape (no charting-library types) so it round-trips
+// through Firestore cleanly — TradeCandleChart converts to/from the
+// lightweight-charts primitives' own point shape at the edges. time2/price2
+// are unused (0) for text notes, which only anchor a single point.
+export interface ChartDrawing {
+  id: string;
+  type: 'trendline' | 'channel' | 'box' | 'fib' | 'text';
+  time1: number; // epoch seconds
+  price1: number;
+  time2: number; // epoch seconds
+  price2: number;
+  offset?: number; // price units; the channel's second line, only for type 'channel'
+  text?: string; // label content, only for type 'text'
+  color?: string;
+}
+
 export interface TradeReview {
   executionQuality?: number;
   strategyQuality?: number;
@@ -293,6 +311,7 @@ export interface TradeReview {
   bestExitPrice?: number;
   bestExitTime?: string;
   reviewed?: boolean;
+  drawings?: ChartDrawing[];
 }
 
 export type Trade = TradeTruth & TradeDerivedMetrics & TradeReview;

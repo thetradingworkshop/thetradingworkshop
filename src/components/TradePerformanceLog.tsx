@@ -1234,6 +1234,8 @@ export function TradePerformanceLog({ trades, title, subtitle }: TradePerformanc
                           isLoadingMarket={isLoadingMarket}
                           timeframe={chartTimeframe}
                           onTimeframeChange={setChartTimeframe}
+                          drawings={selectedTrade.drawings || []}
+                          onDrawingsChange={(drawings) => updateTradeFields({ drawings })}
                         />
                       </div>
                       <div className="p-4 rounded-2xl bg-accent/10 border border-border/50 space-y-5">
