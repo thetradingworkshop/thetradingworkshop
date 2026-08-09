@@ -22,6 +22,7 @@ import {
   TextNotePrimitive,
   DRAWING_HIT_TOLERANCE_PX,
   priceOnLineAtTime,
+  segmentDistance,
   TrendLinePoint,
 } from '../lib/chartDrawingPrimitives';
 
@@ -326,22 +327,66 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
       primitives.delete(id);
     };
 
-    const hitTest = (x: number, y: number): string | null => {
-      let closestId: string | null = null;
-      let closestDist = DRAWING_HIT_TOLERANCE_PX;
+    // What part of an existing drawing a mousedown in 'none' mode landed on:
+    // an endpoint (resize), a channel's second line specifically (adjust its
+    // width), the shape's body (move the whole thing), or a text note's
+    // single anchor. Endpoints are checked with a slightly larger tolerance
+    // than DRAWING_HIT_TOLERANCE_PX since they're a much smaller target than
+    // the line/shape itself.
+    type EditHandle = 'p1' | 'p2' | 'offset' | 'point' | 'body';
+    const HANDLE_HIT_TOLERANCE_PX = 8;
+
+    const hitHandle = (x: number, y: number): { id: string; handle: EditHandle } | null => {
+      let best: { id: string; handle: EditHandle } | null = null;
+      let bestDist = HANDLE_HIT_TOLERANCE_PX;
+
       primitives.forEach((prim, id) => {
-        const d = prim.distanceToPoint(x, y);
-        if (d < closestDist) { closestDist = d; closestId = id; }
+        if (prim instanceof TextNotePrimitive) {
+          const d = prim.distanceToPoint(x, y);
+          if (d <= DRAWING_HIT_TOLERANCE_PX && d < bestDist) { bestDist = d; best = { id, handle: 'point' }; }
+          return;
+        }
+
+        const p1d = Math.hypot((prim.p1Coord.x ?? Infinity) - x, (prim.p1Coord.y ?? Infinity) - y);
+        const p2d = Math.hypot((prim.p2Coord.x ?? Infinity) - x, (prim.p2Coord.y ?? Infinity) - y);
+        if (p1d <= HANDLE_HIT_TOLERANCE_PX && p1d < bestDist) { bestDist = p1d; best = { id, handle: 'p1' }; }
+        if (p2d <= HANDLE_HIT_TOLERANCE_PX && p2d < bestDist) { bestDist = p2d; best = { id, handle: 'p2' }; }
+
+        if (prim instanceof PriceChannelPrimitive) {
+          const dOffset = segmentDistance(prim.p1OffsetCoord.x, prim.p1OffsetCoord.y, prim.p2OffsetCoord.x, prim.p2OffsetCoord.y, x, y);
+          if (dOffset <= DRAWING_HIT_TOLERANCE_PX && dOffset < bestDist) { bestDist = dOffset; best = { id, handle: 'offset' }; }
+        }
+
+        const dBody = prim.distanceToPoint(x, y);
+        if (dBody <= DRAWING_HIT_TOLERANCE_PX && dBody < bestDist) { bestDist = dBody; best = { id, handle: 'body' }; }
       });
-      return closestId;
+
+      return best;
     };
 
     let dragState: { primitive: TrendLinePrimitive | RectanglePrimitive | FibRetracementPrimitive | PriceChannelPrimitive; startX: number; startY: number } | null = null;
     let pendingChannel: PriceChannelPrimitive | null = null;
     let pendingTextAnchor: TrendLinePoint | null = null;
+    // An in-progress edit (resize/move) of an *existing* drawing, started by
+    // a mousedown on one of its handles while no tool is active.
+    let editState: {
+      id: string;
+      handle: EditHandle;
+      startX: number;
+      startY: number;
+      startTime: number;
+      startPrice: number;
+      origP1: TrendLinePoint | null;
+      origP2: TrendLinePoint | null;
+      origOffset: number | null;
+      origPoint: TrendLinePoint | null;
+    } | null = null;
 
     const setInteractive = (interactive: boolean) => {
       chart.applyOptions({ handleScroll: interactive, handleScale: interactive });
+      // A draw tool just got selected — drop the leftover "move" hover
+      // cursor from hovering an existing drawing beforehand.
+      if (!interactive) container.style.cursor = '';
     };
 
     const resetTool = () => {
@@ -353,6 +398,22 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
     const cancelActive = () => {
       if (dragState) { removePrimitive(dragState.primitive.id); dragState = null; }
       if (pendingChannel) { removePrimitive(pendingChannel.id); pendingChannel = null; }
+      if (editState) {
+        // Put the drawing being edited back exactly how it was before this
+        // drag started, rather than leaving it wherever the cursor happened
+        // to be.
+        const prim = primitives.get(editState.id);
+        if (prim) {
+          if (prim instanceof TextNotePrimitive) {
+            if (editState.origPoint) prim.setPoint(editState.origPoint);
+          } else {
+            if (editState.origP1) prim.setPoint('p1', editState.origP1);
+            if (editState.origP2) prim.setPoint('p2', editState.origP2);
+            if (prim instanceof PriceChannelPrimitive && editState.origOffset !== null) prim.setOffset(editState.origOffset);
+          }
+        }
+        editState = null;
+      }
       pendingTextAnchor = null;
       setPendingText(null);
       resetTool();
@@ -409,8 +470,25 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
       }
 
       if (toolRef.current === 'none') {
-        const hitId = hitTest(x, y);
-        if (hitId) { removePrimitive(hitId); emitDrawings(); }
+        const hit = hitHandle(x, y);
+        if (!hit) return;
+        e.preventDefault(); // about to drag an existing drawing — don't let this turn into a text selection either
+        const prim = primitives.get(hit.id);
+        if (!prim) return;
+        const time = chart.timeScale().coordinateToTime(x);
+        const price = candleSeries.coordinateToPrice(y);
+        editState = {
+          id: hit.id,
+          handle: hit.handle,
+          startX: x,
+          startY: y,
+          startTime: (time as unknown as number) ?? 0,
+          startPrice: price ?? 0,
+          origP1: prim instanceof TextNotePrimitive ? null : { ...prim.p1 },
+          origP2: prim instanceof TextNotePrimitive ? null : { ...prim.p2 },
+          origOffset: prim instanceof PriceChannelPrimitive ? prim.offset : null,
+          origPoint: prim instanceof TextNotePrimitive ? { ...prim.point } : null,
+        };
         return;
       }
 
@@ -442,7 +520,7 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
     };
 
     const handleMouseMove = (e: MouseEvent) => {
-      if (pendingChannel || dragState) e.preventDefault();
+      if (pendingChannel || dragState || editState) e.preventDefault();
 
       const { x, y } = toPixel(e);
       const time = chart.timeScale().coordinateToTime(x);
@@ -453,10 +531,54 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
         pendingChannel.setOffset(price - priceOnLineAtTime(pendingChannel.p1, pendingChannel.p2, time as unknown as number));
         return;
       }
-      if (dragState) dragState.primitive.setPoint('p2', { time, price });
+      if (dragState) { dragState.primitive.setPoint('p2', { time, price }); return; }
+
+      if (editState) {
+        const prim = primitives.get(editState.id);
+        if (!prim) { editState = null; return; }
+        const numericTime = time as unknown as number;
+        if (editState.handle === 'point' && prim instanceof TextNotePrimitive) {
+          prim.setPoint({ time, price });
+        } else if (editState.handle === 'offset' && prim instanceof PriceChannelPrimitive) {
+          prim.setOffset(price - priceOnLineAtTime(prim.p1, prim.p2, numericTime));
+        } else if (editState.handle === 'p1' && !(prim instanceof TextNotePrimitive)) {
+          prim.setPoint('p1', { time, price });
+        } else if (editState.handle === 'p2' && !(prim instanceof TextNotePrimitive)) {
+          prim.setPoint('p2', { time, price });
+        } else if (editState.handle === 'body' && !(prim instanceof TextNotePrimitive) && editState.origP1 && editState.origP2) {
+          const deltaTime = numericTime - editState.startTime;
+          const deltaPrice = price - editState.startPrice;
+          const newP1: TrendLinePoint = { time: ((editState.origP1.time as unknown as number) + deltaTime) as UTCTimestamp, price: editState.origP1.price + deltaPrice };
+          const newP2: TrendLinePoint = { time: ((editState.origP2.time as unknown as number) + deltaTime) as UTCTimestamp, price: editState.origP2.price + deltaPrice };
+          prim.setPoint('p1', newP1);
+          prim.setPoint('p2', newP2);
+        }
+        return;
+      }
+
+      // Idle hover, no tool active — show a grab cursor over anything
+      // draggable so it's discoverable that existing drawings can be
+      // adjusted, not just deleted with a plain click.
+      if (toolRef.current === 'none') {
+        container.style.cursor = hitHandle(x, y) ? 'move' : '';
+      }
     };
 
     const handleMouseUp = (e: MouseEvent) => {
+      const edit = editState;
+      editState = null;
+      if (edit) {
+        const { x, y } = toPixel(e);
+        const dragDistance = Math.hypot(x - edit.startX, y - edit.startY);
+        if (dragDistance < 4) {
+          // No real drag happened — treat it as the original click-to-delete
+          // gesture rather than a no-op resize/move.
+          removePrimitive(edit.id);
+        }
+        emitDrawings();
+        return;
+      }
+
       const drag = dragState;
       dragState = null;
       if (!drag) return;

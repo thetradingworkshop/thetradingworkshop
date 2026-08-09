@@ -33,7 +33,11 @@ interface PixelPoint {
 // satisfy to count as "on" a drawing, for click-to-delete hit testing.
 export const DRAWING_HIT_TOLERANCE_PX = 6;
 
-function segmentDistance(x1: number | null, y1: number | null, x2: number | null, y2: number | null, x: number, y: number): number {
+// Exported for the chart component's own handle hit-testing (deciding
+// whether a click/drag on an existing drawing is grabbing an endpoint, a
+// channel's offset line, or its body) — the same distance math used
+// internally by the two-point primitives below.
+export function segmentDistance(x1: number | null, y1: number | null, x2: number | null, y2: number | null, x: number, y: number): number {
   if (x1 === null || y1 === null || x2 === null || y2 === null) return Infinity;
   const dx = x2 - x1;
   const dy = y2 - y1;
@@ -489,6 +493,12 @@ export class TextNotePrimitive implements ISeriesPrimitive<Time> {
 
   paneViews(): readonly IPrimitivePaneView[] {
     return this._paneViews;
+  }
+
+  setPoint(point: TrendLinePoint): void {
+    this.point = point;
+    this.updateAllViews();
+    this._requestUpdate?.();
   }
 
   // Rough hit box covering the anchor dot and the label pill drawn near it
