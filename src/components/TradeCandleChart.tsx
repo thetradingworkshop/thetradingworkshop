@@ -10,10 +10,11 @@ import {
   CandlestickData,
   HistogramData,
 } from 'lightweight-charts';
-import { Pencil, Waves, Square, Percent, Type, Eraser } from 'lucide-react';
+import { Pencil, Waves, Square, Percent, Type, Eraser, Settings2, Trash2 } from 'lucide-react';
 import { Trade, ChartDrawing } from '../types';
 import { MarketBarsData } from '../hooks/useMarketBars';
 import { cn } from '@/src/utils';
+import { Modal, Button, Input } from './Shared';
 import {
   TrendLinePrimitive,
   PriceChannelPrimitive,
@@ -24,7 +25,26 @@ import {
   priceOnLineAtTime,
   segmentDistance,
   TrendLinePoint,
+  LineStyle,
+  Extend,
+  DrawingStylePatch,
 } from '../lib/chartDrawingPrimitives';
+
+// Snapshot of a selected drawing's editable properties, read by the
+// properties panel when it opens and used to seed its form state.
+interface DrawingProps {
+  type: ChartDrawing['type'];
+  color: string;
+  lineStyle: LineStyle;
+  extend: Extend;
+  label: string; // the overlay label, or the text note's own content
+  labelColor: string;
+  labelSize: number;
+  labelBold: boolean;
+  p1: { time: number; price: number };
+  p2: { time: number; price: number } | null; // null for text notes (single point)
+  offset: number | null; // channel only
+}
 
 type DrawingPrimitive = TrendLinePrimitive | PriceChannelPrimitive | RectanglePrimitive | FibRetracementPrimitive | TextNotePrimitive;
 type DrawTool = 'none' | 'trendline' | 'channel' | 'box' | 'fib' | 'text';
@@ -194,6 +214,24 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
   // waiting on the floating input below for its content.
   const [pendingText, setPendingText] = useState<{ x: number; y: number } | null>(null);
 
+  // The currently-selected existing drawing (clicked while no tool is
+  // active), purely to drive the hint text and the toolbar's delete
+  // button — the chart-build effect below keeps its own live copy for
+  // actual logic, since this state snapshot goes stale inside that
+  // effect's closure.
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const deleteSelectedRef = useRef<(() => void) | null>(null);
+  // Bridges for the properties panel (rendered outside the chart-build
+  // effect's closure, where the live primitives actually are): read a
+  // snapshot of the selected drawing to seed the panel's form, then push
+  // Style/Text or Coordinates edits back in on Save.
+  const getSelectedPropsRef = useRef<(() => DrawingProps | null) | null>(null);
+  const applyStyleRef = useRef<((patch: DrawingStylePatch) => void) | null>(null);
+  const applyCoordinatesRef = useRef<((p1: { time: number; price: number }, p2: { time: number; price: number } | null, offset: number | null) => void) | null>(null);
+  const [propertiesOpen, setPropertiesOpen] = useState(false);
+  const [propTab, setPropTab] = useState<'style' | 'text' | 'coordinates'>('style');
+  const [propForm, setPropForm] = useState<DrawingProps | null>(null);
+
   const drawingsRef = useRef(drawings);
   useEffect(() => { drawingsRef.current = drawings; }, [drawings]);
   const onDrawingsChangeRef = useRef(onDrawingsChange);
@@ -215,6 +253,7 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
     : tool === 'fib' ? 'Click-drag from the start to the end of the move.'
     : tool === 'text' ? 'Click on the chart to place a note.'
     : null;
+  const selectionHint = tool === 'none' && selectedId ? 'Drawing selected — drag a handle to edit, or use the toolbar to edit/delete it.' : null;
 
   useEffect(() => {
     if (!containerRef.current || bars.length === 0 || isLoadingMarket) return;
@@ -289,13 +328,21 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
     for (const d of drawingsRef.current) {
       const p1: TrendLinePoint = { time: d.time1 as UTCTimestamp, price: d.price1 };
       const p2: TrendLinePoint = { time: d.time2 as UTCTimestamp, price: d.price2 };
+      const color = d.color ?? '#5a7d9f';
+      const style: DrawingStylePatch = {
+        lineStyle: d.lineStyle ?? 'solid',
+        extend: d.extend ?? 'none',
+        labelColor: d.labelColor ?? color,
+        labelSize: d.labelSize ?? 12,
+        labelBold: d.labelBold ?? false,
+      };
       let prim: DrawingPrimitive;
       switch (d.type) {
-        case 'channel': prim = new PriceChannelPrimitive(d.id, p1, p2, d.offset ?? 0, d.color ?? '#5a7d9f'); break;
-        case 'box': prim = new RectanglePrimitive(d.id, p1, p2, d.color ?? '#5a7d9f'); break;
-        case 'fib': prim = new FibRetracementPrimitive(d.id, p1, p2, d.color ?? '#5a7d9f'); break;
-        case 'text': prim = new TextNotePrimitive(d.id, p1, d.text ?? '', d.color ?? '#5a7d9f'); break;
-        default: prim = new TrendLinePrimitive(d.id, p1, p2, d.color ?? '#5a7d9f'); break;
+        case 'channel': prim = new PriceChannelPrimitive(d.id, p1, p2, d.offset ?? 0, color, { ...style, label: d.text ?? '' }); break;
+        case 'box': prim = new RectanglePrimitive(d.id, p1, p2, color, { ...style, label: d.text ?? '' }); break;
+        case 'fib': prim = new FibRetracementPrimitive(d.id, p1, p2, color, { ...style, label: d.text ?? '' }); break;
+        case 'text': prim = new TextNotePrimitive(d.id, p1, d.text ?? '', color, d.labelSize ?? 11, d.labelBold ?? true); break;
+        default: prim = new TrendLinePrimitive(d.id, p1, p2, color, { ...style, label: d.text ?? '' }); break;
       }
       candleSeries.attachPrimitive(prim);
       primitives.set(d.id, prim);
@@ -304,18 +351,18 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
     const emitDrawings = () => {
       const next: ChartDrawing[] = Array.from(primitives.values()).map(prim => {
         if (prim instanceof PriceChannelPrimitive) {
-          return { id: prim.id, type: 'channel', time1: prim.p1.time as unknown as number, price1: prim.p1.price, time2: prim.p2.time as unknown as number, price2: prim.p2.price, offset: prim.offset, color: prim.color };
+          return { id: prim.id, type: 'channel', time1: prim.p1.time as unknown as number, price1: prim.p1.price, time2: prim.p2.time as unknown as number, price2: prim.p2.price, offset: prim.offset, color: prim.color, lineStyle: prim.lineStyle, extend: prim.extend, text: prim.label || undefined, labelColor: prim.labelColor, labelSize: prim.labelSize, labelBold: prim.labelBold };
         }
         if (prim instanceof RectanglePrimitive) {
-          return { id: prim.id, type: 'box', time1: prim.p1.time as unknown as number, price1: prim.p1.price, time2: prim.p2.time as unknown as number, price2: prim.p2.price, color: prim.color };
+          return { id: prim.id, type: 'box', time1: prim.p1.time as unknown as number, price1: prim.p1.price, time2: prim.p2.time as unknown as number, price2: prim.p2.price, color: prim.color, lineStyle: prim.lineStyle, extend: prim.extend, text: prim.label || undefined, labelColor: prim.labelColor, labelSize: prim.labelSize, labelBold: prim.labelBold };
         }
         if (prim instanceof FibRetracementPrimitive) {
-          return { id: prim.id, type: 'fib', time1: prim.p1.time as unknown as number, price1: prim.p1.price, time2: prim.p2.time as unknown as number, price2: prim.p2.price, color: prim.color };
+          return { id: prim.id, type: 'fib', time1: prim.p1.time as unknown as number, price1: prim.p1.price, time2: prim.p2.time as unknown as number, price2: prim.p2.price, color: prim.color, lineStyle: prim.lineStyle, text: prim.label || undefined, labelColor: prim.labelColor, labelSize: prim.labelSize, labelBold: prim.labelBold };
         }
         if (prim instanceof TextNotePrimitive) {
-          return { id: prim.id, type: 'text', time1: prim.point.time as unknown as number, price1: prim.point.price, time2: 0, price2: 0, text: prim.text, color: prim.color };
+          return { id: prim.id, type: 'text', time1: prim.point.time as unknown as number, price1: prim.point.price, time2: 0, price2: 0, text: prim.text, color: prim.color, labelSize: prim.fontSize, labelBold: prim.bold };
         }
-        return { id: prim.id, type: 'trendline', time1: prim.p1.time as unknown as number, price1: prim.p1.price, time2: prim.p2.time as unknown as number, price2: prim.p2.price, color: prim.color };
+        return { id: prim.id, type: 'trendline', time1: prim.p1.time as unknown as number, price1: prim.p1.price, time2: prim.p2.time as unknown as number, price2: prim.p2.price, color: prim.color, lineStyle: prim.lineStyle, extend: prim.extend, text: prim.label || undefined, labelColor: prim.labelColor, labelSize: prim.labelSize, labelBold: prim.labelBold };
       });
       onDrawingsChangeRef.current(next);
     };
@@ -391,11 +438,92 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
       origPoint: TrendLinePoint | null;
     } | null = null;
 
+    // The drawing currently selected by a plain click (no drag) in 'none'
+    // mode — kept live here rather than read from React state, which would
+    // be a stale snapshot from whenever this effect last ran.
+    let activeSelection: string | null = null;
+    const selectDrawing = (id: string | null) => {
+      if (activeSelection === id) return;
+      if (activeSelection) primitives.get(activeSelection)?.setSelected(false);
+      activeSelection = id;
+      if (id) primitives.get(id)?.setSelected(true);
+      setSelectedId(id);
+    };
+    deleteSelectedRef.current = () => {
+      if (!activeSelection) return;
+      removePrimitive(activeSelection);
+      selectDrawing(null);
+      emitDrawings();
+    };
+    getSelectedPropsRef.current = (): DrawingProps | null => {
+      if (!activeSelection) return null;
+      const prim = primitives.get(activeSelection);
+      if (!prim) return null;
+      if (prim instanceof TextNotePrimitive) {
+        return {
+          type: 'text',
+          color: prim.color,
+          lineStyle: 'solid',
+          extend: 'none',
+          label: prim.text,
+          labelColor: prim.color,
+          labelSize: prim.fontSize,
+          labelBold: prim.bold,
+          p1: { time: prim.point.time as unknown as number, price: prim.point.price },
+          p2: null,
+          offset: null,
+        };
+      }
+      const type: ChartDrawing['type'] = prim instanceof PriceChannelPrimitive ? 'channel' : prim instanceof RectanglePrimitive ? 'box' : prim instanceof FibRetracementPrimitive ? 'fib' : 'trendline';
+      return {
+        type,
+        color: prim.color,
+        lineStyle: prim.lineStyle,
+        extend: prim.extend,
+        label: prim.label,
+        labelColor: prim.labelColor,
+        labelSize: prim.labelSize,
+        labelBold: prim.labelBold,
+        p1: { time: prim.p1.time as unknown as number, price: prim.p1.price },
+        p2: { time: prim.p2.time as unknown as number, price: prim.p2.price },
+        offset: prim instanceof PriceChannelPrimitive ? prim.offset : null,
+      };
+    };
+    applyStyleRef.current = (patch: DrawingStylePatch) => {
+      if (!activeSelection) return;
+      const prim = primitives.get(activeSelection);
+      if (!prim) return;
+      if (prim instanceof TextNotePrimitive) {
+        prim.setStyle({ color: patch.color, text: patch.label, fontSize: patch.labelSize, bold: patch.labelBold });
+      } else {
+        prim.setStyle(patch);
+      }
+      emitDrawings();
+    };
+    applyCoordinatesRef.current = (p1, p2, offset) => {
+      if (!activeSelection) return;
+      const prim = primitives.get(activeSelection);
+      if (!prim) return;
+      const point1: TrendLinePoint = { time: p1.time as UTCTimestamp, price: p1.price };
+      if (prim instanceof TextNotePrimitive) {
+        prim.setPoint(point1);
+      } else if (p2) {
+        const point2: TrendLinePoint = { time: p2.time as UTCTimestamp, price: p2.price };
+        prim.setCoordinates(point1, point2);
+        if (prim instanceof PriceChannelPrimitive && offset !== null) prim.setOffset(offset);
+      }
+      emitDrawings();
+    };
+
     const setInteractive = (interactive: boolean) => {
       chart.applyOptions({ handleScroll: interactive, handleScale: interactive });
       // A draw tool just got selected — drop the leftover "move" hover
-      // cursor from hovering an existing drawing beforehand.
-      if (!interactive) container.style.cursor = '';
+      // cursor from hovering an existing drawing beforehand, and any
+      // selection (drawing a new shape isn't a reason to keep one selected).
+      if (!interactive) {
+        container.style.cursor = '';
+        selectDrawing(null);
+      }
     };
 
     const resetTool = () => {
@@ -425,6 +553,7 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
       }
       pendingTextAnchor = null;
       setPendingText(null);
+      selectDrawing(null);
       resetTool();
     };
     cancelActiveRef.current = cancelActive;
@@ -432,6 +561,8 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
     clearAllRef.current = () => {
       primitives.forEach(prim => candleSeries.detachPrimitive(prim));
       primitives.clear();
+      activeSelection = null;
+      setSelectedId(null);
       emitDrawings();
     };
     commitTextRef.current = (text: string) => {
@@ -480,7 +611,7 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
 
       if (toolRef.current === 'none') {
         const hit = hitHandle(x, y);
-        if (!hit) return;
+        if (!hit) { selectDrawing(null); return; }
         e.preventDefault(); // about to drag an existing drawing — don't let this turn into a text selection either
         const prim = primitives.get(hit.id);
         if (!prim) return;
@@ -580,11 +711,14 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
         const { x, y } = toPixel(e);
         const dragDistance = Math.hypot(x - edit.startX, y - edit.startY);
         if (dragDistance < 4) {
-          // No real drag happened — treat it as the original click-to-delete
-          // gesture rather than a no-op resize/move.
-          removePrimitive(edit.id);
+          // No real drag happened — select it instead of deleting. Delete/
+          // Backspace (or the toolbar's trash icon) removes a selection;
+          // dragging a handle edits it.
+          selectDrawing(edit.id);
+        } else {
+          selectDrawing(edit.id);
+          emitDrawings();
         }
-        emitDrawings();
         return;
       }
 
@@ -608,7 +742,16 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') cancelActive();
+      if (e.key === 'Escape') { cancelActive(); return; }
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        // This listener is on `window`, so it also sees Backspace while the
+        // user is typing in an unrelated field (the verdict editor, entry
+        // price, etc.) — only treat it as "delete the selected drawing"
+        // when nothing editable currently has focus.
+        const active = document.activeElement as HTMLElement | null;
+        const isEditable = !!active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable);
+        if (!isEditable && activeSelection) { e.preventDefault(); deleteSelectedRef.current?.(); }
+      }
     };
 
     const container = containerRef.current;
@@ -649,6 +792,10 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
       cancelActiveRef.current = null;
       commitTextRef.current = null;
       setInteractiveRef.current = null;
+      deleteSelectedRef.current = null;
+      getSelectedPropsRef.current = null;
+      applyStyleRef.current = null;
+      applyCoordinatesRef.current = null;
       chart.remove();
     };
     // `market` (not just `source`) is a dependency because switching
@@ -677,6 +824,39 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
     cancelActiveRef.current?.();
     setTool(prev => (prev === t ? 'none' : t));
   };
+
+  const openProperties = () => {
+    const props = getSelectedPropsRef.current?.();
+    if (!props) return;
+    setPropForm(props);
+    setPropTab('style');
+    setPropertiesOpen(true);
+  };
+  const saveProperties = () => {
+    if (!propForm) return;
+    applyStyleRef.current?.({
+      color: propForm.color,
+      lineStyle: propForm.lineStyle,
+      extend: propForm.extend,
+      label: propForm.label,
+      labelColor: propForm.labelColor,
+      labelSize: propForm.labelSize,
+      labelBold: propForm.labelBold,
+    });
+    applyCoordinatesRef.current?.(propForm.p1, propForm.p2, propForm.offset);
+    setPropertiesOpen(false);
+  };
+  const patchProp = <K extends keyof DrawingProps>(key: K, value: DrawingProps[K]) => {
+    setPropForm(prev => (prev ? { ...prev, [key]: value } : prev));
+  };
+
+  // datetime-local inputs work in local-time strings, not epoch seconds.
+  const epochToLocalInput = (epochSeconds: number) => {
+    const d = new Date(epochSeconds * 1000);
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  };
+  const localInputToEpoch = (value: string) => Math.floor(new Date(value).getTime() / 1000);
 
   return (
     <div className="flex h-full flex-col space-y-2">
@@ -740,6 +920,25 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
           </button>
           <div className="w-px h-4 bg-border mx-0.5" />
           <button
+            onClick={openProperties}
+            disabled={!selectedId}
+            title="Edit selected drawing"
+            aria-label="Edit selected drawing"
+            className="p-1.5 rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground transition-colors disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
+          >
+            <Settings2 className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={() => deleteSelectedRef.current?.()}
+            disabled={!selectedId}
+            title="Delete selected drawing"
+            aria-label="Delete selected drawing"
+            className="p-1.5 rounded-lg text-muted-foreground hover:bg-accent hover:text-rose-500 transition-colors disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+          <div className="w-px h-4 bg-border mx-0.5" />
+          <button
             onClick={() => clearAllRef.current?.()}
             disabled={drawings.length === 0}
             title="Clear all drawings"
@@ -751,8 +950,9 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
         </div>
       </div>
       <div className="text-[10px] text-muted-foreground shrink-0">
-        {isLoadingMarket ? 'Loading market data...' : drawHint ?? caption}
+        {isLoadingMarket ? 'Loading market data...' : drawHint ?? selectionHint ?? caption}
         {!isLoadingMarket && drawHint && ' (Esc to cancel)'}
+        {!isLoadingMarket && !drawHint && selectionHint && ' (Esc to deselect, Delete to remove)'}
       </div>
       {!isLoadingMarket && hoverBar && (
         <div className="flex items-center gap-3 text-[11px] font-mono shrink-0">
@@ -800,6 +1000,195 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
           )}
         </div>
       )}
+      <Modal
+        isOpen={propertiesOpen}
+        onClose={() => setPropertiesOpen(false)}
+        title="Drawing properties"
+        maxWidth="sm"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setPropertiesOpen(false)}>Cancel</Button>
+            <Button onClick={saveProperties}>Ok</Button>
+          </>
+        }
+      >
+        {propForm && (
+          <div className="space-y-5">
+            <div className="flex items-center gap-1 border-b border-border/40 -mt-2 pb-3">
+              {(['style', 'text', 'coordinates'] as const).map(t => (
+                <button
+                  key={t}
+                  onClick={() => setPropTab(t)}
+                  className={cn(
+                    "px-3 py-1.5 rounded-lg text-xs font-bold capitalize transition-colors",
+                    propTab === t ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent"
+                  )}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+
+            {propTab === 'style' && (
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-muted-foreground mb-1.5">Color</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={propForm.color}
+                      onChange={e => patchProp('color', e.target.value)}
+                      className="h-9 w-12 rounded-lg border border-border bg-background cursor-pointer"
+                    />
+                    <Input
+                      value={propForm.color}
+                      onChange={e => patchProp('color', e.target.value)}
+                      className="h-9 flex-1 font-mono text-xs"
+                    />
+                  </div>
+                </div>
+                {propForm.type !== 'text' && (
+                  <div>
+                    <label className="block text-xs font-bold text-muted-foreground mb-1.5">Line style</label>
+                    <select
+                      value={propForm.lineStyle}
+                      onChange={e => patchProp('lineStyle', e.target.value as LineStyle)}
+                      className="w-full h-9 rounded-lg border border-border bg-background px-3 text-sm"
+                    >
+                      <option value="solid">Solid</option>
+                      <option value="dashed">Dashed</option>
+                      <option value="dotted">Dotted</option>
+                    </select>
+                  </div>
+                )}
+                {(propForm.type === 'trendline' || propForm.type === 'channel' || propForm.type === 'box') && (
+                  <div>
+                    <label className="block text-xs font-bold text-muted-foreground mb-1.5">Extend</label>
+                    <select
+                      value={propForm.extend}
+                      onChange={e => patchProp('extend', e.target.value as Extend)}
+                      className="w-full h-9 rounded-lg border border-border bg-background px-3 text-sm"
+                    >
+                      <option value="none">Don't extend</option>
+                      <option value="left">Extend left</option>
+                      <option value="right">Extend right</option>
+                      <option value="both">Extend both</option>
+                    </select>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {propTab === 'text' && (
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-muted-foreground mb-1.5">
+                    {propForm.type === 'text' ? 'Note text' : 'Label (optional, shown near the drawing)'}
+                  </label>
+                  <Input
+                    value={propForm.label}
+                    onChange={e => patchProp('label', e.target.value)}
+                    placeholder={propForm.type === 'text' ? 'Note text' : 'e.g. Key resistance'}
+                    className="h-9"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-muted-foreground mb-1.5">Text color</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={propForm.labelColor}
+                      onChange={e => patchProp('labelColor', e.target.value)}
+                      className="h-9 w-12 rounded-lg border border-border bg-background cursor-pointer"
+                    />
+                    <Input
+                      value={propForm.labelColor}
+                      onChange={e => patchProp('labelColor', e.target.value)}
+                      className="h-9 flex-1 font-mono text-xs"
+                    />
+                  </div>
+                </div>
+                <div className="flex items-center gap-4">
+                  <div className="flex-1">
+                    <label className="block text-xs font-bold text-muted-foreground mb-1.5">Size</label>
+                    <Input
+                      type="number"
+                      min={8}
+                      max={28}
+                      value={propForm.labelSize}
+                      onChange={e => patchProp('labelSize', Number(e.target.value) || 12)}
+                      className="h-9"
+                    />
+                  </div>
+                  <label className="flex items-center gap-2 text-sm pt-5">
+                    <input
+                      type="checkbox"
+                      checked={propForm.labelBold}
+                      onChange={e => patchProp('labelBold', e.target.checked)}
+                      className="rounded border-border"
+                    />
+                    Bold
+                  </label>
+                </div>
+              </div>
+            )}
+
+            {propTab === 'coordinates' && (
+              <div className="space-y-4">
+                <div>
+                  <div className="text-xs font-bold text-muted-foreground mb-1.5">Point 1 (price, time)</div>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="number"
+                      value={propForm.p1.price}
+                      onChange={e => patchProp('p1', { ...propForm.p1, price: Number(e.target.value) })}
+                      className="h-9 w-32"
+                    />
+                    <Input
+                      type="datetime-local"
+                      step={1}
+                      value={epochToLocalInput(propForm.p1.time)}
+                      onChange={e => patchProp('p1', { ...propForm.p1, time: localInputToEpoch(e.target.value) })}
+                      className="h-9 flex-1 text-xs"
+                    />
+                  </div>
+                </div>
+                {propForm.p2 && (
+                  <div>
+                    <div className="text-xs font-bold text-muted-foreground mb-1.5">Point 2 (price, time)</div>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="number"
+                        value={propForm.p2.price}
+                        onChange={e => patchProp('p2', propForm.p2 ? { ...propForm.p2, price: Number(e.target.value) } : propForm.p2)}
+                        className="h-9 w-32"
+                      />
+                      <Input
+                        type="datetime-local"
+                        step={1}
+                        value={epochToLocalInput(propForm.p2.time)}
+                        onChange={e => patchProp('p2', propForm.p2 ? { ...propForm.p2, time: localInputToEpoch(e.target.value) } : propForm.p2)}
+                        className="h-9 flex-1 text-xs"
+                      />
+                    </div>
+                  </div>
+                )}
+                {propForm.type === 'channel' && (
+                  <div>
+                    <label className="block text-xs font-bold text-muted-foreground mb-1.5">Channel width (price offset)</label>
+                    <Input
+                      type="number"
+                      value={propForm.offset ?? 0}
+                      onChange={e => patchProp('offset', Number(e.target.value))}
+                      className="h-9 w-32"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

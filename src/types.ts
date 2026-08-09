@@ -280,8 +280,13 @@ export interface ChartDrawing {
   time2: number; // epoch seconds
   price2: number;
   offset?: number; // price units; the channel's second line, only for type 'channel'
-  text?: string; // label content, only for type 'text'
+  text?: string; // note content for type 'text'; an optional overlay label for every other type
   color?: string;
+  lineStyle?: 'solid' | 'dashed' | 'dotted'; // trendline/channel/box/fib only
+  extend?: 'none' | 'left' | 'right' | 'both'; // trendline/channel/box only
+  labelColor?: string; // color for `text`, defaults to `color`
+  labelSize?: number; // font size for `text`, defaults to 12 (11 for type 'text')
+  labelBold?: boolean;
 }
 
 export interface TradeReview {
