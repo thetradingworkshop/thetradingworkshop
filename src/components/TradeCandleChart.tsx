@@ -334,7 +334,7 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
     // than DRAWING_HIT_TOLERANCE_PX since they're a much smaller target than
     // the line/shape itself.
     type EditHandle = 'p1' | 'p2' | 'offset' | 'point' | 'body';
-    const HANDLE_HIT_TOLERANCE_PX = 8;
+    const HANDLE_HIT_TOLERANCE_PX = 10;
 
     const hitHandle = (x: number, y: number): { id: string; handle: EditHandle } | null => {
       let best: { id: string; handle: EditHandle } | null = null;
@@ -347,10 +347,19 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
           return;
         }
 
+        // An endpoint always wins over the body/offset line for this same
+        // primitive, even when the body check below would report a smaller
+        // raw distance — which it almost always does, since any point near
+        // an endpoint is also practically sitting on the line itself (zero
+        // width). Without this, a real drag anywhere but the exact endpoint
+        // pixel would grab "move the whole shape" instead of "resize it".
         const p1d = Math.hypot((prim.p1Coord.x ?? Infinity) - x, (prim.p1Coord.y ?? Infinity) - y);
         const p2d = Math.hypot((prim.p2Coord.x ?? Infinity) - x, (prim.p2Coord.y ?? Infinity) - y);
-        if (p1d <= HANDLE_HIT_TOLERANCE_PX && p1d < bestDist) { bestDist = p1d; best = { id, handle: 'p1' }; }
-        if (p2d <= HANDLE_HIT_TOLERANCE_PX && p2d < bestDist) { bestDist = p2d; best = { id, handle: 'p2' }; }
+        const nearestEndpointDist = Math.min(p1d, p2d);
+        if (nearestEndpointDist <= HANDLE_HIT_TOLERANCE_PX) {
+          if (nearestEndpointDist < bestDist) { bestDist = nearestEndpointDist; best = { id, handle: p1d <= p2d ? 'p1' : 'p2' }; }
+          return;
+        }
 
         if (prim instanceof PriceChannelPrimitive) {
           const dOffset = segmentDistance(prim.p1OffsetCoord.x, prim.p1OffsetCoord.y, prim.p2OffsetCoord.x, prim.p2OffsetCoord.y, x, y);
