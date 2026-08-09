@@ -335,6 +335,24 @@ export interface DrawingTemplate {
   style: DrawingTemplateStyle;
 }
 
+// The trade chart's own appearance — candle colors, canvas background/grid,
+// volume visibility. Global to the user's account (users/{uid}.chartSettings),
+// same as drawingDefaults, so it applies to every trade's chart.
+export interface ChartSettings {
+  bodyUpColor: string;
+  bodyDownColor: string;
+  bordersVisible: boolean;
+  borderUpColor: string;
+  borderDownColor: string;
+  wickVisible: boolean;
+  wickUpColor: string;
+  wickDownColor: string;
+  background: string; // '' = transparent (the page's own background shows through)
+  vertGridVisible: boolean;
+  horzGridVisible: boolean;
+  volumeVisible: boolean;
+}
+
 export interface TradeReview {
   executionQuality?: number;
   strategyQuality?: number;

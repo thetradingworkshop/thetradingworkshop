@@ -10,12 +10,13 @@ import {
   CandlestickData,
   HistogramData,
 } from 'lightweight-charts';
-import { Pencil, Waves, Square, Percent, Type, Eraser, Settings2, Trash2, Minus, SeparatorVertical, ArrowUpRight, Ruler, CalendarRange, TrendingUp, TrendingDown, Maximize2, Minimize2, Camera, ChevronDown, X as XIcon } from 'lucide-react';
-import { Trade, ChartDrawing, DrawingTemplate, DrawingTemplateStyle } from '../types';
+import { Pencil, Waves, Square, Percent, Type, Eraser, Settings2, Settings, Trash2, Minus, SeparatorVertical, ArrowUpRight, Ruler, CalendarRange, TrendingUp, TrendingDown, Maximize2, Minimize2, Camera, ChevronDown, X as XIcon } from 'lucide-react';
+import { Trade, ChartDrawing, DrawingTemplate, DrawingTemplateStyle, ChartSettings } from '../types';
 import { MarketBarsData } from '../hooks/useMarketBars';
 import { cn } from '@/src/utils';
 import { useAuth } from '../context/AuthContext';
 import { subscribeDrawingTemplates, subscribeDrawingDefaults, saveDrawingTemplate, deleteDrawingTemplate, setDrawingDefault } from '../lib/drawingTemplates';
+import { subscribeChartSettings, setChartSettings } from '../lib/chartSettings';
 import { Modal, Button, Input, Toast } from './Shared';
 import {
   TrendLinePrimitive,
@@ -96,6 +97,48 @@ function hardcodedDefaultStyle(type: ChartDrawing['type']): DrawingTemplateStyle
   if (type === 'channel') return { ...base, levels: defaultChannelLevels(DEFAULT_DRAWING_COLOR), backgroundVisible: true, backgroundColor: DEFAULT_DRAWING_COLOR, backgroundOpacity: 0.12 };
   if (type === 'fib') return { ...base, levels: defaultFibLevels(DEFAULT_DRAWING_COLOR), backgroundVisible: true, backgroundColor: DEFAULT_DRAWING_COLOR, backgroundOpacity: 0.1 };
   return base;
+}
+
+// The chart's own appearance — matches this app's original hardcoded look
+// exactly (so nothing changes visually for anyone until they open Settings),
+// except volumeVisible: the volume histogram is hidden by default for now.
+const DEFAULT_CHART_SETTINGS: ChartSettings = {
+  bodyUpColor: '#10b981',
+  bodyDownColor: '#f43f5e',
+  bordersVisible: false,
+  borderUpColor: '#10b981',
+  borderDownColor: '#f43f5e',
+  wickVisible: true,
+  wickUpColor: '#10b981',
+  wickDownColor: '#f43f5e',
+  background: '',
+  vertGridVisible: true,
+  horzGridVisible: true,
+  volumeVisible: false,
+};
+
+// Applied both right after the chart/series are first built and again
+// whenever the user's saved settings change — cheap `.applyOptions()` calls,
+// no rebuild of the chart, its data, or the drawing primitives needed.
+function applyChartSettings(chart: IChartApi, candleSeries: ISeriesApi<'Candlestick'>, volumeSeries: ISeriesApi<'Histogram'>, s: ChartSettings) {
+  chart.applyOptions({
+    layout: { background: { color: s.background || 'transparent' } },
+    grid: {
+      vertLines: { visible: s.vertGridVisible },
+      horzLines: { visible: s.horzGridVisible },
+    },
+  });
+  candleSeries.applyOptions({
+    upColor: s.bodyUpColor,
+    downColor: s.bodyDownColor,
+    borderVisible: s.bordersVisible,
+    borderUpColor: s.borderUpColor,
+    borderDownColor: s.borderDownColor,
+    wickVisible: s.wickVisible,
+    wickUpColor: s.wickUpColor,
+    wickDownColor: s.wickDownColor,
+  });
+  volumeSeries.applyOptions({ visible: s.volumeVisible });
 }
 
 interface Bar {
@@ -323,6 +366,33 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
   const [templateSaveMode, setTemplateSaveMode] = useState(false);
   const [templateNameInput, setTemplateNameInput] = useState('');
 
+  // The chart's own appearance (candle colors, canvas background/grid,
+  // volume visibility) — global to the account, same as drawingDefaults.
+  // Mirrored into a ref for the same reason as drawingDefaultsRef: the
+  // chart-build effect reads it once at mount, and a separate lightweight
+  // effect below re-applies it live (via .applyOptions(), no rebuild)
+  // whenever it changes after that.
+  const [chartSettings, setChartSettingsState] = useState<ChartSettings>(DEFAULT_CHART_SETTINGS);
+  const chartSettingsRef = useRef<ChartSettings>(DEFAULT_CHART_SETTINGS);
+  useEffect(() => { chartSettingsRef.current = chartSettings; }, [chartSettings]);
+  useEffect(() => {
+    if (!user) { setChartSettingsState(DEFAULT_CHART_SETTINGS); return; }
+    return subscribeChartSettings(user.uid, saved => setChartSettingsState({ ...DEFAULT_CHART_SETTINGS, ...saved }));
+  }, [user]);
+  // Bridges for the live-apply effect (outside the chart-build effect's
+  // closure) to reach the chart/series it built, mirroring takeScreenshotRef.
+  const chartApiRef = useRef<IChartApi | null>(null);
+  const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
+  const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null);
+  useEffect(() => {
+    if (chartApiRef.current && candleSeriesRef.current && volumeSeriesRef.current) {
+      applyChartSettings(chartApiRef.current, candleSeriesRef.current, volumeSeriesRef.current, chartSettings);
+    }
+  }, [chartSettings]);
+  const [chartSettingsOpen, setChartSettingsOpen] = useState(false);
+  const [chartSettingsTab, setChartSettingsTab] = useState<'candles' | 'canvas'>('candles');
+  const [chartSettingsForm, setChartSettingsForm] = useState<ChartSettings>(DEFAULT_CHART_SETTINGS);
+
   const drawingsRef = useRef(drawings);
   useEffect(() => { drawingsRef.current = drawings; }, [drawings]);
   const onDrawingsChangeRef = useRef(onDrawingsChange);
@@ -356,26 +426,29 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
     if (!containerRef.current || bars.length === 0 || isLoadingMarket) return;
 
     const chart = createChart(containerRef.current, {
-      layout: { background: { color: 'transparent' }, textColor: '#94a3b8' },
+      layout: { textColor: '#94a3b8' },
       grid: { vertLines: { color: 'rgba(148,163,184,0.1)' }, horzLines: { color: 'rgba(148,163,184,0.1)' } },
       rightPriceScale: { borderColor: 'rgba(148,163,184,0.2)' },
       timeScale: { borderColor: 'rgba(148,163,184,0.2)', timeVisible: true },
       autoSize: true,
     });
 
-    const candleSeries = chart.addSeries(CandlestickSeries, {
-      upColor: '#10b981',
-      downColor: '#f43f5e',
-      borderVisible: false,
-      wickUpColor: '#10b981',
-      wickDownColor: '#f43f5e',
-    });
+    const candleSeries = chart.addSeries(CandlestickSeries, {});
 
     const volumeSeries = chart.addSeries(HistogramSeries, {
       priceFormat: { type: 'volume' },
       priceScaleId: 'volume',
     });
     chart.priceScale('volume').applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
+
+    // Candle colors / grid visibility / volume visibility all come from the
+    // user's saved chart settings (or this app's hardcoded defaults) —
+    // applied once here at build time, and again live by the effect below
+    // whenever the settings themselves change.
+    chartApiRef.current = chart;
+    candleSeriesRef.current = candleSeries;
+    volumeSeriesRef.current = volumeSeries;
+    applyChartSettings(chart, candleSeries, volumeSeries, chartSettingsRef.current);
 
     const candleData: CandlestickData[] = bars.map(b => ({
       time: b.time as UTCTimestamp, open: b.open, high: b.high, low: b.low, close: b.close,
@@ -1169,6 +1242,9 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
       applyChannelLevelsRef.current = null;
       commitPropertiesRef.current = null;
       takeScreenshotRef.current = null;
+      chartApiRef.current = null;
+      candleSeriesRef.current = null;
+      volumeSeriesRef.current = null;
       chart.remove();
     };
     // `market` (not just `source`) is a dependency because switching
@@ -1318,6 +1394,19 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
   const handleDeleteTemplate = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
     deleteDrawingTemplate(id);
+  };
+
+  const openChartSettings = () => {
+    setChartSettingsForm(chartSettings);
+    setChartSettingsTab('candles');
+    setChartSettingsOpen(true);
+  };
+  const patchChartSettings = <K extends keyof ChartSettings>(key: K, value: ChartSettings[K]) => {
+    setChartSettingsForm(prev => ({ ...prev, [key]: value }));
+  };
+  const saveChartSettings = () => {
+    if (user) setChartSettings(user.uid, chartSettingsForm);
+    setChartSettingsOpen(false);
   };
 
   // datetime-local inputs work in local-time strings, not epoch seconds.
@@ -1477,6 +1566,14 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
             <Eraser className="w-3.5 h-3.5" />
           </button>
           <div className="w-px h-4 bg-border mx-0.5" />
+          <button
+            onClick={openChartSettings}
+            title="Chart settings"
+            aria-label="Chart settings"
+            className="p-1.5 rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+          >
+            <Settings className="w-3.5 h-3.5" />
+          </button>
           <button
             onClick={handleCopyImage}
             title="Copy chart image"
@@ -1939,6 +2036,176 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
             )}
           </div>
         )}
+      </Modal>
+      <Modal
+        isOpen={chartSettingsOpen}
+        onClose={() => setChartSettingsOpen(false)}
+        title="Chart settings"
+        maxWidth="sm"
+        footer={
+          <div className="flex items-center justify-between w-full gap-3">
+            <Button variant="outline" size="sm" onClick={() => setChartSettingsForm(DEFAULT_CHART_SETTINGS)}>Reset to defaults</Button>
+            <div className="flex items-center gap-3">
+              <Button variant="outline" onClick={() => setChartSettingsOpen(false)}>Cancel</Button>
+              <Button onClick={saveChartSettings}>Ok</Button>
+            </div>
+          </div>
+        }
+      >
+        <div className="space-y-5">
+          <div className="flex items-center gap-1 border-b border-border/40 -mt-2 pb-3">
+            {(['candles', 'canvas'] as const).map(t => (
+              <button
+                key={t}
+                onClick={() => setChartSettingsTab(t)}
+                className={cn(
+                  "px-3 py-1.5 rounded-lg text-xs font-bold capitalize transition-colors",
+                  chartSettingsTab === t ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent"
+                )}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+
+          {chartSettingsTab === 'candles' && (
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-muted-foreground mb-1.5">Body</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="color"
+                    title="Up candles"
+                    value={chartSettingsForm.bodyUpColor}
+                    onChange={e => patchChartSettings('bodyUpColor', e.target.value)}
+                    className="h-9 w-12 rounded-lg border border-border bg-background cursor-pointer"
+                  />
+                  <input
+                    type="color"
+                    title="Down candles"
+                    value={chartSettingsForm.bodyDownColor}
+                    onChange={e => patchChartSettings('bodyDownColor', e.target.value)}
+                    className="h-9 w-12 rounded-lg border border-border bg-background cursor-pointer"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="flex items-center gap-2 text-xs font-bold text-muted-foreground mb-1.5">
+                  <input
+                    type="checkbox"
+                    checked={chartSettingsForm.bordersVisible}
+                    onChange={e => patchChartSettings('bordersVisible', e.target.checked)}
+                    className="rounded border-border"
+                  />
+                  Borders
+                </label>
+                {chartSettingsForm.bordersVisible && (
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      title="Up candles"
+                      value={chartSettingsForm.borderUpColor}
+                      onChange={e => patchChartSettings('borderUpColor', e.target.value)}
+                      className="h-9 w-12 rounded-lg border border-border bg-background cursor-pointer"
+                    />
+                    <input
+                      type="color"
+                      title="Down candles"
+                      value={chartSettingsForm.borderDownColor}
+                      onChange={e => patchChartSettings('borderDownColor', e.target.value)}
+                      className="h-9 w-12 rounded-lg border border-border bg-background cursor-pointer"
+                    />
+                  </div>
+                )}
+              </div>
+              <div>
+                <label className="flex items-center gap-2 text-xs font-bold text-muted-foreground mb-1.5">
+                  <input
+                    type="checkbox"
+                    checked={chartSettingsForm.wickVisible}
+                    onChange={e => patchChartSettings('wickVisible', e.target.checked)}
+                    className="rounded border-border"
+                  />
+                  Wick
+                </label>
+                {chartSettingsForm.wickVisible && (
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      title="Up candles"
+                      value={chartSettingsForm.wickUpColor}
+                      onChange={e => patchChartSettings('wickUpColor', e.target.value)}
+                      className="h-9 w-12 rounded-lg border border-border bg-background cursor-pointer"
+                    />
+                    <input
+                      type="color"
+                      title="Down candles"
+                      value={chartSettingsForm.wickDownColor}
+                      onChange={e => patchChartSettings('wickDownColor', e.target.value)}
+                      className="h-9 w-12 rounded-lg border border-border bg-background cursor-pointer"
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {chartSettingsTab === 'canvas' && (
+            <div className="space-y-5">
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-muted-foreground mb-1.5">Background</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={chartSettingsForm.background || '#0a0e14'}
+                      onChange={e => patchChartSettings('background', e.target.value)}
+                      className="h-9 w-12 rounded-lg border border-border bg-background cursor-pointer"
+                    />
+                    {chartSettingsForm.background && (
+                      <button
+                        onClick={() => patchChartSettings('background', '')}
+                        className="text-xs font-medium text-muted-foreground hover:text-foreground underline underline-offset-2"
+                      >
+                        Use transparent
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={chartSettingsForm.vertGridVisible}
+                    onChange={e => patchChartSettings('vertGridVisible', e.target.checked)}
+                    className="rounded border-border"
+                  />
+                  Vertical grid lines
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={chartSettingsForm.horzGridVisible}
+                    onChange={e => patchChartSettings('horzGridVisible', e.target.checked)}
+                    className="rounded border-border"
+                  />
+                  Horizontal grid lines
+                </label>
+              </div>
+              <div>
+                <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/70 mb-3">Volume</div>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={chartSettingsForm.volumeVisible}
+                    onChange={e => patchChartSettings('volumeVisible', e.target.checked)}
+                    className="rounded border-border"
+                  />
+                  Show volume
+                </label>
+              </div>
+            </div>
+          )}
+        </div>
       </Modal>
       <Modal
         isOpen={confirmDeleteOpen}
