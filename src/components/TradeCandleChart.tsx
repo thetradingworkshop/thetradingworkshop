@@ -10,11 +10,11 @@ import {
   CandlestickData,
   HistogramData,
 } from 'lightweight-charts';
-import { Pencil, Waves, Square, Percent, Type, Eraser, Settings2, Trash2, Minus, SeparatorVertical, ArrowUpRight, Ruler, CalendarRange, TrendingUp, TrendingDown } from 'lucide-react';
+import { Pencil, Waves, Square, Percent, Type, Eraser, Settings2, Trash2, Minus, SeparatorVertical, ArrowUpRight, Ruler, CalendarRange, TrendingUp, TrendingDown, Maximize2, Minimize2, Camera } from 'lucide-react';
 import { Trade, ChartDrawing } from '../types';
 import { MarketBarsData } from '../hooks/useMarketBars';
 import { cn } from '@/src/utils';
-import { Modal, Button, Input } from './Shared';
+import { Modal, Button, Input, Toast } from './Shared';
 import {
   TrendLinePrimitive,
   PriceChannelPrimitive,
@@ -252,6 +252,20 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
   useEffect(() => { confirmDeleteOpenRef.current = confirmDeleteOpen; }, [confirmDeleteOpen]);
   const [propTab, setPropTab] = useState<'style' | 'text' | 'coordinates'>('style');
   const [propForm, setPropForm] = useState<DrawingProps | null>(null);
+
+  // Expanding the chart to fill the viewport, to work in it with more room.
+  // Mirrored into a ref for the same reason as confirmDeleteOpen above —
+  // the chart-build effect's keydown handler needs the live value.
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const isFullscreenRef = useRef(false);
+  useEffect(() => { isFullscreenRef.current = isFullscreen; }, [isFullscreen]);
+  const takeScreenshotRef = useRef<(() => HTMLCanvasElement | null) | null>(null);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(null), 3000);
+    return () => clearTimeout(timer);
+  }, [toast]);
 
   const drawingsRef = useRef(drawings);
   useEffect(() => { drawingsRef.current = drawings; }, [drawings]);
@@ -723,6 +737,10 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
     };
     cancelActiveRef.current = cancelActive;
     setInteractiveRef.current = setInteractive;
+    // `addTopLayer: true` includes the drawing primitives in the capture,
+    // not just the candles/volume — otherwise a "snapshot" would silently
+    // drop every trend line, box, etc. the trade's been annotated with.
+    takeScreenshotRef.current = () => chart.takeScreenshot(true, false);
     clearAllRef.current = () => {
       primitives.forEach(prim => candleSeries.detachPrimitive(prim));
       primitives.clear();
@@ -992,6 +1010,7 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         if (confirmDeleteOpenRef.current) { setConfirmDeleteOpen(false); return; }
+        if (isFullscreenRef.current) { setIsFullscreen(false); return; }
         cancelActive();
         return;
       }
@@ -1050,6 +1069,7 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
       applyCoordinatesRef.current = null;
       applyPositionRef.current = null;
       commitPropertiesRef.current = null;
+      takeScreenshotRef.current = null;
       chart.remove();
     };
     // `market` (not just `source`) is a dependency because switching
@@ -1077,6 +1097,23 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
   const handleToolClick = (t: DrawTool) => {
     cancelActiveRef.current?.();
     setTool(prev => (prev === t ? 'none' : t));
+  };
+
+  const handleCopyImage = () => {
+    const canvas = takeScreenshotRef.current?.();
+    if (!canvas) { setToast({ message: 'Chart is not ready yet.', type: 'error' }); return; }
+    // clipboard.write() must be called synchronously inside the click
+    // handler to be recognized as a trusted user gesture — awaiting
+    // canvas.toBlob()'s callback first (it's async) loses that and the
+    // browser silently denies the write. Passing a Blob *promise* as the
+    // ClipboardItem's value instead keeps the write call itself synchronous
+    // while still letting the PNG encode happen in the background.
+    const blobPromise = new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob(blob => (blob ? resolve(blob) : reject(new Error('toBlob returned null'))), 'image/png');
+    });
+    navigator.clipboard.write([new ClipboardItem({ 'image/png': blobPromise })])
+      .then(() => setToast({ message: 'Chart image copied — paste it (Ctrl/Cmd+V) into Notes to attach it.', type: 'success' }))
+      .catch(() => setToast({ message: "Couldn't copy the image — your browser may not support clipboard images.", type: 'error' }));
   };
 
   const openProperties = () => {
@@ -1120,7 +1157,10 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
   const localInputToEpoch = (value: string) => Math.floor(new Date(value).getTime() / 1000);
 
   return (
-    <div className="flex h-full flex-col space-y-2">
+    <div className={cn(
+      "flex h-full flex-col space-y-2",
+      isFullscreen && "fixed inset-0 z-[100] bg-background p-4 h-screen"
+    )}>
       <div className="flex items-center justify-between gap-2 shrink-0 flex-wrap">
         {onTimeframeChange && (
           <div className="flex items-center gap-1">
@@ -1263,6 +1303,23 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
             className="p-1.5 rounded-lg text-muted-foreground hover:bg-accent hover:text-rose-500 transition-colors disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
           >
             <Eraser className="w-3.5 h-3.5" />
+          </button>
+          <div className="w-px h-4 bg-border mx-0.5" />
+          <button
+            onClick={handleCopyImage}
+            title="Copy chart image"
+            aria-label="Copy chart image"
+            className="p-1.5 rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+          >
+            <Camera className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={() => setIsFullscreen(v => !v)}
+            title={isFullscreen ? 'Exit full screen' : 'Full screen'}
+            aria-label={isFullscreen ? 'Exit full screen' : 'Full screen'}
+            className="p-1.5 rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+          >
+            {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
           </button>
         </div>
       </div>
@@ -1570,6 +1627,7 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
       >
         <p className="text-sm text-muted-foreground">This removes the selected drawing from the chart. This can't be undone.</p>
       </Modal>
+      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
     </div>
   );
 }
