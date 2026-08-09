@@ -241,6 +241,7 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
   const applyStyleRef = useRef<((patch: DrawingStylePatch) => void) | null>(null);
   const applyCoordinatesRef = useRef<((p1: { time: number; price: number }, p2: { time: number; price: number } | null, offset: number | null) => void) | null>(null);
   const applyPositionRef = useRef<((direction: 'long' | 'short', targetOffset: number, stopOffset: number) => void) | null>(null);
+  const commitPropertiesRef = useRef<(() => void) | null>(null);
   const [propertiesOpen, setPropertiesOpen] = useState(false);
   // Deleting a selected drawing (Delete/Backspace or the toolbar's trash
   // icon) asks for confirmation first — mirrored into a ref since the
@@ -620,6 +621,11 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
         stopOffset: prim instanceof PositionPrimitive ? prim.stopOffset : null,
       };
     };
+    // Style/Coordinates/Position each just mutate the primitive — none of
+    // them persist on their own. The properties panel calls whichever of
+    // these apply to the drawing it's editing, then commitPropertiesRef
+    // exactly once at the end, so a single "Ok" click always produces one
+    // Firestore write instead of two or three racing each other.
     applyStyleRef.current = (patch: DrawingStylePatch) => {
       if (!activeSelection) return;
       const prim = primitives.get(activeSelection);
@@ -629,7 +635,6 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
       } else {
         prim.setStyle(patch);
       }
-      emitDrawings();
     };
     applyCoordinatesRef.current = (p1, p2, offset) => {
       if (!activeSelection) return;
@@ -647,7 +652,6 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
         prim.setCoordinates(point1, point2);
         if (prim instanceof PriceChannelPrimitive && offset !== null) prim.setOffset(offset);
       }
-      emitDrawings();
     };
     applyPositionRef.current = (direction, targetOffset, stopOffset) => {
       if (!activeSelection) return;
@@ -656,8 +660,8 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
       prim.direction = direction;
       prim.setTargetOffset(targetOffset);
       prim.setStopOffset(stopOffset);
-      emitDrawings();
     };
+    commitPropertiesRef.current = () => emitDrawings();
 
     // Just the chart's own pan/zoom, with none of setInteractive's other
     // side effects — used to suspend panning for the duration of a single
@@ -1045,6 +1049,7 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
       applyStyleRef.current = null;
       applyCoordinatesRef.current = null;
       applyPositionRef.current = null;
+      commitPropertiesRef.current = null;
       chart.remove();
     };
     // `market` (not just `source`) is a dependency because switching
@@ -1099,6 +1104,7 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
     if (propForm.type === 'position' && propForm.direction) {
       applyPositionRef.current?.(propForm.direction, propForm.targetOffset ?? 0, propForm.stopOffset ?? 0);
     }
+    commitPropertiesRef.current?.();
     setPropertiesOpen(false);
   };
   const patchProp = <K extends keyof DrawingProps>(key: K, value: DrawingProps[K]) => {
