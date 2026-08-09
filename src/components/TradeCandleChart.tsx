@@ -291,11 +291,11 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
       const p2: TrendLinePoint = { time: d.time2 as UTCTimestamp, price: d.price2 };
       let prim: DrawingPrimitive;
       switch (d.type) {
-        case 'channel': prim = new PriceChannelPrimitive(d.id, p1, p2, d.offset ?? 0, d.color ?? '#f59e0b'); break;
-        case 'box': prim = new RectanglePrimitive(d.id, p1, p2, d.color ?? '#22c55e'); break;
-        case 'fib': prim = new FibRetracementPrimitive(d.id, p1, p2, d.color ?? '#22d3ee'); break;
-        case 'text': prim = new TextNotePrimitive(d.id, p1, d.text ?? '', d.color ?? '#f9fafb'); break;
-        default: prim = new TrendLinePrimitive(d.id, p1, p2, d.color ?? '#6366f1'); break;
+        case 'channel': prim = new PriceChannelPrimitive(d.id, p1, p2, d.offset ?? 0, d.color ?? '#5a7d9f'); break;
+        case 'box': prim = new RectanglePrimitive(d.id, p1, p2, d.color ?? '#5a7d9f'); break;
+        case 'fib': prim = new FibRetracementPrimitive(d.id, p1, p2, d.color ?? '#5a7d9f'); break;
+        case 'text': prim = new TextNotePrimitive(d.id, p1, d.text ?? '', d.color ?? '#5a7d9f'); break;
+        default: prim = new TrendLinePrimitive(d.id, p1, p2, d.color ?? '#5a7d9f'); break;
       }
       candleSeries.attachPrimitive(prim);
       primitives.set(d.id, prim);

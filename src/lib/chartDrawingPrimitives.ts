@@ -57,6 +57,29 @@ function strokeLine(ctx: CanvasRenderingContext2D, x1: number, y1: number, x2: n
   ctx.stroke();
 }
 
+// Trend lines and price channels project forward (right) to the edge of the
+// visible chart, like most trading platforms' default "extend right"
+// behavior — the drawn segment is a projection of a trend/support-resistance
+// level into current and future price action, not just the two anchor
+// points. This only changes what gets *drawn*: the primitive's own p1/p2 (and
+// hit-testing against them) stay exactly at the anchors the user placed, so
+// dragging an endpoint still grabs the real anchor rather than the
+// projected point.
+//
+// Takes the two anchor points in whatever order they were drawn, figures out
+// which one is further right, and returns a replacement for it — extended
+// along the same slope out to `edgeX`. The other (left) point is returned
+// unchanged. A vertical line (equal x) has no meaningful "further right" to
+// extend, so both points pass through untouched.
+export function extendRight<P extends { x: number | null; y: number | null }>(a: P, b: P, edgeX: number): [P, P] {
+  if (a.x === null || a.y === null || b.x === null || b.y === null) return [a, b];
+  const [left, right] = a.x <= b.x ? [a, b] : [b, a];
+  if (left.x === right.x || right.x >= edgeX) return a.x <= b.x ? [left, right] : [right, left];
+  const slope = (right.y - left.y) / (right.x - left.x);
+  const extended = { ...right, x: edgeX, y: right.y + slope * (edgeX - right.x) } as P;
+  return a.x <= b.x ? [left, extended] : [extended, left];
+}
+
 // A straight line in (time, price) space keeps the same slope if you add a
 // constant to both endpoints' price — so "parallel, offset by N in price" is
 // just p1.price + N / p2.price + N, no real geometry needed.
@@ -137,8 +160,9 @@ class TrendLinePaneRenderer implements IPrimitivePaneRenderer {
 
   draw(target: CanvasRenderingTarget2D): void {
     target.useBitmapCoordinateSpace(scope => {
-      const { x: x1, y: y1 } = this._p1;
-      const { x: x2, y: y2 } = this._p2;
+      const [p1, p2] = extendRight(this._p1, this._p2, scope.mediaSize.width);
+      const { x: x1, y: y1 } = p1;
+      const { x: x2, y: y2 } = p2;
       if (x1 === null || y1 === null || x2 === null || y2 === null) return;
       const ctx = scope.context;
       ctx.save();
@@ -156,7 +180,7 @@ class TrendLinePaneView implements IPrimitivePaneView {
 }
 
 export class TrendLinePrimitive extends TwoPointPrimitive {
-  constructor(id: string, p1: TrendLinePoint, p2: TrendLinePoint, color = '#6366f1') {
+  constructor(id: string, p1: TrendLinePoint, p2: TrendLinePoint, color = '#5a7d9f') {
     super(id, p1, p2, color);
     this._paneViews = [new TrendLinePaneView(this)];
   }
@@ -179,9 +203,13 @@ class RectanglePaneRenderer implements IPrimitivePaneRenderer {
       const ctx = scope.context;
       const hr = scope.horizontalPixelRatio;
       const vr = scope.verticalPixelRatio;
+      // The box's right edge always projects out to the edge of the chart —
+      // a supply/demand zone continuing into current price action — rather
+      // than stopping at whichever corner was drawn second.
       const left = Math.min(x1, x2) * hr;
+      const right = Math.max(scope.mediaSize.width, Math.max(x1, x2)) * hr;
       const top = Math.min(y1, y2) * vr;
-      const width = Math.abs(x2 - x1) * hr;
+      const width = right - left;
       const height = Math.abs(y2 - y1) * vr;
       ctx.save();
       ctx.globalAlpha = 0.12;
@@ -204,7 +232,7 @@ class RectanglePaneView implements IPrimitivePaneView {
 }
 
 export class RectanglePrimitive extends TwoPointPrimitive {
-  constructor(id: string, p1: TrendLinePoint, p2: TrendLinePoint, color = '#22c55e') {
+  constructor(id: string, p1: TrendLinePoint, p2: TrendLinePoint, color = '#5a7d9f') {
     super(id, p1, p2, color);
     this._paneViews = [new RectanglePaneView(this)];
   }
@@ -237,10 +265,12 @@ class PriceChannelPaneRenderer implements IPrimitivePaneRenderer {
 
   draw(target: CanvasRenderingTarget2D): void {
     target.useBitmapCoordinateSpace(scope => {
-      const { x: x1, y: y1 } = this._p1;
-      const { x: x2, y: y2 } = this._p2;
-      const { x: x1o, y: y1o } = this._p1Offset;
-      const { x: x2o, y: y2o } = this._p2Offset;
+      const [p1, p2] = extendRight(this._p1, this._p2, scope.mediaSize.width);
+      const [p1o, p2o] = extendRight(this._p1Offset, this._p2Offset, scope.mediaSize.width);
+      const { x: x1, y: y1 } = p1;
+      const { x: x2, y: y2 } = p2;
+      const { x: x1o, y: y1o } = p1o;
+      const { x: x2o, y: y2o } = p2o;
       if (x1 === null || y1 === null || x2 === null || y2 === null || x1o === null || y1o === null || x2o === null || y2o === null) return;
       const ctx = scope.context;
       const hr = scope.horizontalPixelRatio;
@@ -275,7 +305,7 @@ export class PriceChannelPrimitive extends TwoPointPrimitive {
   p1OffsetCoord: PixelPoint = { x: null, y: null };
   p2OffsetCoord: PixelPoint = { x: null, y: null };
 
-  constructor(id: string, p1: TrendLinePoint, p2: TrendLinePoint, offset = 0, color = '#f59e0b') {
+  constructor(id: string, p1: TrendLinePoint, p2: TrendLinePoint, offset = 0, color = '#5a7d9f') {
     super(id, p1, p2, color);
     this.offset = offset;
     this._paneViews = [new PriceChannelPaneView(this)];
@@ -360,7 +390,7 @@ class FibRetracementPaneView implements IPrimitivePaneView {
 export class FibRetracementPrimitive extends TwoPointPrimitive {
   levelCoords: FibLevelCoord[] = [];
 
-  constructor(id: string, p1: TrendLinePoint, p2: TrendLinePoint, color = '#22d3ee') {
+  constructor(id: string, p1: TrendLinePoint, p2: TrendLinePoint, color = '#5a7d9f') {
     super(id, p1, p2, color);
     this._paneViews = [new FibRetracementPaneView(this)];
   }
@@ -462,7 +492,7 @@ export class TextNotePrimitive implements ISeriesPrimitive<Time> {
   private _requestUpdate: (() => void) | null = null;
   private _paneViews: IPrimitivePaneView[];
 
-  constructor(id: string, point: TrendLinePoint, text: string, color = '#f9fafb') {
+  constructor(id: string, point: TrendLinePoint, text: string, color = '#5a7d9f') {
     this.id = id;
     this.point = point;
     this.text = text;
