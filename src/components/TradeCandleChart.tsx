@@ -10,10 +10,12 @@ import {
   CandlestickData,
   HistogramData,
 } from 'lightweight-charts';
-import { Pencil, Waves, Square, Percent, Type, Eraser, Settings2, Trash2, Minus, SeparatorVertical, ArrowUpRight, Ruler, CalendarRange, TrendingUp, TrendingDown, Maximize2, Minimize2, Camera } from 'lucide-react';
-import { Trade, ChartDrawing } from '../types';
+import { Pencil, Waves, Square, Percent, Type, Eraser, Settings2, Trash2, Minus, SeparatorVertical, ArrowUpRight, Ruler, CalendarRange, TrendingUp, TrendingDown, Maximize2, Minimize2, Camera, ChevronDown, X as XIcon } from 'lucide-react';
+import { Trade, ChartDrawing, DrawingTemplate, DrawingTemplateStyle } from '../types';
 import { MarketBarsData } from '../hooks/useMarketBars';
 import { cn } from '@/src/utils';
+import { useAuth } from '../context/AuthContext';
+import { subscribeDrawingTemplates, subscribeDrawingDefaults, saveDrawingTemplate, deleteDrawingTemplate, setDrawingDefault } from '../lib/drawingTemplates';
 import { Modal, Button, Input, Toast } from './Shared';
 import {
   TrendLinePrimitive,
@@ -30,6 +32,8 @@ import {
   DRAWING_HIT_TOLERANCE_PX,
   priceOnLineAtTime,
   segmentDistance,
+  defaultChannelLevels,
+  defaultFibLevels,
   TrendLinePoint,
   LineStyle,
   Extend,
@@ -69,6 +73,30 @@ type DrawTool = 'none' | 'trendline' | 'channel' | 'box' | 'fib' | 'text' | 'hli
 // handled separately. 'hline'/'vline' are a single click, no drag at all.
 const DRAG_TOOLS: DrawTool[] = ['trendline', 'box', 'fib', 'arrow', 'pricerange', 'timerange'];
 const POSITION_TOOLS: DrawTool[] = ['long', 'short'];
+
+// 'long'/'short' are two toolbar buttons for the same ChartDrawing type —
+// templates and per-type "new drawing" defaults are keyed by the latter.
+const drawingTypeForTool = (tool: DrawTool): ChartDrawing['type'] =>
+  tool === 'long' || tool === 'short' ? 'position' : (tool as ChartDrawing['type']);
+
+const DEFAULT_DRAWING_COLOR = '#5a7d9f';
+
+// What "Apply defaults" resets a template back to, and what a brand-new
+// drawing starts from when the user has never saved/applied a template for
+// that type — i.e. this app's original, hardcoded look for each tool.
+function hardcodedDefaultStyle(type: ChartDrawing['type']): DrawingTemplateStyle {
+  const base: DrawingTemplateStyle = {
+    color: DEFAULT_DRAWING_COLOR,
+    lineStyle: 'solid',
+    extend: 'none',
+    labelColor: DEFAULT_DRAWING_COLOR,
+    labelSize: type === 'text' ? 11 : 12,
+    labelBold: type === 'text',
+  };
+  if (type === 'channel') return { ...base, levels: defaultChannelLevels(DEFAULT_DRAWING_COLOR), backgroundVisible: true, backgroundColor: DEFAULT_DRAWING_COLOR, backgroundOpacity: 0.12 };
+  if (type === 'fib') return { ...base, levels: defaultFibLevels(DEFAULT_DRAWING_COLOR), backgroundVisible: true, backgroundColor: DEFAULT_DRAWING_COLOR, backgroundOpacity: 0.1 };
+  return base;
+}
 
 interface Bar {
   time: number;
@@ -272,6 +300,28 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
     const timer = setTimeout(() => setToast(null), 3000);
     return () => clearTimeout(timer);
   }, [toast]);
+
+  // Drawing-tool style templates: saved templates (global to the account,
+  // not just this trade's chart) and, per type, whichever template was most
+  // recently saved/applied — read by the chart-build effect's "new drawing"
+  // construction so freshly-drawn shapes start with the user's preferred
+  // look instead of the hardcoded default.
+  const { user } = useAuth();
+  const [templates, setTemplates] = useState<DrawingTemplate[]>([]);
+  const [drawingDefaults, setDrawingDefaults] = useState<Partial<Record<ChartDrawing['type'], DrawingTemplateStyle>>>({});
+  const drawingDefaultsRef = useRef<Partial<Record<ChartDrawing['type'], DrawingTemplateStyle>>>({});
+  useEffect(() => { drawingDefaultsRef.current = drawingDefaults; }, [drawingDefaults]);
+  useEffect(() => {
+    if (!user) { setTemplates([]); setDrawingDefaults({}); return; }
+    const unsubTemplates = subscribeDrawingTemplates(user.uid, setTemplates);
+    const unsubDefaults = subscribeDrawingDefaults(user.uid, setDrawingDefaults);
+    return () => { unsubTemplates(); unsubDefaults(); };
+  }, [user]);
+  // Properties panel's "Template" control (Save as… / Apply defaults / a
+  // saved template) — a small dropdown in the modal footer.
+  const [templateMenuOpen, setTemplateMenuOpen] = useState(false);
+  const [templateSaveMode, setTemplateSaveMode] = useState(false);
+  const [templateNameInput, setTemplateNameInput] = useState('');
 
   const drawingsRef = useRef(drawings);
   useEffect(() => { drawingsRef.current = drawings; }, [drawings]);
@@ -778,13 +828,31 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
       setSelectedId(null);
       emitDrawings();
     };
+    // A brand-new drawing starts from the user's saved template for that
+    // type (drawingDefaultsRef, kept live via the mirroring effect above),
+    // falling back to the app's original hardcoded look if they've never
+    // saved/applied one.
+    const newDrawingStyle = (type: ChartDrawing['type']): DrawingTemplateStyle =>
+      drawingDefaultsRef.current[type] ?? hardcodedDefaultStyle(type);
+    const newDrawingColor = (type: ChartDrawing['type']) => newDrawingStyle(type).color ?? DEFAULT_DRAWING_COLOR;
+    const newDrawingPatch = (type: ChartDrawing['type']): DrawingStylePatch => {
+      const s = newDrawingStyle(type);
+      return { lineStyle: s.lineStyle, extend: s.extend, labelColor: s.labelColor, labelSize: s.labelSize, labelBold: s.labelBold };
+    };
+    const newDrawingBackground = (type: 'channel' | 'fib') => {
+      const s = newDrawingStyle(type);
+      if (s.backgroundVisible === undefined) return undefined;
+      return { visible: s.backgroundVisible, color: s.backgroundColor ?? newDrawingColor(type), opacity: s.backgroundOpacity ?? (type === 'channel' ? 0.12 : 0.1) };
+    };
+
     commitTextRef.current = (text: string) => {
       const anchor = pendingTextAnchor;
       pendingTextAnchor = null;
       setPendingText(null);
       if (!anchor || !text.trim()) { resetTool(); return; }
       const id = `drawing-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      const prim = new TextNotePrimitive(id, anchor, text.trim());
+      const textStyle = newDrawingStyle('text');
+      const prim = new TextNotePrimitive(id, anchor, text.trim(), newDrawingColor('text'), textStyle.labelSize ?? 11, textStyle.labelBold ?? true);
       candleSeries.attachPrimitive(prim);
       primitives.set(id, prim);
       resetTool();
@@ -881,7 +949,7 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
       // Single-click placement, no drag at all.
       const id = `drawing-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       if (toolRef.current === 'hline') {
-        const prim = new HorizontalLinePrimitive(id, price);
+        const prim = new HorizontalLinePrimitive(id, price, newDrawingColor('hline'), newDrawingPatch('hline'));
         candleSeries.attachPrimitive(prim);
         primitives.set(id, prim);
         resetTool();
@@ -889,7 +957,7 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
         return;
       }
       if (toolRef.current === 'vline') {
-        const prim = new VerticalLinePrimitive(id, time);
+        const prim = new VerticalLinePrimitive(id, time, newDrawingColor('vline'), newDrawingPatch('vline'));
         candleSeries.attachPrimitive(prim);
         primitives.set(id, prim);
         resetTool();
@@ -901,7 +969,7 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
       // line — the third click (handled via pendingPosition, once this drag
       // finishes in handleMouseUp) sets the stop-loss level.
       if (toolRef.current === 'long' || toolRef.current === 'short') {
-        const prim = new PositionPrimitive(id, point, point, toolRef.current, 0, 0);
+        const prim = new PositionPrimitive(id, point, point, toolRef.current, 0, 0, newDrawingColor('position'), newDrawingPatch('position'));
         candleSeries.attachPrimitive(prim);
         primitives.set(id, prim);
         dragState = { primitive: prim, startX: x, startY: y };
@@ -913,13 +981,13 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
       // finishes in handleMouseUp) is different.
       if (toolRef.current === 'channel' || DRAG_TOOLS.includes(toolRef.current)) {
         const prim =
-          toolRef.current === 'channel' ? new PriceChannelPrimitive(id, point, point, 0)
-          : toolRef.current === 'box' ? new RectanglePrimitive(id, point, point)
-          : toolRef.current === 'fib' ? new FibRetracementPrimitive(id, point, point)
-          : toolRef.current === 'arrow' ? new ArrowPrimitive(id, point, point)
-          : toolRef.current === 'pricerange' ? new PriceRangePrimitive(id, point, point)
-          : toolRef.current === 'timerange' ? new TimeRangePrimitive(id, point, point)
-          : new TrendLinePrimitive(id, point, point);
+          toolRef.current === 'channel' ? new PriceChannelPrimitive(id, point, point, 0, newDrawingColor('channel'), newDrawingPatch('channel'), newDrawingStyle('channel').levels, newDrawingBackground('channel'))
+          : toolRef.current === 'box' ? new RectanglePrimitive(id, point, point, newDrawingColor('box'), newDrawingPatch('box'))
+          : toolRef.current === 'fib' ? new FibRetracementPrimitive(id, point, point, newDrawingColor('fib'), newDrawingPatch('fib'), newDrawingStyle('fib').levels, newDrawingBackground('fib'))
+          : toolRef.current === 'arrow' ? new ArrowPrimitive(id, point, point, newDrawingColor('arrow'), newDrawingPatch('arrow'))
+          : toolRef.current === 'pricerange' ? new PriceRangePrimitive(id, point, point, newDrawingColor('pricerange'), newDrawingPatch('pricerange'))
+          : toolRef.current === 'timerange' ? new TimeRangePrimitive(id, point, point, newDrawingColor('timerange'), newDrawingPatch('timerange'))
+          : new TrendLinePrimitive(id, point, point, newDrawingColor('trendline'), newDrawingPatch('trendline'));
         candleSeries.attachPrimitive(prim);
         primitives.set(id, prim);
         dragState = { primitive: prim, startX: x, startY: y };
@@ -1153,6 +1221,9 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
     setPropForm(props);
     setPropTab('style');
     setPropertiesOpen(true);
+    setTemplateMenuOpen(false);
+    setTemplateSaveMode(false);
+    setTemplateNameInput('');
   };
   const saveProperties = () => {
     if (!propForm) return;
@@ -1191,6 +1262,62 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
       const levels = prev.levels.map((l, i) => (i === index ? { ...l, ...patch } : l));
       return { ...prev, levels };
     });
+  };
+
+  // Just the appearance fields of the open form — what gets saved as a
+  // template and what's compared against when deciding a new drawing's
+  // starting look. Deliberately excludes coordinates/label text/position
+  // risk-reward numbers.
+  const extractStyleFromForm = (form: DrawingProps): DrawingTemplateStyle => ({
+    color: form.color,
+    lineStyle: form.lineStyle,
+    extend: form.extend,
+    labelColor: form.labelColor,
+    labelSize: form.labelSize,
+    labelBold: form.labelBold,
+    ...(form.levels ? { levels: form.levels } : {}),
+    ...(form.backgroundVisible !== null ? { backgroundVisible: form.backgroundVisible } : {}),
+    ...(form.backgroundColor !== null ? { backgroundColor: form.backgroundColor } : {}),
+    ...(form.backgroundOpacity !== null ? { backgroundOpacity: form.backgroundOpacity } : {}),
+  });
+  const applyStyleToForm = (style: DrawingTemplateStyle) => {
+    setPropForm(prev => prev ? {
+      ...prev,
+      color: style.color ?? prev.color,
+      lineStyle: style.lineStyle ?? prev.lineStyle,
+      extend: style.extend ?? prev.extend,
+      labelColor: style.labelColor ?? prev.labelColor,
+      labelSize: style.labelSize ?? prev.labelSize,
+      labelBold: style.labelBold ?? prev.labelBold,
+      levels: style.levels ?? prev.levels,
+      backgroundVisible: style.backgroundVisible ?? prev.backgroundVisible,
+      backgroundColor: style.backgroundColor ?? prev.backgroundColor,
+      backgroundOpacity: style.backgroundOpacity ?? prev.backgroundOpacity,
+    } : prev);
+  };
+  const handleApplyDefaults = () => {
+    if (!propForm) return;
+    applyStyleToForm(hardcodedDefaultStyle(propForm.type));
+    if (user) setDrawingDefault(user.uid, propForm.type, null);
+    setTemplateMenuOpen(false);
+  };
+  const handleApplyTemplate = (tpl: DrawingTemplate) => {
+    applyStyleToForm(tpl.style);
+    if (user) setDrawingDefault(user.uid, tpl.type, tpl.style);
+    setTemplateMenuOpen(false);
+  };
+  const handleSaveTemplate = async () => {
+    if (!propForm || !user || !templateNameInput.trim()) return;
+    const style = extractStyleFromForm(propForm);
+    await saveDrawingTemplate(user.uid, propForm.type, templateNameInput.trim(), style);
+    await setDrawingDefault(user.uid, propForm.type, style);
+    setTemplateNameInput('');
+    setTemplateSaveMode(false);
+    setTemplateMenuOpen(false);
+  };
+  const handleDeleteTemplate = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    deleteDrawingTemplate(id);
   };
 
   // datetime-local inputs work in local-time strings, not epoch seconds.
@@ -1421,14 +1548,73 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
       )}
       <Modal
         isOpen={propertiesOpen}
-        onClose={() => setPropertiesOpen(false)}
+        onClose={() => { setPropertiesOpen(false); setTemplateMenuOpen(false); setTemplateSaveMode(false); }}
         title="Drawing properties"
         maxWidth="sm"
         footer={
-          <>
-            <Button variant="outline" onClick={() => setPropertiesOpen(false)}>Cancel</Button>
-            <Button onClick={saveProperties}>Ok</Button>
-          </>
+          <div className="flex items-center justify-between w-full gap-3">
+            <div className="relative">
+              <Button variant="outline" size="sm" onClick={() => setTemplateMenuOpen(o => !o)}>
+                Template <ChevronDown className="w-3.5 h-3.5 ml-1" />
+              </Button>
+              {templateMenuOpen && propForm && (
+                <>
+                  <div className="fixed inset-0 z-[105]" onClick={() => { setTemplateMenuOpen(false); setTemplateSaveMode(false); }} />
+                  <div className="absolute bottom-full left-0 mb-2 w-60 rounded-xl border border-border bg-popover shadow-2xl z-[110] overflow-hidden">
+                    {templateSaveMode ? (
+                      <div className="p-2 flex items-center gap-1.5">
+                        <Input
+                          autoFocus
+                          value={templateNameInput}
+                          onChange={e => setTemplateNameInput(e.target.value)}
+                          placeholder="Template name"
+                          className="h-8 flex-1 text-xs"
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') handleSaveTemplate();
+                            if (e.key === 'Escape') setTemplateSaveMode(false);
+                          }}
+                        />
+                        <Button size="sm" onClick={handleSaveTemplate} disabled={!templateNameInput.trim()}>Save</Button>
+                      </div>
+                    ) : (
+                      <>
+                        <button onClick={() => setTemplateSaveMode(true)} className="w-full text-left px-3 py-2 text-sm font-medium hover:bg-accent transition-colors">
+                          Save as…
+                        </button>
+                        <button onClick={handleApplyDefaults} className="w-full text-left px-3 py-2 text-sm font-medium hover:bg-accent transition-colors">
+                          Apply defaults
+                        </button>
+                        {templates.filter(t => t.type === propForm.type).length > 0 && (
+                          <div className="border-t border-border/40 max-h-48 overflow-y-auto">
+                            {templates.filter(t => t.type === propForm.type).map(tpl => (
+                              <div
+                                key={tpl.id}
+                                onClick={() => handleApplyTemplate(tpl)}
+                                className="group flex items-center justify-between px-3 py-2 text-sm hover:bg-accent transition-colors cursor-pointer"
+                              >
+                                <span className="truncate">{tpl.name}</span>
+                                <button
+                                  onClick={e => handleDeleteTemplate(e, tpl.id)}
+                                  className="shrink-0 ml-2 p-0.5 rounded opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-rose-500 transition-all"
+                                  title="Delete template"
+                                >
+                                  <XIcon className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+            <div className="flex items-center gap-3">
+              <Button variant="outline" onClick={() => setPropertiesOpen(false)}>Cancel</Button>
+              <Button onClick={saveProperties}>Ok</Button>
+            </div>
+          </div>
         }
       >
         {propForm && (

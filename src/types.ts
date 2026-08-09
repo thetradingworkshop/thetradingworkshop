@@ -307,6 +307,34 @@ export interface ChartDrawing {
   stopOffset?: number;
 }
 
+// Just the visual-appearance subset of ChartDrawing — no coordinates, no
+// position risk/reward numbers (a saved "50pt stop" template wouldn't mean
+// the same thing on a different symbol's price scale). This is what gets
+// saved as a reusable drawing-tool template and what a brand-new drawing of
+// that type starts from.
+export interface DrawingTemplateStyle {
+  color?: string;
+  lineStyle?: 'solid' | 'dashed' | 'dotted';
+  extend?: 'none' | 'left' | 'right' | 'both';
+  labelColor?: string;
+  labelSize?: number;
+  labelBold?: boolean;
+  levels?: ChannelLevel[];
+  backgroundVisible?: boolean;
+  backgroundColor?: string;
+  backgroundOpacity?: number;
+}
+
+// A named, saved style for one drawing tool, global to the user's account
+// (available on every trade's chart, not just the one it was saved from).
+export interface DrawingTemplate {
+  id: string;
+  userId: string;
+  type: ChartDrawing['type'];
+  name: string;
+  style: DrawingTemplateStyle;
+}
+
 export interface TradeReview {
   executionQuality?: number;
   strategyQuality?: number;

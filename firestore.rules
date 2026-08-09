@@ -63,6 +63,15 @@ service cloud.firestore {
     //   - order: number (required)
     //   - createdAt: timestamp (required)
     //
+    // Collection: drawing_templates
+    // Document ID: auto-generated
+    // Fields:
+    //   - userId: string (required)
+    //   - type: string (required, ChartDrawing's drawing-tool type)
+    //   - name: string (required, user-given template name)
+    //   - style: map (required, DrawingTemplateStyle)
+    //   - createdAt: timestamp (required)
+    //
     // ===============================================================
 
     // Helper Functions
@@ -131,6 +140,14 @@ service cloud.firestore {
              data.name is string &&
              data.tags is list &&
              data.order is number &&
+             data.createdAt is timestamp;
+    }
+
+    function isValidDrawingTemplate(data) {
+      return data.userId is string &&
+             data.type is string &&
+             data.name is string &&
+             data.style is map &&
              data.createdAt is timestamp;
     }
 
@@ -237,6 +254,14 @@ service cloud.firestore {
       allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
       allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid && isValidTagCategory(request.resource.data);
       allow update: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin()) && isValidTagCategory(request.resource.data);
+      allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+    }
+
+    // Drawing Templates
+    match /drawing_templates/{templateId} {
+      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid && isValidDrawingTemplate(request.resource.data);
+      allow update: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin()) && isValidDrawingTemplate(request.resource.data);
       allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
     }
 
