@@ -508,6 +508,14 @@ export class PriceChannelPrimitive extends TwoPointPrimitive {
 
 const FIB_LEVELS = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
 
+// Every level starts on, solid, 1px, in the base color, and the banding
+// alternates 0.5x/1x of a single opacity — with the 0.1 default below that's
+// 0.05/0.1, exactly the two hardcoded shades this replaced, so an existing
+// fib drawing (no stored `levels`/background fields yet) renders unchanged.
+export function defaultFibLevels(color: string): ChannelLevel[] {
+  return FIB_LEVELS.map(ratio => ({ ratio, visible: true, color, lineStyle: 'solid', lineWidth: 1 }));
+}
+
 interface FibLevelCoord {
   ratio: number;
   price: number;
@@ -519,7 +527,10 @@ class FibRetracementPaneRenderer implements IPrimitivePaneRenderer {
 
   draw(target: CanvasRenderingTarget2D): void {
     target.useBitmapCoordinateSpace(scope => {
-      const { p1Coord, p2Coord, levelCoords, color, selected, label, labelColor, labelSize, labelBold } = this._source;
+      const {
+        p1Coord, p2Coord, levels, levelCoords, color, selected, label, labelColor, labelSize, labelBold,
+        backgroundVisible, backgroundColor, backgroundOpacity,
+      } = this._source;
       const x1 = p1Coord.x, x2 = p2Coord.x;
       if (x1 === null || x2 === null) return;
       const ctx = scope.context;
@@ -529,26 +540,25 @@ class FibRetracementPaneRenderer implements IPrimitivePaneRenderer {
       const right = Math.max(x1, x2) * hr;
       const sorted = levelCoords.filter((l): l is FibLevelCoord & { y: number } => l.y !== null).sort((a, b) => a.ratio - b.ratio);
       ctx.save();
-      for (let i = 0; i < sorted.length - 1; i++) {
-        const yTop = sorted[i].y * vr;
-        const yBot = sorted[i + 1].y * vr;
-        ctx.globalAlpha = i % 2 === 0 ? 0.05 : 0.1;
-        ctx.fillStyle = color;
-        ctx.fillRect(left, Math.min(yTop, yBot), right - left, Math.abs(yBot - yTop));
+      if (backgroundVisible) {
+        for (let i = 0; i < sorted.length - 1; i++) {
+          const yTop = sorted[i].y * vr;
+          const yBot = sorted[i + 1].y * vr;
+          ctx.globalAlpha = i % 2 === 0 ? backgroundOpacity * 0.5 : backgroundOpacity;
+          ctx.fillStyle = backgroundColor;
+          ctx.fillRect(left, Math.min(yTop, yBot), right - left, Math.abs(yBot - yTop));
+        }
+        ctx.globalAlpha = 1;
       }
-      ctx.globalAlpha = 1;
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 1;
       ctx.font = `${11 * vr}px sans-serif`;
-      ctx.fillStyle = color;
       ctx.textBaseline = 'middle';
-      for (const lvl of sorted) {
-        const y = lvl.y * vr;
-        ctx.beginPath();
-        ctx.moveTo(left, y);
-        ctx.lineTo(right, y);
-        ctx.stroke();
-        ctx.fillText(`${(lvl.ratio * 100).toFixed(1)}%  ${lvl.price.toFixed(2)}`, left + 4 * hr, y - 6 * vr);
+      for (const coord of sorted) {
+        const lvl = levels.find(l => l.ratio === coord.ratio);
+        if (!lvl?.visible) continue;
+        const y = coord.y * vr;
+        strokeLine(ctx, left, y, right, y, lvl.color, lvl.lineStyle, hr, lvl.lineWidth);
+        ctx.fillStyle = lvl.color;
+        ctx.fillText(`${(coord.ratio * 100).toFixed(1)}%  ${coord.price.toFixed(2)}`, left + 4 * hr, y - 6 * vr);
       }
       if (label) drawLabel(ctx, p2Coord.x! * hr, p2Coord.y! * vr, label, labelColor, labelSize, labelBold, vr);
       if (selected) { drawHandle(ctx, p1Coord.x, p1Coord.y, color, hr, vr); drawHandle(ctx, p2Coord.x, p2Coord.y, color, hr, vr); }
@@ -566,9 +576,25 @@ class FibRetracementPaneView implements IPrimitivePaneView {
 
 export class FibRetracementPrimitive extends TwoPointPrimitive {
   levelCoords: FibLevelCoord[] = [];
+  levels: ChannelLevel[];
+  backgroundVisible: boolean;
+  backgroundColor: string;
+  backgroundOpacity: number;
 
-  constructor(id: string, p1: TrendLinePoint, p2: TrendLinePoint, color = '#5a7d9f', style?: DrawingStylePatch) {
+  constructor(
+    id: string,
+    p1: TrendLinePoint,
+    p2: TrendLinePoint,
+    color = '#5a7d9f',
+    style?: DrawingStylePatch,
+    levels?: ChannelLevel[],
+    background?: { visible: boolean; color: string; opacity: number },
+  ) {
     super(id, p1, p2, color, style);
+    this.levels = levels && levels.length ? levels : defaultFibLevels(color);
+    this.backgroundVisible = background?.visible ?? true;
+    this.backgroundColor = background?.color ?? color;
+    this.backgroundOpacity = background?.opacity ?? 0.1;
     this._paneViews = [new FibRetracementPaneView(this)];
   }
 
@@ -582,6 +608,18 @@ export class FibRetracementPrimitive extends TwoPointPrimitive {
     });
   }
 
+  setLevels(levels: ChannelLevel[]): void {
+    this.levels = levels;
+    this._requestUpdate?.();
+  }
+
+  setBackground(visible: boolean, color: string, opacity: number): void {
+    this.backgroundVisible = visible;
+    this.backgroundColor = color;
+    this.backgroundOpacity = opacity;
+    this._requestUpdate?.();
+  }
+
   distanceToPoint(x: number, y: number): number {
     const { x: x1 } = this.p1Coord;
     const { x: x2 } = this.p2Coord;
@@ -592,6 +630,8 @@ export class FibRetracementPrimitive extends TwoPointPrimitive {
     let best = Infinity;
     for (const lvl of this.levelCoords) {
       if (lvl.y === null) continue;
+      const style = this.levels.find(l => l.ratio === lvl.ratio);
+      if (!style?.visible) continue;
       best = Math.min(best, Math.abs(y - lvl.y));
     }
     return best;

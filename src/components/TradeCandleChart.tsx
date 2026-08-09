@@ -30,7 +30,6 @@ import {
   DRAWING_HIT_TOLERANCE_PX,
   priceOnLineAtTime,
   segmentDistance,
-  defaultChannelLevels,
   TrendLinePoint,
   LineStyle,
   Extend,
@@ -388,7 +387,7 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
       switch (d.type) {
         case 'channel': prim = new PriceChannelPrimitive(d.id, p1, p2, d.offset ?? 0, color, { ...style, label: d.text ?? '' }, d.levels, d.backgroundVisible !== undefined ? { visible: d.backgroundVisible, color: d.backgroundColor ?? color, opacity: d.backgroundOpacity ?? 0.12 } : undefined); break;
         case 'box': prim = new RectanglePrimitive(d.id, p1, p2, color, { ...style, label: d.text ?? '' }); break;
-        case 'fib': prim = new FibRetracementPrimitive(d.id, p1, p2, color, { ...style, label: d.text ?? '' }); break;
+        case 'fib': prim = new FibRetracementPrimitive(d.id, p1, p2, color, { ...style, label: d.text ?? '' }, d.levels, d.backgroundVisible !== undefined ? { visible: d.backgroundVisible, color: d.backgroundColor ?? color, opacity: d.backgroundOpacity ?? 0.1 } : undefined); break;
         case 'text': prim = new TextNotePrimitive(d.id, p1, d.text ?? '', color, d.labelSize ?? 11, d.labelBold ?? true); break;
         case 'arrow': prim = new ArrowPrimitive(d.id, p1, p2, color, { ...style, label: d.text ?? '' }); break;
         case 'pricerange': prim = new PriceRangePrimitive(d.id, p1, p2, color, { ...style, label: d.text ?? '' }); break;
@@ -420,7 +419,7 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
           return withLabel({ id: prim.id, type: 'box', time1: prim.p1.time as unknown as number, price1: prim.p1.price, time2: prim.p2.time as unknown as number, price2: prim.p2.price, color: prim.color, lineStyle: prim.lineStyle, extend: prim.extend, labelColor: prim.labelColor, labelSize: prim.labelSize, labelBold: prim.labelBold }, prim.label);
         }
         if (prim instanceof FibRetracementPrimitive) {
-          return withLabel({ id: prim.id, type: 'fib', time1: prim.p1.time as unknown as number, price1: prim.p1.price, time2: prim.p2.time as unknown as number, price2: prim.p2.price, color: prim.color, lineStyle: prim.lineStyle, labelColor: prim.labelColor, labelSize: prim.labelSize, labelBold: prim.labelBold }, prim.label);
+          return withLabel({ id: prim.id, type: 'fib', time1: prim.p1.time as unknown as number, price1: prim.p1.price, time2: prim.p2.time as unknown as number, price2: prim.p2.price, color: prim.color, lineStyle: prim.lineStyle, labelColor: prim.labelColor, labelSize: prim.labelSize, labelBold: prim.labelBold, levels: prim.levels, backgroundVisible: prim.backgroundVisible, backgroundColor: prim.backgroundColor, backgroundOpacity: prim.backgroundOpacity }, prim.label);
         }
         if (prim instanceof TextNotePrimitive) {
           return withLabel({ id: prim.id, type: 'text', time1: prim.point.time as unknown as number, price1: prim.point.price, time2: 0, price2: 0, color: prim.color, labelSize: prim.fontSize, labelBold: prim.bold }, prim.text);
@@ -652,10 +651,10 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
         direction: prim instanceof PositionPrimitive ? prim.direction : null,
         targetOffset: prim instanceof PositionPrimitive ? prim.targetOffset : null,
         stopOffset: prim instanceof PositionPrimitive ? prim.stopOffset : null,
-        levels: prim instanceof PriceChannelPrimitive ? prim.levels : null,
-        backgroundVisible: prim instanceof PriceChannelPrimitive ? prim.backgroundVisible : null,
-        backgroundColor: prim instanceof PriceChannelPrimitive ? prim.backgroundColor : null,
-        backgroundOpacity: prim instanceof PriceChannelPrimitive ? prim.backgroundOpacity : null,
+        levels: prim instanceof PriceChannelPrimitive ? prim.levels : prim instanceof FibRetracementPrimitive ? prim.levels : null,
+        backgroundVisible: prim instanceof PriceChannelPrimitive ? prim.backgroundVisible : prim instanceof FibRetracementPrimitive ? prim.backgroundVisible : null,
+        backgroundColor: prim instanceof PriceChannelPrimitive ? prim.backgroundColor : prim instanceof FibRetracementPrimitive ? prim.backgroundColor : null,
+        backgroundOpacity: prim instanceof PriceChannelPrimitive ? prim.backgroundOpacity : prim instanceof FibRetracementPrimitive ? prim.backgroundOpacity : null,
       };
     };
     // Style/Coordinates/Position each just mutate the primitive — none of
@@ -701,9 +700,10 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
     applyChannelLevelsRef.current = (levels, background) => {
       if (!activeSelection) return;
       const prim = primitives.get(activeSelection);
-      if (!(prim instanceof PriceChannelPrimitive)) return;
-      prim.setLevels(levels);
-      prim.setBackground(background.visible, background.color, background.opacity);
+      if (prim instanceof PriceChannelPrimitive || prim instanceof FibRetracementPrimitive) {
+        prim.setLevels(levels);
+        prim.setBackground(background.visible, background.color, background.opacity);
+      }
     };
     commitPropertiesRef.current = () => emitDrawings();
 
@@ -1172,11 +1172,11 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
     if (propForm.type === 'position' && propForm.direction) {
       applyPositionRef.current?.(propForm.direction, propForm.targetOffset ?? 0, propForm.stopOffset ?? 0);
     }
-    if (propForm.type === 'channel' && propForm.levels) {
+    if ((propForm.type === 'channel' || propForm.type === 'fib') && propForm.levels) {
       applyChannelLevelsRef.current?.(propForm.levels, {
         visible: propForm.backgroundVisible ?? true,
         color: propForm.backgroundColor ?? propForm.color,
-        opacity: propForm.backgroundOpacity ?? 0.12,
+        opacity: propForm.backgroundOpacity ?? (propForm.type === 'channel' ? 0.12 : 0.1),
       });
     }
     commitPropertiesRef.current?.();
@@ -1448,26 +1448,31 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
               ))}
             </div>
 
-            {propTab === 'style' && propForm.type === 'channel' && propForm.levels && (
+            {propTab === 'style' && (propForm.type === 'channel' || propForm.type === 'fib') && propForm.levels && (
               <div className="space-y-4">
-                <div>
-                  <label className="block text-xs font-bold text-muted-foreground mb-1.5">Extend</label>
-                  <select
-                    value={propForm.extend}
-                    onChange={e => patchProp('extend', e.target.value as Extend)}
-                    className="w-full h-9 rounded-lg border border-border bg-background px-3 text-sm"
-                  >
-                    <option value="none">Don't extend</option>
-                    <option value="left">Extend left</option>
-                    <option value="right">Extend right</option>
-                    <option value="both">Extend both</option>
-                  </select>
-                </div>
+                {propForm.type === 'channel' && (
+                  <div>
+                    <label className="block text-xs font-bold text-muted-foreground mb-1.5">Extend</label>
+                    <select
+                      value={propForm.extend}
+                      onChange={e => patchProp('extend', e.target.value as Extend)}
+                      className="w-full h-9 rounded-lg border border-border bg-background px-3 text-sm"
+                    >
+                      <option value="none">Don't extend</option>
+                      <option value="left">Extend left</option>
+                      <option value="right">Extend right</option>
+                      <option value="both">Extend both</option>
+                    </select>
+                  </div>
+                )}
                 <div>
                   <label className="block text-xs font-bold text-muted-foreground mb-1.5">Levels</label>
                   <div className="space-y-1.5">
                     {propForm.levels.map((lvl, i) => {
-                      const isBoundary = lvl.ratio === 0 || lvl.ratio === 1;
+                      // A channel's own boundary (ratio 0/1) is always shown —
+                      // everything else, and every fib ratio, is optional.
+                      const isBoundary = propForm.type === 'channel' && (lvl.ratio === 0 || lvl.ratio === 1);
+                      const ratioLabel = propForm.type === 'fib' ? `${(lvl.ratio * 100).toFixed(1)}%` : String(lvl.ratio);
                       return (
                         <div key={lvl.ratio} className="flex items-center gap-2">
                           <input
@@ -1478,7 +1483,7 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
                             className="rounded border-border shrink-0 disabled:opacity-40"
                             title={isBoundary ? "The channel's own boundary line is always shown" : 'Show this level'}
                           />
-                          <span className="w-10 shrink-0 text-xs font-mono text-muted-foreground">{lvl.ratio}</span>
+                          <span className="w-12 shrink-0 text-xs font-mono text-muted-foreground">{ratioLabel}</span>
                           <input
                             type="color"
                             value={lvl.color}
@@ -1531,12 +1536,12 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
                         type="range"
                         min={0}
                         max={100}
-                        value={Math.round((propForm.backgroundOpacity ?? 0.12) * 100)}
+                        value={Math.round((propForm.backgroundOpacity ?? (propForm.type === 'channel' ? 0.12 : 0.1)) * 100)}
                         onChange={e => patchProp('backgroundOpacity', Number(e.target.value) / 100)}
                         className="flex-1"
                       />
                       <span className="w-10 shrink-0 text-right text-xs font-mono text-muted-foreground">
-                        {Math.round((propForm.backgroundOpacity ?? 0.12) * 100)}%
+                        {Math.round((propForm.backgroundOpacity ?? (propForm.type === 'channel' ? 0.12 : 0.1)) * 100)}%
                       </span>
                     </div>
                   )}
@@ -1544,7 +1549,7 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
               </div>
             )}
 
-            {propTab === 'style' && propForm.type !== 'channel' && (
+            {propTab === 'style' && propForm.type !== 'channel' && propForm.type !== 'fib' && (
               <div className="space-y-4">
                 <div>
                   <label className="block text-xs font-bold text-muted-foreground mb-1.5">Color</label>

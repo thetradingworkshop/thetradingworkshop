@@ -289,9 +289,10 @@ export interface ChartDrawing {
   labelColor?: string; // color for `text`, defaults to `color`
   labelSize?: number; // font size for `text`, defaults to 12 (11 for type 'text')
   labelBold?: boolean;
-  // type 'channel' only: the boundary (ratio 0/1) and quadrant/extension
-  // lines (-0.25, 0.25, 0.5, 0.75, 1.25 by default), each independently
-  // toggleable and styleable, plus the fill between the two boundaries.
+  // type 'channel'/'fib' only: each drawing's price levels (channel's
+  // boundary + quadrant/extension lines, or fib's seven ratios), each
+  // independently toggleable and styleable, plus the shaded fill between
+  // them.
   levels?: ChannelLevel[];
   backgroundVisible?: boolean;
   backgroundColor?: string;
