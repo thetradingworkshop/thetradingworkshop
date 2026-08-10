@@ -775,14 +775,28 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
           // single center pixel — this was the main reason the tool was
           // hard to adjust precisely, since missing that one pixel by a
           // couple of px would grab "move everything" (body) instead.
+          //
+          // Like the endpoint check above, a target/stop line match must
+          // win outright and skip the body check below, not just compete
+          // with it on raw distance — the box's own distanceToPoint()
+          // returns exactly 0 for *any* point inside it (target line down
+          // to stop line, full width), so without this a click even 1px
+          // off the exact line row would always lose to "move everything"
+          // regardless of how the two distances compare.
           const x1 = prim.p1Coord.x, x2 = prim.p2Coord.x;
+          let targetDist = Infinity;
+          let stopDist = Infinity;
           if (x1 !== null && x2 !== null && prim.targetCoordY !== null) {
-            const dTarget = segmentDistance(x1, prim.targetCoordY, x2, prim.targetCoordY, x, y);
-            if (dTarget <= DRAWING_HIT_TOLERANCE_PX && dTarget < bestDist) { bestDist = dTarget; best = { id, handle: 'target' }; }
+            targetDist = segmentDistance(x1, prim.targetCoordY, x2, prim.targetCoordY, x, y);
           }
           if (x1 !== null && x2 !== null && prim.stopCoordY !== null) {
-            const dStop = segmentDistance(x1, prim.stopCoordY, x2, prim.stopCoordY, x, y);
-            if (dStop <= DRAWING_HIT_TOLERANCE_PX && dStop < bestDist) { bestDist = dStop; best = { id, handle: 'stop' }; }
+            stopDist = segmentDistance(x1, prim.stopCoordY, x2, prim.stopCoordY, x, y);
+          }
+          if (targetDist <= DRAWING_HIT_TOLERANCE_PX || stopDist <= DRAWING_HIT_TOLERANCE_PX) {
+            const handle: EditHandle = targetDist <= stopDist ? 'target' : 'stop';
+            const d = Math.min(targetDist, stopDist);
+            if (d < bestDist) { bestDist = d; best = { id, handle }; }
+            return;
           }
         }
 
@@ -1264,6 +1278,16 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
 
       if (pendingChannel) {
         pendingChannel.setOffset(price - priceOnLineAtTime(pendingChannel.p1, pendingChannel.p2, time as unknown as number));
+        return;
+      }
+      if (pendingPosition) {
+        // Live-follow the stop line with the cursor while waiting for the
+        // third click, exactly like pendingChannel does for its offset line
+        // above — without this the stop level never visibly moves after the
+        // target drag is released, so there's no way to see or aim it
+        // before the next click silently commits whatever it happens to hit.
+        const entry = pendingPosition.p1.price;
+        pendingPosition.setStopOffset(pendingPosition.direction === 'long' ? entry - price : price - entry);
         return;
       }
       if (dragState) {
