@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   createChart,
   createSeriesMarkers,
@@ -9,8 +9,10 @@ import {
   UTCTimestamp,
   CandlestickData,
   HistogramData,
+  SeriesMarker,
+  Time,
 } from 'lightweight-charts';
-import { Pencil, Waves, Square, Percent, Type, Eraser, Settings2, Settings, Trash2, Minus, SeparatorVertical, ArrowUpRight, Ruler, CalendarRange, TrendingUp, TrendingDown, Maximize2, Minimize2, Camera, ChevronDown, X as XIcon } from 'lucide-react';
+import { Pencil, Waves, Square, Percent, Type, Eraser, Settings2, Settings, Trash2, Minus, SeparatorVertical, ArrowUpRight, Ruler, CalendarRange, TrendingUp, TrendingDown, Maximize2, Minimize2, Camera, ChevronDown, X as XIcon, History, SkipBack, SkipForward, Play, Pause } from 'lucide-react';
 import { Trade, ChartDrawing, DrawingTemplate, DrawingTemplateStyle, ChartSettings } from '../types';
 import { MarketBarsData } from '../hooks/useMarketBars';
 import { cn } from '@/src/utils';
@@ -259,6 +261,31 @@ function nearestBarTime(bars: Bar[], epochSeconds: number): number {
   return closest;
 }
 
+// Same idea as nearestBarTime but returns the array index — bar replay
+// slices `bars` up to (and including) an index, not a time.
+function nearestBarIndex(bars: Bar[], epochSeconds: number): number {
+  let closestIdx = 0;
+  let bestDiff = Math.abs(bars[0].time - epochSeconds);
+  for (let i = 1; i < bars.length; i++) {
+    const diff = Math.abs(bars[i].time - epochSeconds);
+    if (diff < bestDiff) { bestDiff = diff; closestIdx = i; }
+  }
+  return closestIdx;
+}
+
+// Shared by the initial chart build and every bar-replay step so both stay
+// in sync on exactly how a Bar becomes chart data.
+function toSeriesData(bars: Bar[]): { candleData: CandlestickData[]; volumeData: HistogramData[] } {
+  return {
+    candleData: bars.map(b => ({ time: b.time as UTCTimestamp, open: b.open, high: b.high, low: b.low, close: b.close })),
+    volumeData: bars.map(b => ({
+      time: b.time as UTCTimestamp,
+      value: b.volume,
+      color: b.close >= b.open ? 'rgba(16,185,129,0.4)' : 'rgba(244,63,94,0.4)',
+    })),
+  };
+}
+
 const TIMEFRAMES: { id: string | undefined; label: string }[] = [
   { id: undefined, label: 'Auto' },
   { id: '1m', label: '1m' },
@@ -393,6 +420,96 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
   const [chartSettingsTab, setChartSettingsTab] = useState<'candles' | 'canvas'>('candles');
   const [chartSettingsForm, setChartSettingsForm] = useState<ChartSettings>(DEFAULT_CHART_SETTINGS);
 
+  // Bar replay: relive the trade bar-by-bar without seeing ahead. Picking
+  // the start bar is a chart click, same shape as a drawing tool, so
+  // replayPickingStart is mirrored into a ref for the same stale-closure
+  // reason as toolRef — the chart-build effect's mousedown handler needs
+  // the live value. Once replayActive, a separate effect below (not the
+  // chart-build one) pushes replayIndex to the already-built candle/volume
+  // series and markers plugin via their refs, so stepping through bars
+  // never rebuilds the chart, drawings, or event handlers.
+  const [replayPickingStart, setReplayPickingStart] = useState(false);
+  const replayPickingStartRef = useRef(false);
+  useEffect(() => { replayPickingStartRef.current = replayPickingStart; }, [replayPickingStart]);
+  const [replayActive, setReplayActive] = useState(false);
+  const [replayIndex, setReplayIndex] = useState<number | null>(null);
+  const [replayPlaying, setReplayPlaying] = useState(false);
+  const [replaySpeedMs, setReplaySpeedMs] = useState(600);
+  const markersApiRef = useRef<ReturnType<typeof createSeriesMarkers> | null>(null);
+
+  const tradeMarkers = useMemo<SeriesMarker<Time>[]>(() => {
+    if (bars.length === 0) return [];
+    const isLong = trade.direction === 'LONG';
+    const entryEpoch = Math.floor(new Date(trade.entryTime).getTime() / 1000);
+    const exitEpoch = Math.floor(new Date(trade.exitTime).getTime() / 1000);
+    return [
+      {
+        time: nearestBarTime(bars, entryEpoch) as UTCTimestamp,
+        position: isLong ? 'belowBar' : 'aboveBar',
+        color: '#6366f1',
+        shape: isLong ? 'arrowUp' : 'arrowDown',
+        text: `Entry ${trade.avgEntryPrice}`,
+      },
+      {
+        time: nearestBarTime(bars, exitEpoch) as UTCTimestamp,
+        position: isLong ? 'aboveBar' : 'belowBar',
+        color: trade.isWinner ? '#10b981' : '#f43f5e',
+        shape: isLong ? 'arrowDown' : 'arrowUp',
+        text: `Exit ${trade.avgExitPrice}`,
+      },
+    ];
+    // `bars`/`trade` are recomputed fresh (new reference) on every render —
+    // neither TradeCandleChart's props nor this file memoizes them — so
+    // depending on them directly here would recompute this memo (and, worse,
+    // re-run the effect below that depends on it) every render, not just
+    // when the trade actually changes. trade.id/market/source is exactly
+    // the dependency set the chart-build effect already trusts as "this
+    // trade's actual bars changed", so mirror it here instead.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trade.id, market, source]);
+
+  // Pushes the current replay position (or, once exited, the full dataset)
+  // to the already-built series/markers via their refs — no chart rebuild.
+  // Same reasoning as tradeMarkers above for why this depends on
+  // trade.id/market/source rather than `bars` itself: `bars` is a fresh
+  // array reference every render, so using it directly here previously
+  // caused an infinite loop (this effect calls setHoverBar while
+  // replaying, which re-renders, which recomputes `bars`, which re-runs
+  // this effect, ad infinitum).
+  useEffect(() => {
+    const candleSeries = candleSeriesRef.current;
+    const volumeSeries = volumeSeriesRef.current;
+    if (!candleSeries || !volumeSeries) return;
+    const visibleBars = replayActive && replayIndex !== null ? bars.slice(0, replayIndex + 1) : bars;
+    const { candleData, volumeData } = toSeriesData(visibleBars);
+    candleSeries.setData(candleData);
+    volumeSeries.setData(volumeData);
+    const cutoff = visibleBars[visibleBars.length - 1]?.time;
+    markersApiRef.current?.setMarkers(cutoff === undefined ? tradeMarkers : tradeMarkers.filter(m => (m.time as unknown as number) <= cutoff));
+    if (replayActive && visibleBars.length > 0) setHoverBar(visibleBars[visibleBars.length - 1]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [replayActive, replayIndex, trade.id, market, source, tradeMarkers]);
+
+  // Auto-play: steps one bar every replaySpeedMs while playing, pausing
+  // itself once it reaches the last bar.
+  useEffect(() => {
+    if (!replayPlaying || !replayActive || replayIndex === null) return;
+    if (replayIndex >= bars.length - 1) { setReplayPlaying(false); return; }
+    const timer = setTimeout(() => setReplayIndex(i => (i === null ? i : Math.min(i + 1, bars.length - 1))), replaySpeedMs);
+    return () => clearTimeout(timer);
+  }, [replayPlaying, replayActive, replayIndex, replaySpeedMs, bars.length]);
+
+  // Switching to a different trade leaves this component mounted (no `key`
+  // on it upstream) — replayIndex would otherwise carry over against a
+  // completely different bar count.
+  useEffect(() => {
+    setReplayActive(false);
+    setReplayIndex(null);
+    setReplayPlaying(false);
+    setReplayPickingStart(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trade.id]);
+
   const drawingsRef = useRef(drawings);
   useEffect(() => { drawingsRef.current = drawings; }, [drawings]);
   const onDrawingsChangeRef = useRef(onDrawingsChange);
@@ -408,7 +525,8 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
   const setInteractiveRef = useRef<((interactive: boolean) => void) | null>(null);
 
   const drawHint =
-    tool === 'trendline' ? 'Click-drag to draw a trend line.'
+    replayPickingStart ? 'Click a bar to start the replay from.'
+    : tool === 'trendline' ? 'Click-drag to draw a trend line.'
     : tool === 'channel' ? 'Click-drag the first line, then click once more to set the channel width.'
     : tool === 'box' ? 'Click-drag to draw a box.'
     : tool === 'fib' ? 'Click-drag from the start to the end of the move.'
@@ -450,15 +568,7 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
     volumeSeriesRef.current = volumeSeries;
     applyChartSettings(chart, candleSeries, volumeSeries, chartSettingsRef.current);
 
-    const candleData: CandlestickData[] = bars.map(b => ({
-      time: b.time as UTCTimestamp, open: b.open, high: b.high, low: b.low, close: b.close,
-    }));
-    const volumeData: HistogramData[] = bars.map(b => ({
-      time: b.time as UTCTimestamp,
-      value: b.volume,
-      color: b.close >= b.open ? 'rgba(16,185,129,0.4)' : 'rgba(244,63,94,0.4)',
-    }));
-
+    const { candleData, volumeData } = toSeriesData(bars);
     candleSeries.setData(candleData);
     volumeSeries.setData(volumeData);
 
@@ -469,25 +579,11 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
       setHoverBar(bar ?? bars[bars.length - 1]);
     });
 
-    const isLong = trade.direction === 'LONG';
-    const entryEpoch = Math.floor(new Date(trade.entryTime).getTime() / 1000);
-    const exitEpoch = Math.floor(new Date(trade.exitTime).getTime() / 1000);
-    createSeriesMarkers(candleSeries, [
-      {
-        time: nearestBarTime(bars, entryEpoch) as UTCTimestamp,
-        position: isLong ? 'belowBar' : 'aboveBar',
-        color: '#6366f1',
-        shape: isLong ? 'arrowUp' : 'arrowDown',
-        text: `Entry ${trade.avgEntryPrice}`,
-      },
-      {
-        time: nearestBarTime(bars, exitEpoch) as UTCTimestamp,
-        position: isLong ? 'aboveBar' : 'belowBar',
-        color: trade.isWinner ? '#10b981' : '#f43f5e',
-        shape: isLong ? 'arrowDown' : 'arrowUp',
-        text: `Exit ${trade.avgExitPrice}`,
-      },
-    ]);
+    // Entry/exit markers are recreated (not just re-set) here since this
+    // whole effect reruns on a genuinely new trade/timeframe; bar replay
+    // below re-filters this same `tradeMarkers` list live via .setMarkers()
+    // as it steps through, without rebuilding the plugin.
+    markersApiRef.current = createSeriesMarkers(candleSeries, tradeMarkers);
 
     // --- Drawing tools (trend line / channel / box / fib / text note) -----
     // Read from refs rather than the `drawings`/`onDrawingsChange` props
@@ -940,6 +1036,19 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
     const handleMouseDown = (e: MouseEvent) => {
       if (pendingTextAnchor) return; // resolve the open text input first
 
+      // Picking the bar replay starts from — takes over the click
+      // regardless of whatever drawing tool might still be selected.
+      if (replayPickingStartRef.current) {
+        const { x } = toPixel(e);
+        const time = chart.timeScale().coordinateToTime(x);
+        if (time !== null) {
+          setReplayIndex(nearestBarIndex(bars, time as unknown as number));
+          setReplayActive(true);
+        }
+        setReplayPickingStart(false);
+        return;
+      }
+
       // Without this, a real mouse drag over the canvas also kicks off the
       // browser's native text-selection drag (nothing on the chart itself is
       // selectable, but the gesture still highlights surrounding page text
@@ -1181,6 +1290,7 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         if (confirmDeleteOpenRef.current) { setConfirmDeleteOpen(false); return; }
+        if (replayPickingStartRef.current) { setReplayPickingStart(false); return; }
         if (isFullscreenRef.current) { setIsFullscreen(false); return; }
         cancelActive();
         return;
@@ -1245,6 +1355,7 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
       chartApiRef.current = null;
       candleSeriesRef.current = null;
       volumeSeriesRef.current = null;
+      markersApiRef.current = null;
       chart.remove();
     };
     // `market` (not just `source`) is a dependency because switching
@@ -1272,6 +1383,21 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
   const handleToolClick = (t: DrawTool) => {
     cancelActiveRef.current?.();
     setTool(prev => (prev === t ? 'none' : t));
+  };
+
+  const startReplayPicking = () => {
+    cancelActiveRef.current?.();
+    setTool('none');
+    setReplayPickingStart(true);
+  };
+  const exitReplay = () => {
+    setReplayActive(false);
+    setReplayIndex(null);
+    setReplayPlaying(false);
+    setReplayPickingStart(false);
+  };
+  const stepReplay = (delta: number) => {
+    setReplayIndex(i => (i === null ? i : Math.max(0, Math.min(bars.length - 1, i + delta))));
   };
 
   const handleCopyImage = () => {
@@ -1567,6 +1693,15 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
           </button>
           <div className="w-px h-4 bg-border mx-0.5" />
           <button
+            onClick={() => (replayActive || replayPickingStart ? exitReplay() : startReplayPicking())}
+            title={replayActive || replayPickingStart ? 'Exit replay' : 'Bar replay'}
+            aria-label={replayActive || replayPickingStart ? 'Exit replay' : 'Bar replay'}
+            className={cn("p-1.5 rounded-lg transition-colors", (replayPickingStart || replayActive) ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground")}
+          >
+            <History className="w-3.5 h-3.5" />
+          </button>
+          <div className="w-px h-4 bg-border mx-0.5" />
+          <button
             onClick={openChartSettings}
             title="Chart settings"
             aria-label="Chart settings"
@@ -1640,6 +1775,61 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
               }}
               onBlur={(e) => commitTextRef.current?.(e.target.value)}
             />
+          )}
+          {replayActive && (
+            <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-border bg-popover shadow-2xl">
+              <button
+                onClick={exitReplay}
+                title="Exit replay"
+                aria-label="Exit replay"
+                className="p-1.5 rounded-lg text-muted-foreground hover:bg-accent hover:text-rose-500 transition-colors"
+              >
+                <XIcon className="w-3.5 h-3.5" />
+              </button>
+              <div className="w-px h-4 bg-border mx-0.5" />
+              <button
+                onClick={() => stepReplay(-1)}
+                disabled={replayIndex === 0}
+                title="Step back"
+                aria-label="Step back"
+                className="p-1.5 rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground transition-colors disabled:opacity-30"
+              >
+                <SkipBack className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={() => setReplayPlaying(p => !p)}
+                disabled={!replayPlaying && replayIndex !== null && replayIndex >= bars.length - 1}
+                title={replayPlaying ? 'Pause' : 'Play'}
+                aria-label={replayPlaying ? 'Pause' : 'Play'}
+                className="p-1.5 rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground transition-colors disabled:opacity-30"
+              >
+                {replayPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+              </button>
+              <button
+                onClick={() => stepReplay(1)}
+                disabled={replayIndex !== null && replayIndex >= bars.length - 1}
+                title="Step forward"
+                aria-label="Step forward"
+                className="p-1.5 rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground transition-colors disabled:opacity-30"
+              >
+                <SkipForward className="w-3.5 h-3.5" />
+              </button>
+              <div className="w-px h-4 bg-border mx-0.5" />
+              <select
+                value={replaySpeedMs}
+                onChange={e => setReplaySpeedMs(Number(e.target.value))}
+                title="Playback speed"
+                className="h-7 rounded-lg border border-border bg-background px-1.5 text-xs"
+              >
+                <option value={1200}>0.5x</option>
+                <option value={600}>1x</option>
+                <option value={300}>2x</option>
+                <option value={120}>4x</option>
+              </select>
+              <span className="text-[11px] font-mono text-muted-foreground px-1 tabular-nums">
+                {replayIndex !== null ? replayIndex + 1 : 0}/{bars.length}
+              </span>
+            </div>
           )}
         </div>
       )}
