@@ -1218,7 +1218,10 @@ class PositionPaneRenderer implements IPrimitivePaneRenderer {
 
   draw(target: CanvasRenderingTarget2D): void {
     target.useBitmapCoordinateSpace(scope => {
-      const { p1Coord: p1, p2Coord: p2, targetCoordY, stopCoordY, targetOffset, stopOffset, selected, quantity, targetAmount, stopAmount, riskRewardRatio } = this._source;
+      const {
+        p1Coord: p1, p2Coord: p2, targetCoordY, stopCoordY, targetOffset, stopOffset, selected,
+        quantity, targetAmount, stopAmount, riskRewardRatio, targetColor, stopColor, showPriceLabels, qtyPrecision,
+      } = this._source;
       if (p1.x === null || p1.y === null || p2.x === null || targetCoordY === null || stopCoordY === null) return;
       const ctx = scope.context;
       const hr = scope.horizontalPixelRatio;
@@ -1230,9 +1233,9 @@ class PositionPaneRenderer implements IPrimitivePaneRenderer {
       const stopY = stopCoordY * vr;
       ctx.save();
       ctx.globalAlpha = 0.25;
-      ctx.fillStyle = '#22c55e';
+      ctx.fillStyle = targetColor;
       ctx.fillRect(left, Math.min(entryY, targetY), right - left, Math.abs(targetY - entryY));
-      ctx.fillStyle = '#ef4444';
+      ctx.fillStyle = stopColor;
       ctx.fillRect(left, Math.min(entryY, stopY), right - left, Math.abs(stopY - entryY));
       ctx.globalAlpha = 1;
 
@@ -1240,8 +1243,8 @@ class PositionPaneRenderer implements IPrimitivePaneRenderer {
       // along them (see hitHandle in TradeCandleChart.tsx) — square handles
       // at both ends make that discoverable, matching TradingView's own
       // Long/Short Position box rather than a single easy-to-miss center grip.
-      strokeLine(ctx, left, targetY, right, targetY, '#22c55e', 'solid', hr, 1.5);
-      strokeLine(ctx, left, stopY, right, stopY, '#ef4444', 'solid', hr, 1.5);
+      strokeLine(ctx, left, targetY, right, targetY, targetColor, 'solid', hr, 1.5);
+      strokeLine(ctx, left, stopY, right, stopY, stopColor, 'solid', hr, 1.5);
       ctx.strokeStyle = '#e2e8f0';
       ctx.lineWidth = 1.5;
       ctx.setLineDash([4 * hr, 3 * hr]);
@@ -1251,31 +1254,34 @@ class PositionPaneRenderer implements IPrimitivePaneRenderer {
       ctx.stroke();
       ctx.setLineDash([]);
 
-      const entryPrice = this._source.p1.price;
-      const pctTarget = entryPrice !== 0 ? (targetOffset / entryPrice) * 100 : 0;
-      const pctStop = entryPrice !== 0 ? (stopOffset / entryPrice) * 100 : 0;
-      ctx.font = `700 ${11 * vr}px sans-serif`;
-      ctx.textBaseline = 'middle';
-      ctx.fillStyle = '#22c55e';
-      ctx.fillText(
-        `+${targetOffset.toFixed(2)} (${pctTarget.toFixed(2)}%)  $${targetAmount.toFixed(2)}`,
-        left + 6 * hr, Math.min(entryY, targetY) + Math.abs(targetY - entryY) / 2
-      );
-      ctx.fillStyle = '#ef4444';
-      ctx.fillText(
-        `-${stopOffset.toFixed(2)} (${pctStop.toFixed(2)}%)  $${stopAmount.toFixed(2)}`,
-        left + 6 * hr, Math.min(entryY, stopY) + Math.abs(stopY - entryY) / 2
-      );
-      ctx.fillStyle = '#e2e8f0';
-      ctx.fillText(`Qty ${quantity.toFixed(3)}  ·  R:R ${riskRewardRatio.toFixed(2)}`, left + 6 * hr, entryY - 12 * vr);
+      if (showPriceLabels) {
+        const entryPrice = this._source.p1.price;
+        const pctTarget = entryPrice !== 0 ? (targetOffset / entryPrice) * 100 : 0;
+        const pctStop = entryPrice !== 0 ? (stopOffset / entryPrice) * 100 : 0;
+        const qtyStr = quantity.toFixed(qtyPrecision ?? 3);
+        ctx.font = `700 ${11 * vr}px sans-serif`;
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = targetColor;
+        ctx.fillText(
+          `+${targetOffset.toFixed(2)} (${pctTarget.toFixed(2)}%)  $${targetAmount.toFixed(2)}`,
+          left + 6 * hr, Math.min(entryY, targetY) + Math.abs(targetY - entryY) / 2
+        );
+        ctx.fillStyle = stopColor;
+        ctx.fillText(
+          `-${stopOffset.toFixed(2)} (${pctStop.toFixed(2)}%)  $${stopAmount.toFixed(2)}`,
+          left + 6 * hr, Math.min(entryY, stopY) + Math.abs(stopY - entryY) / 2
+        );
+        ctx.fillStyle = '#e2e8f0';
+        ctx.fillText(`Qty ${qtyStr}  ·  R:R ${riskRewardRatio.toFixed(2)}`, left + 6 * hr, entryY - 12 * vr);
+      }
 
       if (selected) {
         drawHandle(ctx, p1.x, p1.y, '#e2e8f0', hr, vr);
         drawHandle(ctx, p2.x, p2.y, '#e2e8f0', hr, vr);
-        drawHandle(ctx, p1.x, targetCoordY, '#22c55e', hr, vr);
-        drawHandle(ctx, p2.x, targetCoordY, '#22c55e', hr, vr);
-        drawHandle(ctx, p1.x, stopCoordY, '#ef4444', hr, vr);
-        drawHandle(ctx, p2.x, stopCoordY, '#ef4444', hr, vr);
+        drawHandle(ctx, p1.x, targetCoordY, targetColor, hr, vr);
+        drawHandle(ctx, p2.x, targetCoordY, targetColor, hr, vr);
+        drawHandle(ctx, p1.x, stopCoordY, stopColor, hr, vr);
+        drawHandle(ctx, p2.x, stopCoordY, stopColor, hr, vr);
       }
       ctx.restore();
     });
@@ -1305,6 +1311,14 @@ export class PositionPrimitive extends TwoPointPrimitive {
   riskValue: number; // interpreted per riskMode: a percent of accountSize, or a flat USD amount
   pointValue: number; // USD value of a 1-price-unit move for 1 unit of quantity (e.g. $2/point for MNQ)
   leverage: number; // used only for the margin-required readout
+  lotSize: number; // multiplies the risk-derived quantity, default 1
+
+  // Display-only options — don't affect the sizing math, just how the box
+  // is drawn.
+  qtyPrecision: number | undefined; // decimal places for the displayed Quantity, undefined = default (3)
+  targetColor: string;
+  stopColor: string;
+  showPriceLabels: boolean;
 
   constructor(
     id: string,
@@ -1315,7 +1329,8 @@ export class PositionPrimitive extends TwoPointPrimitive {
     stopOffset = 0,
     color = '#5a7d9f',
     style?: DrawingStylePatch,
-    sizing?: { accountSize: number; riskMode: RiskMode; riskValue: number; pointValue: number; leverage: number },
+    sizing?: { accountSize: number; riskMode: RiskMode; riskValue: number; pointValue: number; leverage: number; lotSize?: number },
+    display?: { targetColor?: string; stopColor?: string; showPriceLabels?: boolean; qtyPrecision?: number },
   ) {
     super(id, p1, p2, color, style);
     this.direction = direction;
@@ -1326,6 +1341,11 @@ export class PositionPrimitive extends TwoPointPrimitive {
     this.riskValue = sizing?.riskValue ?? 100;
     this.pointValue = sizing?.pointValue ?? 1;
     this.leverage = sizing?.leverage ?? 1;
+    this.lotSize = sizing?.lotSize ?? 1;
+    this.targetColor = display?.targetColor ?? '#22c55e';
+    this.stopColor = display?.stopColor ?? '#ef4444';
+    this.showPriceLabels = display?.showPriceLabels ?? true;
+    this.qtyPrecision = display?.qtyPrecision;
     this._paneViews = [new PositionPaneView(this)];
   }
 
@@ -1333,7 +1353,7 @@ export class PositionPrimitive extends TwoPointPrimitive {
     return this.riskMode === '%' ? this.accountSize * (this.riskValue / 100) : this.riskValue;
   }
   get quantity(): number {
-    return this.stopOffset > 0 && this.pointValue > 0 ? this.riskAmount / (this.stopOffset * this.pointValue) : 0;
+    return this.stopOffset > 0 && this.pointValue > 0 ? (this.riskAmount / (this.stopOffset * this.pointValue)) * this.lotSize : 0;
   }
   get targetAmount(): number {
     return this.quantity * this.targetOffset * this.pointValue;
@@ -1373,12 +1393,21 @@ export class PositionPrimitive extends TwoPointPrimitive {
     this._requestUpdate?.();
   }
 
-  setSizing(accountSize: number, riskMode: RiskMode, riskValue: number, pointValue: number, leverage: number): void {
+  setSizing(accountSize: number, riskMode: RiskMode, riskValue: number, pointValue: number, leverage: number, lotSize: number): void {
     this.accountSize = Math.max(0, accountSize);
     this.riskMode = riskMode;
     this.riskValue = Math.max(0, riskValue);
     this.pointValue = Math.max(0, pointValue);
     this.leverage = Math.max(0, leverage);
+    this.lotSize = Math.max(0, lotSize);
+    this._requestUpdate?.();
+  }
+
+  setDisplayOptions(targetColor: string, stopColor: string, showPriceLabels: boolean, qtyPrecision: number | undefined): void {
+    this.targetColor = targetColor;
+    this.stopColor = stopColor;
+    this.showPriceLabels = showPriceLabels;
+    this.qtyPrecision = qtyPrecision;
     this._requestUpdate?.();
   }
 

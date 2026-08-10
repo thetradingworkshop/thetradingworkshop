@@ -313,11 +313,22 @@ export interface ChartDrawing {
   riskValue?: number;
   pointValue?: number; // USD per 1 price-unit move, per unit of quantity
   leverage?: number;
+  lotSize?: number; // multiplies the risk-derived quantity, default 1
+  qtyPrecision?: number; // decimal places for the displayed Quantity, undefined = default (3)
+  targetColor?: string; // defaults to green; independent of the entry line's `color`
+  stopColor?: string; // defaults to red; independent of the entry line's `color`
+  showPriceLabels?: boolean; // the offset/%/$ and Qty·R:R text overlays; box/lines/handles always show
 }
 
-// Just the visual-appearance subset of ChartDrawing — no coordinates, no
-// position risk/reward numbers (a saved "50pt stop" template wouldn't mean
-// the same thing on a different symbol's price scale). This is what gets
+// Just the visual-appearance subset of ChartDrawing — no coordinates. Also
+// excludes position risk/reward *offsets* (targetOffset/stopOffset) since a
+// saved "50pt stop" wouldn't mean the same thing on a different symbol's
+// price scale — but does include the position-sizing *inputs*
+// (accountSize/riskMode/riskValue/pointValue/leverage/lotSize/qtyPrecision)
+// deliberately, since a trader's risk profile ("1% risk, 10x leverage, $2/pt
+// MNQ") is exactly the kind of thing worth saving and reapplying across
+// trades — mirrors TradingView's own Position tool template, which bundles
+// its Inputs and Style tabs into one reusable template. This is what gets
 // saved as a reusable drawing-tool template and what a brand-new drawing of
 // that type starts from.
 export interface DrawingTemplateStyle {
@@ -331,6 +342,17 @@ export interface DrawingTemplateStyle {
   backgroundVisible?: boolean;
   backgroundColor?: string;
   backgroundOpacity?: number;
+  // type 'position' only — see ChartDrawing's matching fields.
+  accountSize?: number;
+  riskMode?: '%' | 'usd';
+  riskValue?: number;
+  pointValue?: number;
+  leverage?: number;
+  lotSize?: number;
+  qtyPrecision?: number;
+  targetColor?: string;
+  stopColor?: string;
+  showPriceLabels?: boolean;
 }
 
 // A named, saved style for one drawing tool, global to the user's account

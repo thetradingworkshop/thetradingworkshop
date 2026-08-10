@@ -67,6 +67,11 @@ interface DrawingProps {
   riskValue: number | null; // position only
   pointValue: number | null; // position only
   leverage: number | null; // position only
+  lotSize: number | null; // position only
+  qtyPrecision: number | null; // position only, null = default
+  targetColor: string | null; // position only
+  stopColor: string | null; // position only
+  showPriceLabels: boolean | null; // position only
   levels: ChannelLevel[] | null; // channel only
   backgroundVisible: boolean | null; // channel only
   backgroundColor: string | null; // channel only
@@ -104,6 +109,18 @@ function hardcodedDefaultStyle(type: ChartDrawing['type']): DrawingTemplateStyle
   };
   if (type === 'channel') return { ...base, levels: defaultChannelLevels(DEFAULT_DRAWING_COLOR), backgroundVisible: true, backgroundColor: DEFAULT_DRAWING_COLOR, backgroundOpacity: 0.12 };
   if (type === 'fib') return { ...base, levels: defaultFibLevels(DEFAULT_DRAWING_COLOR), backgroundVisible: true, backgroundColor: DEFAULT_DRAWING_COLOR, backgroundOpacity: 0.1 };
+  if (type === 'position') return {
+    ...base,
+    targetColor: '#22c55e',
+    stopColor: '#ef4444',
+    showPriceLabels: true,
+    accountSize: 10000,
+    riskMode: 'usd',
+    riskValue: 100,
+    pointValue: 1,
+    leverage: 1,
+    lotSize: 1,
+  };
   return base;
 }
 
@@ -349,7 +366,13 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
   const getSelectedPropsRef = useRef<(() => DrawingProps | null) | null>(null);
   const applyStyleRef = useRef<((patch: DrawingStylePatch) => void) | null>(null);
   const applyCoordinatesRef = useRef<((p1: { time: number; price: number }, p2: { time: number; price: number } | null, offset: number | null) => void) | null>(null);
-  const applyPositionRef = useRef<((direction: 'long' | 'short', targetOffset: number, stopOffset: number, sizing: { accountSize: number; riskMode: RiskMode; riskValue: number; pointValue: number; leverage: number }) => void) | null>(null);
+  const applyPositionRef = useRef<((
+    direction: 'long' | 'short',
+    targetOffset: number,
+    stopOffset: number,
+    sizing: { accountSize: number; riskMode: RiskMode; riskValue: number; pointValue: number; leverage: number; lotSize: number },
+    display: { targetColor: string; stopColor: string; showPriceLabels: boolean; qtyPrecision: number | undefined },
+  ) => void) | null>(null);
   const applyChannelLevelsRef = useRef<((levels: ChannelLevel[], background: { visible: boolean; color: string; opacity: number }) => void) | null>(null);
   const commitPropertiesRef = useRef<(() => void) | null>(null);
   const [propertiesOpen, setPropertiesOpen] = useState(false);
@@ -666,7 +689,10 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
         case 'timerange': prim = new TimeRangePrimitive(d.id, p1, p2, color, { ...style, label: d.text ?? '' }); break;
         case 'hline': prim = new HorizontalLinePrimitive(d.id, d.price1, color, { ...style, label: d.text ?? '' }); break;
         case 'vline': prim = new VerticalLinePrimitive(d.id, d.time1 as UTCTimestamp, color, { ...style, label: d.text ?? '' }); break;
-        case 'position': prim = new PositionPrimitive(d.id, p1, p2, d.direction ?? 'long', d.targetOffset ?? 0, d.stopOffset ?? 0, color, { ...style, label: d.text ?? '' }, { accountSize: d.accountSize ?? 10000, riskMode: d.riskMode ?? 'usd', riskValue: d.riskValue ?? 100, pointValue: d.pointValue ?? 1, leverage: d.leverage ?? 1 }); break;
+        case 'position': prim = new PositionPrimitive(d.id, p1, p2, d.direction ?? 'long', d.targetOffset ?? 0, d.stopOffset ?? 0, color, { ...style, label: d.text ?? '' },
+          { accountSize: d.accountSize ?? 10000, riskMode: d.riskMode ?? 'usd', riskValue: d.riskValue ?? 100, pointValue: d.pointValue ?? 1, leverage: d.leverage ?? 1, lotSize: d.lotSize ?? 1 },
+          { targetColor: d.targetColor ?? '#22c55e', stopColor: d.stopColor ?? '#ef4444', showPriceLabels: d.showPriceLabels ?? true, qtyPrecision: d.qtyPrecision },
+        ); break;
         default: prim = new TrendLinePrimitive(d.id, p1, p2, color, { ...style, label: d.text ?? '' }); break;
       }
       candleSeries.attachPrimitive(prim);
@@ -685,7 +711,18 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
           return withLabel({ id: prim.id, type: 'channel', time1: prim.p1.time as unknown as number, price1: prim.p1.price, time2: prim.p2.time as unknown as number, price2: prim.p2.price, offset: prim.offset, color: prim.color, lineStyle: prim.lineStyle, extend: prim.extend, labelColor: prim.labelColor, labelSize: prim.labelSize, labelBold: prim.labelBold, levels: prim.levels, backgroundVisible: prim.backgroundVisible, backgroundColor: prim.backgroundColor, backgroundOpacity: prim.backgroundOpacity }, prim.label);
         }
         if (prim instanceof PositionPrimitive) {
-          return withLabel({ id: prim.id, type: 'position', time1: prim.p1.time as unknown as number, price1: prim.p1.price, time2: prim.p2.time as unknown as number, price2: prim.p2.price, color: prim.color, direction: prim.direction, targetOffset: prim.targetOffset, stopOffset: prim.stopOffset, accountSize: prim.accountSize, riskMode: prim.riskMode, riskValue: prim.riskValue, pointValue: prim.pointValue, leverage: prim.leverage, labelColor: prim.labelColor, labelSize: prim.labelSize, labelBold: prim.labelBold }, prim.label);
+          // qtyPrecision is the one position field that's legitimately
+          // undefined in the common case ("Default") — Firestore rejects a
+          // literal `undefined` anywhere in a write, so it's spread in only
+          // when actually set, same idiom as withLabel's `text` above.
+          return withLabel({
+            id: prim.id, type: 'position', time1: prim.p1.time as unknown as number, price1: prim.p1.price, time2: prim.p2.time as unknown as number, price2: prim.p2.price,
+            color: prim.color, direction: prim.direction, targetOffset: prim.targetOffset, stopOffset: prim.stopOffset,
+            accountSize: prim.accountSize, riskMode: prim.riskMode, riskValue: prim.riskValue, pointValue: prim.pointValue, leverage: prim.leverage, lotSize: prim.lotSize,
+            targetColor: prim.targetColor, stopColor: prim.stopColor, showPriceLabels: prim.showPriceLabels,
+            labelColor: prim.labelColor, labelSize: prim.labelSize, labelBold: prim.labelBold,
+            ...(prim.qtyPrecision !== undefined ? { qtyPrecision: prim.qtyPrecision } : {}),
+          }, prim.label);
         }
         if (prim instanceof RectanglePrimitive) {
           return withLabel({ id: prim.id, type: 'box', time1: prim.p1.time as unknown as number, price1: prim.p1.price, time2: prim.p2.time as unknown as number, price2: prim.p2.price, color: prim.color, lineStyle: prim.lineStyle, extend: prim.extend, labelColor: prim.labelColor, labelSize: prim.labelSize, labelBold: prim.labelBold }, prim.label);
@@ -872,6 +909,11 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
           riskValue: null,
           pointValue: null,
           leverage: null,
+          lotSize: null,
+          qtyPrecision: null,
+          targetColor: null,
+          stopColor: null,
+          showPriceLabels: null,
           levels: null,
           backgroundVisible: null,
           backgroundColor: null,
@@ -899,6 +941,11 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
           riskValue: null,
           pointValue: null,
           leverage: null,
+          lotSize: null,
+          qtyPrecision: null,
+          targetColor: null,
+          stopColor: null,
+          showPriceLabels: null,
           levels: null,
           backgroundVisible: null,
           backgroundColor: null,
@@ -926,6 +973,11 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
           riskValue: null,
           pointValue: null,
           leverage: null,
+          lotSize: null,
+          qtyPrecision: null,
+          targetColor: null,
+          stopColor: null,
+          showPriceLabels: null,
           levels: null,
           backgroundVisible: null,
           backgroundColor: null,
@@ -961,6 +1013,11 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
         riskValue: prim instanceof PositionPrimitive ? prim.riskValue : null,
         pointValue: prim instanceof PositionPrimitive ? prim.pointValue : null,
         leverage: prim instanceof PositionPrimitive ? prim.leverage : null,
+        lotSize: prim instanceof PositionPrimitive ? prim.lotSize : null,
+        qtyPrecision: prim instanceof PositionPrimitive ? prim.qtyPrecision ?? null : null,
+        targetColor: prim instanceof PositionPrimitive ? prim.targetColor : null,
+        stopColor: prim instanceof PositionPrimitive ? prim.stopColor : null,
+        showPriceLabels: prim instanceof PositionPrimitive ? prim.showPriceLabels : null,
         levels: prim instanceof PriceChannelPrimitive ? prim.levels : prim instanceof FibRetracementPrimitive ? prim.levels : null,
         backgroundVisible: prim instanceof PriceChannelPrimitive ? prim.backgroundVisible : prim instanceof FibRetracementPrimitive ? prim.backgroundVisible : null,
         backgroundColor: prim instanceof PriceChannelPrimitive ? prim.backgroundColor : prim instanceof FibRetracementPrimitive ? prim.backgroundColor : null,
@@ -999,14 +1056,15 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
         if (prim instanceof PriceChannelPrimitive && offset !== null) prim.setOffset(offset);
       }
     };
-    applyPositionRef.current = (direction, targetOffset, stopOffset, sizing) => {
+    applyPositionRef.current = (direction, targetOffset, stopOffset, sizing, display) => {
       if (!activeSelection) return;
       const prim = primitives.get(activeSelection);
       if (!(prim instanceof PositionPrimitive)) return;
       prim.direction = direction;
       prim.setTargetOffset(targetOffset);
       prim.setStopOffset(stopOffset);
-      prim.setSizing(sizing.accountSize, sizing.riskMode, sizing.riskValue, sizing.pointValue, sizing.leverage);
+      prim.setSizing(sizing.accountSize, sizing.riskMode, sizing.riskValue, sizing.pointValue, sizing.leverage, sizing.lotSize);
+      prim.setDisplayOptions(display.targetColor, display.stopColor, display.showPriceLabels, display.qtyPrecision);
     };
     applyChannelLevelsRef.current = (levels, background) => {
       if (!activeSelection) return;
@@ -1104,6 +1162,18 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
       const s = newDrawingStyle(type);
       if (s.backgroundVisible === undefined) return undefined;
       return { visible: s.backgroundVisible, color: s.backgroundColor ?? newDrawingColor(type), opacity: s.backgroundOpacity ?? (type === 'channel' ? 0.12 : 0.1) };
+    };
+    // A brand-new position also starts from the user's saved risk template
+    // (account size / risk / leverage / lot size), not just its color —
+    // same "saved default, falling back to hardcoded" pattern as every
+    // other type's style.
+    const newDrawingSizing = () => {
+      const s = newDrawingStyle('position');
+      return { accountSize: s.accountSize ?? 10000, riskMode: s.riskMode ?? 'usd', riskValue: s.riskValue ?? 100, pointValue: s.pointValue ?? 1, leverage: s.leverage ?? 1, lotSize: s.lotSize ?? 1 };
+    };
+    const newDrawingDisplay = () => {
+      const s = newDrawingStyle('position');
+      return { targetColor: s.targetColor ?? '#22c55e', stopColor: s.stopColor ?? '#ef4444', showPriceLabels: s.showPriceLabels ?? true, qtyPrecision: s.qtyPrecision };
     };
 
     commitTextRef.current = (text: string) => {
@@ -1243,7 +1313,7 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
       // line — the third click (handled via pendingPosition, once this drag
       // finishes in handleMouseUp) sets the stop-loss level.
       if (toolRef.current === 'long' || toolRef.current === 'short') {
-        const prim = new PositionPrimitive(id, point, point, toolRef.current, 0, 0, newDrawingColor('position'), newDrawingPatch('position'));
+        const prim = new PositionPrimitive(id, point, point, toolRef.current, 0, 0, newDrawingColor('position'), newDrawingPatch('position'), newDrawingSizing(), newDrawingDisplay());
         candleSeries.attachPrimitive(prim);
         primitives.set(id, prim);
         dragState = { primitive: prim, startX: x, startY: y };
@@ -1592,6 +1662,12 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
         riskValue: propForm.riskValue ?? 100,
         pointValue: propForm.pointValue ?? 1,
         leverage: propForm.leverage ?? 1,
+        lotSize: propForm.lotSize ?? 1,
+      }, {
+        targetColor: propForm.targetColor ?? '#22c55e',
+        stopColor: propForm.stopColor ?? '#ef4444',
+        showPriceLabels: propForm.showPriceLabels ?? true,
+        qtyPrecision: propForm.qtyPrecision ?? undefined,
       });
     }
     if ((propForm.type === 'channel' || propForm.type === 'fib') && propForm.levels) {
@@ -1617,8 +1693,11 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
 
   // Just the appearance fields of the open form — what gets saved as a
   // template and what's compared against when deciding a new drawing's
-  // starting look. Deliberately excludes coordinates/label text/position
-  // risk-reward numbers.
+  // starting look. Deliberately excludes coordinates/label text/the
+  // position's own target-stop *offsets* (a saved "50pt stop" wouldn't mean
+  // the same thing on a different symbol) — but for type 'position' does
+  // include the risk-sizing inputs and target/stop colors, since a risk
+  // profile ("1% risk, 10x leverage") is exactly what's worth saving.
   const extractStyleFromForm = (form: DrawingProps): DrawingTemplateStyle => ({
     color: form.color,
     lineStyle: form.lineStyle,
@@ -1630,6 +1709,19 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
     ...(form.backgroundVisible !== null ? { backgroundVisible: form.backgroundVisible } : {}),
     ...(form.backgroundColor !== null ? { backgroundColor: form.backgroundColor } : {}),
     ...(form.backgroundOpacity !== null ? { backgroundOpacity: form.backgroundOpacity } : {}),
+    // Firestore rejects a literal `undefined` anywhere in a write payload —
+    // each field below is omitted entirely (not set to undefined) when the
+    // form doesn't have a value for it, same as the background fields above.
+    ...(form.type === 'position' && form.accountSize !== null ? { accountSize: form.accountSize } : {}),
+    ...(form.type === 'position' && form.riskMode !== null ? { riskMode: form.riskMode } : {}),
+    ...(form.type === 'position' && form.riskValue !== null ? { riskValue: form.riskValue } : {}),
+    ...(form.type === 'position' && form.pointValue !== null ? { pointValue: form.pointValue } : {}),
+    ...(form.type === 'position' && form.leverage !== null ? { leverage: form.leverage } : {}),
+    ...(form.type === 'position' && form.lotSize !== null ? { lotSize: form.lotSize } : {}),
+    ...(form.type === 'position' && form.qtyPrecision !== null ? { qtyPrecision: form.qtyPrecision } : {}),
+    ...(form.type === 'position' && form.targetColor !== null ? { targetColor: form.targetColor } : {}),
+    ...(form.type === 'position' && form.stopColor !== null ? { stopColor: form.stopColor } : {}),
+    ...(form.type === 'position' && form.showPriceLabels !== null ? { showPriceLabels: form.showPriceLabels } : {}),
   });
   const applyStyleToForm = (style: DrawingTemplateStyle) => {
     setPropForm(prev => prev ? {
@@ -1644,6 +1736,18 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
       backgroundVisible: style.backgroundVisible ?? prev.backgroundVisible,
       backgroundColor: style.backgroundColor ?? prev.backgroundColor,
       backgroundOpacity: style.backgroundOpacity ?? prev.backgroundOpacity,
+      ...(prev.type === 'position' ? {
+        accountSize: style.accountSize ?? prev.accountSize,
+        riskMode: style.riskMode ?? prev.riskMode,
+        riskValue: style.riskValue ?? prev.riskValue,
+        pointValue: style.pointValue ?? prev.pointValue,
+        leverage: style.leverage ?? prev.leverage,
+        lotSize: style.lotSize ?? prev.lotSize,
+        qtyPrecision: style.qtyPrecision ?? prev.qtyPrecision,
+        targetColor: style.targetColor ?? prev.targetColor,
+        stopColor: style.stopColor ?? prev.stopColor,
+        showPriceLabels: style.showPriceLabels ?? prev.showPriceLabels,
+      } : {}),
     } : prev);
   };
   const handleApplyDefaults = () => {
@@ -2174,7 +2278,9 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
             {propTab === 'style' && propForm.type !== 'channel' && propForm.type !== 'fib' && (
               <div className="space-y-4">
                 <div>
-                  <label className="block text-xs font-bold text-muted-foreground mb-1.5">Color</label>
+                  <label className="block text-xs font-bold text-muted-foreground mb-1.5">
+                    {propForm.type === 'position' ? 'Entry line' : 'Color'}
+                  </label>
                   <div className="flex items-center gap-2">
                     <input
                       type="color"
@@ -2189,6 +2295,53 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
                     />
                   </div>
                 </div>
+                {propForm.type === 'position' && (
+                  <>
+                    <div className="flex items-center gap-4">
+                      <div className="flex-1">
+                        <label className="block text-xs font-bold text-emerald-500 mb-1.5">Target color</label>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="color"
+                            value={propForm.targetColor ?? '#22c55e'}
+                            onChange={e => patchProp('targetColor', e.target.value)}
+                            className="h-9 w-12 rounded-lg border border-border bg-background cursor-pointer"
+                          />
+                          <Input
+                            value={propForm.targetColor ?? '#22c55e'}
+                            onChange={e => patchProp('targetColor', e.target.value)}
+                            className="h-9 flex-1 font-mono text-xs"
+                          />
+                        </div>
+                      </div>
+                      <div className="flex-1">
+                        <label className="block text-xs font-bold text-rose-500 mb-1.5">Stop color</label>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="color"
+                            value={propForm.stopColor ?? '#ef4444'}
+                            onChange={e => patchProp('stopColor', e.target.value)}
+                            className="h-9 w-12 rounded-lg border border-border bg-background cursor-pointer"
+                          />
+                          <Input
+                            value={propForm.stopColor ?? '#ef4444'}
+                            onChange={e => patchProp('stopColor', e.target.value)}
+                            className="h-9 flex-1 font-mono text-xs"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={propForm.showPriceLabels ?? true}
+                        onChange={e => patchProp('showPriceLabels', e.target.checked)}
+                        className="rounded border-border"
+                      />
+                      Price labels
+                    </label>
+                  </>
+                )}
                 {propForm.type !== 'text' && propForm.type !== 'position' && (
                   <div>
                     <label className="block text-xs font-bold text-muted-foreground mb-1.5">Line style</label>
@@ -2342,10 +2495,12 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
                   const riskValue = propForm.riskValue ?? 100;
                   const pointValue = propForm.pointValue ?? 1;
                   const leverage = propForm.leverage ?? 1;
+                  const lotSize = propForm.lotSize ?? 1;
+                  const qtyPrecision = propForm.qtyPrecision ?? null;
                   const targetOffset = propForm.targetOffset ?? 0;
                   const stopOffset = propForm.stopOffset ?? 0;
                   const riskAmount = riskMode === '%' ? accountSize * (riskValue / 100) : riskValue;
-                  const quantity = stopOffset > 0 && pointValue > 0 ? riskAmount / (stopOffset * pointValue) : 0;
+                  const quantity = stopOffset > 0 && pointValue > 0 ? (riskAmount / (stopOffset * pointValue)) * lotSize : 0;
                   const targetAmount = quantity * targetOffset * pointValue;
                   const stopAmount = quantity * stopOffset * pointValue;
                   const positionValue = quantity * propForm.p1.price * pointValue;
@@ -2433,26 +2588,52 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
                               </select>
                             </div>
                           </div>
-                          <div>
-                            <label className="block text-xs font-bold text-muted-foreground mb-1.5">
-                              Point value <span className="font-normal normal-case text-muted-foreground/70">(USD per 1.00 price move, per unit)</span>
-                            </label>
-                            <div className="flex items-center gap-2">
-                              <span className="text-xs text-muted-foreground">$</span>
+                          <div className="flex items-center gap-4">
+                            <div className="flex-1">
+                              <label className="block text-xs font-bold text-muted-foreground mb-1.5">
+                                Point value <span className="font-normal normal-case text-muted-foreground/70">(USD per 1.00 price move, per unit)</span>
+                              </label>
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs text-muted-foreground">$</span>
+                                <Input
+                                  type="number"
+                                  value={pointValue}
+                                  onChange={e => patchProp('pointValue', Number(e.target.value))}
+                                  className="h-9"
+                                />
+                              </div>
+                            </div>
+                            <div className="w-24">
+                              <label className="block text-xs font-bold text-muted-foreground mb-1.5">Lot size</label>
                               <Input
                                 type="number"
-                                value={pointValue}
-                                onChange={e => patchProp('pointValue', Number(e.target.value))}
+                                value={lotSize}
+                                onChange={e => patchProp('lotSize', Number(e.target.value))}
                                 className="h-9"
                               />
                             </div>
+                          </div>
+                          <div>
+                            <label className="block text-xs font-bold text-muted-foreground mb-1.5">Qty precision</label>
+                            <select
+                              value={qtyPrecision ?? 'default'}
+                              onChange={e => patchProp('qtyPrecision', e.target.value === 'default' ? null : Number(e.target.value))}
+                              className="w-full h-9 rounded-lg border border-border bg-background px-3 text-sm"
+                            >
+                              <option value="default">Default (3)</option>
+                              <option value={0}>0</option>
+                              <option value={1}>1</option>
+                              <option value={2}>2</option>
+                              <option value={3}>3</option>
+                              <option value={4}>4</option>
+                            </select>
                           </div>
                         </div>
                       </div>
 
                       <div className="pt-2 border-t border-border/40 grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
                         <div className="text-muted-foreground">Quantity</div>
-                        <div className="text-right font-mono font-bold">{quantity.toFixed(3)}</div>
+                        <div className="text-right font-mono font-bold">{quantity.toFixed(qtyPrecision ?? 3)}</div>
                         <div className="text-muted-foreground">Target amount</div>
                         <div className="text-right font-mono font-bold text-emerald-500">${targetAmount.toFixed(2)}</div>
                         <div className="text-muted-foreground">Stop amount (risk)</div>
