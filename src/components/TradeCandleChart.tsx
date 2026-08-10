@@ -4,6 +4,7 @@ import {
   createSeriesMarkers,
   CandlestickSeries,
   HistogramSeries,
+  CrosshairMode,
   IChartApi,
   ISeriesApi,
   UTCTimestamp,
@@ -636,6 +637,10 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
       rightPriceScale: { borderColor: 'rgba(148,163,184,0.2)' },
       timeScale: { borderColor: 'rgba(148,163,184,0.2)', timeVisible: true },
       autoSize: true,
+      // Default is Magnet — it snaps to the nearest candle's data point
+      // instead of tracking the actual pointer position, which reads as
+      // "jumping from close to close" rather than a smooth crosshair.
+      crosshair: { mode: CrosshairMode.Normal },
     });
 
     const candleSeries = chart.addSeries(CandlestickSeries, {});
