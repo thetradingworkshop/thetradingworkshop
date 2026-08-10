@@ -42,6 +42,7 @@ import {
   Extend,
   DrawingStylePatch,
   ChannelLevel,
+  RiskMode,
 } from '../lib/chartDrawingPrimitives';
 
 // Snapshot of a selected drawing's editable properties, read by the
@@ -61,6 +62,11 @@ interface DrawingProps {
   direction: 'long' | 'short' | null; // position only
   targetOffset: number | null; // position only
   stopOffset: number | null; // position only
+  accountSize: number | null; // position only
+  riskMode: RiskMode | null; // position only
+  riskValue: number | null; // position only
+  pointValue: number | null; // position only
+  leverage: number | null; // position only
   levels: ChannelLevel[] | null; // channel only
   backgroundVisible: boolean | null; // channel only
   backgroundColor: string | null; // channel only
@@ -343,7 +349,7 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
   const getSelectedPropsRef = useRef<(() => DrawingProps | null) | null>(null);
   const applyStyleRef = useRef<((patch: DrawingStylePatch) => void) | null>(null);
   const applyCoordinatesRef = useRef<((p1: { time: number; price: number }, p2: { time: number; price: number } | null, offset: number | null) => void) | null>(null);
-  const applyPositionRef = useRef<((direction: 'long' | 'short', targetOffset: number, stopOffset: number) => void) | null>(null);
+  const applyPositionRef = useRef<((direction: 'long' | 'short', targetOffset: number, stopOffset: number, sizing: { accountSize: number; riskMode: RiskMode; riskValue: number; pointValue: number; leverage: number }) => void) | null>(null);
   const applyChannelLevelsRef = useRef<((levels: ChannelLevel[], background: { visible: boolean; color: string; opacity: number }) => void) | null>(null);
   const commitPropertiesRef = useRef<(() => void) | null>(null);
   const [propertiesOpen, setPropertiesOpen] = useState(false);
@@ -660,7 +666,7 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
         case 'timerange': prim = new TimeRangePrimitive(d.id, p1, p2, color, { ...style, label: d.text ?? '' }); break;
         case 'hline': prim = new HorizontalLinePrimitive(d.id, d.price1, color, { ...style, label: d.text ?? '' }); break;
         case 'vline': prim = new VerticalLinePrimitive(d.id, d.time1 as UTCTimestamp, color, { ...style, label: d.text ?? '' }); break;
-        case 'position': prim = new PositionPrimitive(d.id, p1, p2, d.direction ?? 'long', d.targetOffset ?? 0, d.stopOffset ?? 0, color, { ...style, label: d.text ?? '' }); break;
+        case 'position': prim = new PositionPrimitive(d.id, p1, p2, d.direction ?? 'long', d.targetOffset ?? 0, d.stopOffset ?? 0, color, { ...style, label: d.text ?? '' }, { accountSize: d.accountSize ?? 10000, riskMode: d.riskMode ?? 'usd', riskValue: d.riskValue ?? 100, pointValue: d.pointValue ?? 1, leverage: d.leverage ?? 1 }); break;
         default: prim = new TrendLinePrimitive(d.id, p1, p2, color, { ...style, label: d.text ?? '' }); break;
       }
       candleSeries.attachPrimitive(prim);
@@ -679,7 +685,7 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
           return withLabel({ id: prim.id, type: 'channel', time1: prim.p1.time as unknown as number, price1: prim.p1.price, time2: prim.p2.time as unknown as number, price2: prim.p2.price, offset: prim.offset, color: prim.color, lineStyle: prim.lineStyle, extend: prim.extend, labelColor: prim.labelColor, labelSize: prim.labelSize, labelBold: prim.labelBold, levels: prim.levels, backgroundVisible: prim.backgroundVisible, backgroundColor: prim.backgroundColor, backgroundOpacity: prim.backgroundOpacity }, prim.label);
         }
         if (prim instanceof PositionPrimitive) {
-          return withLabel({ id: prim.id, type: 'position', time1: prim.p1.time as unknown as number, price1: prim.p1.price, time2: prim.p2.time as unknown as number, price2: prim.p2.price, color: prim.color, direction: prim.direction, targetOffset: prim.targetOffset, stopOffset: prim.stopOffset, labelColor: prim.labelColor, labelSize: prim.labelSize, labelBold: prim.labelBold }, prim.label);
+          return withLabel({ id: prim.id, type: 'position', time1: prim.p1.time as unknown as number, price1: prim.p1.price, time2: prim.p2.time as unknown as number, price2: prim.p2.price, color: prim.color, direction: prim.direction, targetOffset: prim.targetOffset, stopOffset: prim.stopOffset, accountSize: prim.accountSize, riskMode: prim.riskMode, riskValue: prim.riskValue, pointValue: prim.pointValue, leverage: prim.leverage, labelColor: prim.labelColor, labelSize: prim.labelSize, labelBold: prim.labelBold }, prim.label);
         }
         if (prim instanceof RectanglePrimitive) {
           return withLabel({ id: prim.id, type: 'box', time1: prim.p1.time as unknown as number, price1: prim.p1.price, time2: prim.p2.time as unknown as number, price2: prim.p2.price, color: prim.color, lineStyle: prim.lineStyle, extend: prim.extend, labelColor: prim.labelColor, labelSize: prim.labelSize, labelBold: prim.labelBold }, prim.label);
@@ -765,14 +771,18 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
         }
 
         if (prim instanceof PositionPrimitive) {
-          const midX = prim.p1Coord.x !== null && prim.p2Coord.x !== null ? (prim.p1Coord.x + prim.p2Coord.x) / 2 : null;
-          if (midX !== null && prim.targetCoordY !== null) {
-            const dTarget = Math.hypot(midX - x, prim.targetCoordY - y);
-            if (dTarget <= HANDLE_HIT_TOLERANCE_PX && dTarget < bestDist) { bestDist = dTarget; best = { id, handle: 'target' }; }
+          // Target/stop are hit-tested along their *entire* width, not a
+          // single center pixel — this was the main reason the tool was
+          // hard to adjust precisely, since missing that one pixel by a
+          // couple of px would grab "move everything" (body) instead.
+          const x1 = prim.p1Coord.x, x2 = prim.p2Coord.x;
+          if (x1 !== null && x2 !== null && prim.targetCoordY !== null) {
+            const dTarget = segmentDistance(x1, prim.targetCoordY, x2, prim.targetCoordY, x, y);
+            if (dTarget <= DRAWING_HIT_TOLERANCE_PX && dTarget < bestDist) { bestDist = dTarget; best = { id, handle: 'target' }; }
           }
-          if (midX !== null && prim.stopCoordY !== null) {
-            const dStop = Math.hypot(midX - x, prim.stopCoordY - y);
-            if (dStop <= HANDLE_HIT_TOLERANCE_PX && dStop < bestDist) { bestDist = dStop; best = { id, handle: 'stop' }; }
+          if (x1 !== null && x2 !== null && prim.stopCoordY !== null) {
+            const dStop = segmentDistance(x1, prim.stopCoordY, x2, prim.stopCoordY, x, y);
+            if (dStop <= DRAWING_HIT_TOLERANCE_PX && dStop < bestDist) { bestDist = dStop; best = { id, handle: 'stop' }; }
           }
         }
 
@@ -843,6 +853,11 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
           direction: null,
           targetOffset: null,
           stopOffset: null,
+          accountSize: null,
+          riskMode: null,
+          riskValue: null,
+          pointValue: null,
+          leverage: null,
           levels: null,
           backgroundVisible: null,
           backgroundColor: null,
@@ -865,6 +880,11 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
           direction: null,
           targetOffset: null,
           stopOffset: null,
+          accountSize: null,
+          riskMode: null,
+          riskValue: null,
+          pointValue: null,
+          leverage: null,
           levels: null,
           backgroundVisible: null,
           backgroundColor: null,
@@ -887,6 +907,11 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
           direction: null,
           targetOffset: null,
           stopOffset: null,
+          accountSize: null,
+          riskMode: null,
+          riskValue: null,
+          pointValue: null,
+          leverage: null,
           levels: null,
           backgroundVisible: null,
           backgroundColor: null,
@@ -917,6 +942,11 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
         direction: prim instanceof PositionPrimitive ? prim.direction : null,
         targetOffset: prim instanceof PositionPrimitive ? prim.targetOffset : null,
         stopOffset: prim instanceof PositionPrimitive ? prim.stopOffset : null,
+        accountSize: prim instanceof PositionPrimitive ? prim.accountSize : null,
+        riskMode: prim instanceof PositionPrimitive ? prim.riskMode : null,
+        riskValue: prim instanceof PositionPrimitive ? prim.riskValue : null,
+        pointValue: prim instanceof PositionPrimitive ? prim.pointValue : null,
+        leverage: prim instanceof PositionPrimitive ? prim.leverage : null,
         levels: prim instanceof PriceChannelPrimitive ? prim.levels : prim instanceof FibRetracementPrimitive ? prim.levels : null,
         backgroundVisible: prim instanceof PriceChannelPrimitive ? prim.backgroundVisible : prim instanceof FibRetracementPrimitive ? prim.backgroundVisible : null,
         backgroundColor: prim instanceof PriceChannelPrimitive ? prim.backgroundColor : prim instanceof FibRetracementPrimitive ? prim.backgroundColor : null,
@@ -955,13 +985,14 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
         if (prim instanceof PriceChannelPrimitive && offset !== null) prim.setOffset(offset);
       }
     };
-    applyPositionRef.current = (direction, targetOffset, stopOffset) => {
+    applyPositionRef.current = (direction, targetOffset, stopOffset, sizing) => {
       if (!activeSelection) return;
       const prim = primitives.get(activeSelection);
       if (!(prim instanceof PositionPrimitive)) return;
       prim.direction = direction;
       prim.setTargetOffset(targetOffset);
       prim.setStopOffset(stopOffset);
+      prim.setSizing(sizing.accountSize, sizing.riskMode, sizing.riskValue, sizing.pointValue, sizing.leverage);
     };
     applyChannelLevelsRef.current = (levels, background) => {
       if (!activeSelection) return;
@@ -1268,6 +1299,11 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
         } else if (editState.handle === 'stop' && prim instanceof PositionPrimitive) {
           const entry = prim.p1.price;
           prim.setStopOffset(prim.direction === 'long' ? entry - price : price - entry);
+        } else if ((editState.handle === 'p1' || editState.handle === 'p2') && prim instanceof PositionPrimitive) {
+          // The entry line is always flat — grabbing either end only resizes
+          // the position's time span, it never drags the entry price (that's
+          // what dragging inside the box, the 'body' handle, is for).
+          prim.setPoint(editState.handle, { time, price: prim.p1.price });
         } else if (editState.handle === 'p1' && hasPoints) {
           prim.setPoint('p1', { time, price });
         } else if (editState.handle === 'p2' && hasPoints) {
@@ -1490,7 +1526,13 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
     const p2ForSave = propForm.type === 'position' && propForm.p2 ? { ...propForm.p2, price: propForm.p1.price } : propForm.p2;
     applyCoordinatesRef.current?.(propForm.p1, p2ForSave, propForm.offset);
     if (propForm.type === 'position' && propForm.direction) {
-      applyPositionRef.current?.(propForm.direction, propForm.targetOffset ?? 0, propForm.stopOffset ?? 0);
+      applyPositionRef.current?.(propForm.direction, propForm.targetOffset ?? 0, propForm.stopOffset ?? 0, {
+        accountSize: propForm.accountSize ?? 10000,
+        riskMode: propForm.riskMode ?? 'usd',
+        riskValue: propForm.riskValue ?? 100,
+        pointValue: propForm.pointValue ?? 1,
+        leverage: propForm.leverage ?? 1,
+      });
     }
     if ((propForm.type === 'channel' || propForm.type === 'fib') && propForm.levels) {
       applyChannelLevelsRef.current?.(propForm.levels, {
@@ -2234,41 +2276,137 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
                     />
                   </div>
                 )}
-                {propForm.type === 'position' && (
-                  <>
-                    <div>
-                      <label className="block text-xs font-bold text-muted-foreground mb-1.5">Direction</label>
-                      <select
-                        value={propForm.direction ?? 'long'}
-                        onChange={e => patchProp('direction', e.target.value as 'long' | 'short')}
-                        className="w-full h-9 rounded-lg border border-border bg-background px-3 text-sm"
-                      >
-                        <option value="long">Long</option>
-                        <option value="short">Short</option>
-                      </select>
-                    </div>
-                    <div className="flex items-center gap-4">
-                      <div className="flex-1">
-                        <label className="block text-xs font-bold text-emerald-500 mb-1.5">Target (price offset)</label>
-                        <Input
-                          type="number"
-                          value={propForm.targetOffset ?? 0}
-                          onChange={e => patchProp('targetOffset', Number(e.target.value))}
-                          className="h-9"
-                        />
+                {propForm.type === 'position' && (() => {
+                  const accountSize = propForm.accountSize ?? 10000;
+                  const riskMode = propForm.riskMode ?? 'usd';
+                  const riskValue = propForm.riskValue ?? 100;
+                  const pointValue = propForm.pointValue ?? 1;
+                  const leverage = propForm.leverage ?? 1;
+                  const targetOffset = propForm.targetOffset ?? 0;
+                  const stopOffset = propForm.stopOffset ?? 0;
+                  const riskAmount = riskMode === '%' ? accountSize * (riskValue / 100) : riskValue;
+                  const quantity = stopOffset > 0 && pointValue > 0 ? riskAmount / (stopOffset * pointValue) : 0;
+                  const targetAmount = quantity * targetOffset * pointValue;
+                  const stopAmount = quantity * stopOffset * pointValue;
+                  const positionValue = quantity * propForm.p1.price * pointValue;
+                  const marginRequired = leverage > 0 ? positionValue / leverage : positionValue;
+                  const rr = stopOffset > 0 ? targetOffset / stopOffset : 0;
+                  return (
+                    <>
+                      <div>
+                        <label className="block text-xs font-bold text-muted-foreground mb-1.5">Direction</label>
+                        <select
+                          value={propForm.direction ?? 'long'}
+                          onChange={e => patchProp('direction', e.target.value as 'long' | 'short')}
+                          className="w-full h-9 rounded-lg border border-border bg-background px-3 text-sm"
+                        >
+                          <option value="long">Long</option>
+                          <option value="short">Short</option>
+                        </select>
                       </div>
-                      <div className="flex-1">
-                        <label className="block text-xs font-bold text-rose-500 mb-1.5">Stop (price offset)</label>
-                        <Input
-                          type="number"
-                          value={propForm.stopOffset ?? 0}
-                          onChange={e => patchProp('stopOffset', Number(e.target.value))}
-                          className="h-9"
-                        />
+                      <div className="flex items-center gap-4">
+                        <div className="flex-1">
+                          <label className="block text-xs font-bold text-emerald-500 mb-1.5">Target (price offset)</label>
+                          <Input
+                            type="number"
+                            value={targetOffset}
+                            onChange={e => patchProp('targetOffset', Number(e.target.value))}
+                            className="h-9"
+                          />
+                        </div>
+                        <div className="flex-1">
+                          <label className="block text-xs font-bold text-rose-500 mb-1.5">Stop (price offset)</label>
+                          <Input
+                            type="number"
+                            value={stopOffset}
+                            onChange={e => patchProp('stopOffset', Number(e.target.value))}
+                            className="h-9"
+                          />
+                        </div>
                       </div>
-                    </div>
-                  </>
-                )}
+
+                      <div className="pt-2 border-t border-border/40">
+                        <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/70 mb-3">Position sizing</div>
+                        <div className="space-y-4">
+                          <div className="flex items-center gap-4">
+                            <div className="flex-1">
+                              <label className="block text-xs font-bold text-muted-foreground mb-1.5">Account size</label>
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs text-muted-foreground">$</span>
+                                <Input
+                                  type="number"
+                                  value={accountSize}
+                                  onChange={e => patchProp('accountSize', Number(e.target.value))}
+                                  className="h-9"
+                                />
+                              </div>
+                            </div>
+                            <div className="flex-1">
+                              <label className="block text-xs font-bold text-muted-foreground mb-1.5">Leverage</label>
+                              <Input
+                                type="number"
+                                value={leverage}
+                                onChange={e => patchProp('leverage', Number(e.target.value))}
+                                className="h-9"
+                              />
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-4">
+                            <div className="flex-1">
+                              <label className="block text-xs font-bold text-muted-foreground mb-1.5">Risk</label>
+                              <Input
+                                type="number"
+                                value={riskValue}
+                                onChange={e => patchProp('riskValue', Number(e.target.value))}
+                                className="h-9"
+                              />
+                            </div>
+                            <div className="w-24">
+                              <label className="block text-xs font-bold text-muted-foreground mb-1.5">&nbsp;</label>
+                              <select
+                                value={riskMode}
+                                onChange={e => patchProp('riskMode', e.target.value as RiskMode)}
+                                className="w-full h-9 rounded-lg border border-border bg-background px-2 text-sm"
+                              >
+                                <option value="usd">USD</option>
+                                <option value="%">%</option>
+                              </select>
+                            </div>
+                          </div>
+                          <div>
+                            <label className="block text-xs font-bold text-muted-foreground mb-1.5">
+                              Point value <span className="font-normal normal-case text-muted-foreground/70">(USD per 1.00 price move, per unit)</span>
+                            </label>
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-muted-foreground">$</span>
+                              <Input
+                                type="number"
+                                value={pointValue}
+                                onChange={e => patchProp('pointValue', Number(e.target.value))}
+                                className="h-9"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="pt-2 border-t border-border/40 grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
+                        <div className="text-muted-foreground">Quantity</div>
+                        <div className="text-right font-mono font-bold">{quantity.toFixed(3)}</div>
+                        <div className="text-muted-foreground">Target amount</div>
+                        <div className="text-right font-mono font-bold text-emerald-500">${targetAmount.toFixed(2)}</div>
+                        <div className="text-muted-foreground">Stop amount (risk)</div>
+                        <div className="text-right font-mono font-bold text-rose-500">${stopAmount.toFixed(2)}</div>
+                        <div className="text-muted-foreground">Risk:reward</div>
+                        <div className="text-right font-mono font-bold">{rr.toFixed(2)}</div>
+                        <div className="text-muted-foreground">Position value</div>
+                        <div className="text-right font-mono">${positionValue.toFixed(2)}</div>
+                        <div className="text-muted-foreground">Margin required</div>
+                        <div className="text-right font-mono">${marginRequired.toFixed(2)}</div>
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
             )}
           </div>

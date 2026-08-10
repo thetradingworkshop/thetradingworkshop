@@ -305,6 +305,14 @@ export interface ChartDrawing {
   direction?: 'long' | 'short';
   targetOffset?: number;
   stopOffset?: number;
+  // type 'position' only: position-sizing calculator inputs (quantity is
+  // derived from these, not stored) — mirrors TradingView's Long/Short
+  // Position tool's Account size/Risk/Leverage fields.
+  accountSize?: number; // USD
+  riskMode?: '%' | 'usd';
+  riskValue?: number;
+  pointValue?: number; // USD per 1 price-unit move, per unit of quantity
+  leverage?: number;
 }
 
 // Just the visual-appearance subset of ChartDrawing — no coordinates, no

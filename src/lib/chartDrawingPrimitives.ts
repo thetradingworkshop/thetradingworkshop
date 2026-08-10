@@ -1207,14 +1207,18 @@ export class VerticalLinePrimitive implements ISeriesPrimitive<Time> {
 // A flat entry line spanning [p1.time, p2.time] at p1.price === p2.price,
 // with a profit zone (green, `targetOffset` above entry for 'long', below
 // for 'short') and a loss zone (red, `stopOffset` the other way), labeled
-// with the $/% of each and the resulting risk:reward ratio.
+// with the $/% of each and the resulting risk:reward ratio. The sizing
+// fields (accountSize/riskMode/riskValue/pointValue/leverage) drive a small
+// position-sizing calculator — quantity is derived from "how much am I
+// risking" rather than typed in directly, mirroring TradingView's own
+// Long/Short Position tool.
 
 class PositionPaneRenderer implements IPrimitivePaneRenderer {
   constructor(private _source: PositionPrimitive) {}
 
   draw(target: CanvasRenderingTarget2D): void {
     target.useBitmapCoordinateSpace(scope => {
-      const { p1Coord: p1, p2Coord: p2, targetCoordY, stopCoordY, targetOffset, stopOffset, selected } = this._source;
+      const { p1Coord: p1, p2Coord: p2, targetCoordY, stopCoordY, targetOffset, stopOffset, selected, quantity, targetAmount, stopAmount, riskRewardRatio } = this._source;
       if (p1.x === null || p1.y === null || p2.x === null || targetCoordY === null || stopCoordY === null) return;
       const ctx = scope.context;
       const hr = scope.horizontalPixelRatio;
@@ -1225,12 +1229,19 @@ class PositionPaneRenderer implements IPrimitivePaneRenderer {
       const targetY = targetCoordY * vr;
       const stopY = stopCoordY * vr;
       ctx.save();
-      ctx.globalAlpha = 0.22;
+      ctx.globalAlpha = 0.25;
       ctx.fillStyle = '#22c55e';
       ctx.fillRect(left, Math.min(entryY, targetY), right - left, Math.abs(targetY - entryY));
       ctx.fillStyle = '#ef4444';
       ctx.fillRect(left, Math.min(entryY, stopY), right - left, Math.abs(stopY - entryY));
       ctx.globalAlpha = 1;
+
+      // Target/stop lines span the full width and are draggable anywhere
+      // along them (see hitHandle in TradeCandleChart.tsx) — square handles
+      // at both ends make that discoverable, matching TradingView's own
+      // Long/Short Position box rather than a single easy-to-miss center grip.
+      strokeLine(ctx, left, targetY, right, targetY, '#22c55e', 'solid', hr, 1.5);
+      strokeLine(ctx, left, stopY, right, stopY, '#ef4444', 'solid', hr, 1.5);
       ctx.strokeStyle = '#e2e8f0';
       ctx.lineWidth = 1.5;
       ctx.setLineDash([4 * hr, 3 * hr]);
@@ -1243,23 +1254,28 @@ class PositionPaneRenderer implements IPrimitivePaneRenderer {
       const entryPrice = this._source.p1.price;
       const pctTarget = entryPrice !== 0 ? (targetOffset / entryPrice) * 100 : 0;
       const pctStop = entryPrice !== 0 ? (stopOffset / entryPrice) * 100 : 0;
-      const rr = stopOffset > 0 ? targetOffset / stopOffset : 0;
       ctx.font = `700 ${11 * vr}px sans-serif`;
       ctx.textBaseline = 'middle';
       ctx.fillStyle = '#22c55e';
-      ctx.fillText(`+${targetOffset.toFixed(2)} (${pctTarget.toFixed(2)}%)`, left + 6 * hr, Math.min(entryY, targetY) + Math.abs(targetY - entryY) / 2);
+      ctx.fillText(
+        `+${targetOffset.toFixed(2)} (${pctTarget.toFixed(2)}%)  $${targetAmount.toFixed(2)}`,
+        left + 6 * hr, Math.min(entryY, targetY) + Math.abs(targetY - entryY) / 2
+      );
       ctx.fillStyle = '#ef4444';
-      ctx.fillText(`-${stopOffset.toFixed(2)} (${pctStop.toFixed(2)}%)`, left + 6 * hr, Math.min(entryY, stopY) + Math.abs(stopY - entryY) / 2);
+      ctx.fillText(
+        `-${stopOffset.toFixed(2)} (${pctStop.toFixed(2)}%)  $${stopAmount.toFixed(2)}`,
+        left + 6 * hr, Math.min(entryY, stopY) + Math.abs(stopY - entryY) / 2
+      );
       ctx.fillStyle = '#e2e8f0';
-      ctx.textBaseline = 'bottom';
-      ctx.fillText(`R:R ${rr.toFixed(2)}`, left + 6 * hr, Math.min(entryY, targetY, stopY) - 4 * vr);
+      ctx.fillText(`Qty ${quantity.toFixed(3)}  ·  R:R ${riskRewardRatio.toFixed(2)}`, left + 6 * hr, entryY - 12 * vr);
 
       if (selected) {
         drawHandle(ctx, p1.x, p1.y, '#e2e8f0', hr, vr);
         drawHandle(ctx, p2.x, p2.y, '#e2e8f0', hr, vr);
-        const midX = (p1.x + p2.x) / 2;
-        drawHandle(ctx, midX, targetCoordY, '#22c55e', hr, vr);
-        drawHandle(ctx, midX, stopCoordY, '#ef4444', hr, vr);
+        drawHandle(ctx, p1.x, targetCoordY, '#22c55e', hr, vr);
+        drawHandle(ctx, p2.x, targetCoordY, '#22c55e', hr, vr);
+        drawHandle(ctx, p1.x, stopCoordY, '#ef4444', hr, vr);
+        drawHandle(ctx, p2.x, stopCoordY, '#ef4444', hr, vr);
       }
       ctx.restore();
     });
@@ -1273,6 +1289,8 @@ class PositionPaneView implements IPrimitivePaneView {
   }
 }
 
+export type RiskMode = '%' | 'usd';
+
 export class PositionPrimitive extends TwoPointPrimitive {
   direction: 'long' | 'short';
   targetOffset: number; // price units, always >= 0
@@ -1280,12 +1298,57 @@ export class PositionPrimitive extends TwoPointPrimitive {
   targetCoordY: number | null = null;
   stopCoordY: number | null = null;
 
-  constructor(id: string, p1: TrendLinePoint, p2: TrendLinePoint, direction: 'long' | 'short' = 'long', targetOffset = 0, stopOffset = 0, color = '#5a7d9f', style?: DrawingStylePatch) {
+  // Position-sizing calculator inputs (mirrors TradingView's Long/Short
+  // Position tool) — quantity is derived from these, not stored directly.
+  accountSize: number; // USD
+  riskMode: RiskMode;
+  riskValue: number; // interpreted per riskMode: a percent of accountSize, or a flat USD amount
+  pointValue: number; // USD value of a 1-price-unit move for 1 unit of quantity (e.g. $2/point for MNQ)
+  leverage: number; // used only for the margin-required readout
+
+  constructor(
+    id: string,
+    p1: TrendLinePoint,
+    p2: TrendLinePoint,
+    direction: 'long' | 'short' = 'long',
+    targetOffset = 0,
+    stopOffset = 0,
+    color = '#5a7d9f',
+    style?: DrawingStylePatch,
+    sizing?: { accountSize: number; riskMode: RiskMode; riskValue: number; pointValue: number; leverage: number },
+  ) {
     super(id, p1, p2, color, style);
     this.direction = direction;
     this.targetOffset = targetOffset;
     this.stopOffset = stopOffset;
+    this.accountSize = sizing?.accountSize ?? 10000;
+    this.riskMode = sizing?.riskMode ?? 'usd';
+    this.riskValue = sizing?.riskValue ?? 100;
+    this.pointValue = sizing?.pointValue ?? 1;
+    this.leverage = sizing?.leverage ?? 1;
     this._paneViews = [new PositionPaneView(this)];
+  }
+
+  get riskAmount(): number {
+    return this.riskMode === '%' ? this.accountSize * (this.riskValue / 100) : this.riskValue;
+  }
+  get quantity(): number {
+    return this.stopOffset > 0 && this.pointValue > 0 ? this.riskAmount / (this.stopOffset * this.pointValue) : 0;
+  }
+  get targetAmount(): number {
+    return this.quantity * this.targetOffset * this.pointValue;
+  }
+  get stopAmount(): number {
+    return this.quantity * this.stopOffset * this.pointValue;
+  }
+  get positionValue(): number {
+    return this.quantity * this.p1.price * this.pointValue;
+  }
+  get marginRequired(): number {
+    return this.leverage > 0 ? this.positionValue / this.leverage : this.positionValue;
+  }
+  get riskRewardRatio(): number {
+    return this.stopOffset > 0 ? this.targetOffset / this.stopOffset : 0;
   }
 
   updateAllViews(): void {
@@ -1307,6 +1370,15 @@ export class PositionPrimitive extends TwoPointPrimitive {
   setStopOffset(offset: number): void {
     this.stopOffset = Math.max(0, offset);
     this.updateAllViews();
+    this._requestUpdate?.();
+  }
+
+  setSizing(accountSize: number, riskMode: RiskMode, riskValue: number, pointValue: number, leverage: number): void {
+    this.accountSize = Math.max(0, accountSize);
+    this.riskMode = riskMode;
+    this.riskValue = Math.max(0, riskValue);
+    this.pointValue = Math.max(0, pointValue);
+    this.leverage = Math.max(0, leverage);
     this._requestUpdate?.();
   }
 
