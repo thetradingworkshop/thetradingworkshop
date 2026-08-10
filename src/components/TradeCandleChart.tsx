@@ -1523,7 +1523,16 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
     const exitEpoch = Math.floor(new Date(trade.exitTime).getTime() / 1000);
     const spanEpochs = [entryEpoch, exitEpoch];
     for (const d of drawingsRef.current) {
-      spanEpochs.push(Math.floor(d.time1), Math.floor(d.time2));
+      // hline has no time anchor at all (a price level spans every time) —
+      // time1/time2 are both meaningless placeholder 0s for it, and time2
+      // specifically is a placeholder 0 for vline/text too (single-point
+      // types). Blindly pushing those would drag minEpoch down to epoch 0
+      // (1970) the moment *any* hline/vline/text drawing exists on the
+      // chart, blowing the padding calculation out to decades and
+      // effectively hiding everything real behind it.
+      if (d.type === 'hline') continue;
+      spanEpochs.push(Math.floor(d.time1));
+      if (d.type !== 'vline' && d.type !== 'text') spanEpochs.push(Math.floor(d.time2));
     }
     const minEpoch = Math.min(...spanEpochs);
     const maxEpoch = Math.max(...spanEpochs);
