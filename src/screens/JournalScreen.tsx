@@ -22,11 +22,18 @@ const CATEGORIES: { id: NoteCategory; label: string; icon: any }[] = [
   { id: 'session_recap', label: 'Sessions Recap', icon: FileBarChart },
 ];
 
-function categoryOf(j: JournalDraft): Exclude<NoteCategory, 'all' | 'favorites'> | null {
+// 'daily' is the fallback, not a third condition alongside 'trade' and
+// 'session_recap' — a note only got here by requiring `sessionId` to be set,
+// but the plain "New Journal" button (openNew(), with no session attached)
+// never sets one. Those notes matched none of the three tabs and fell into
+// an unreachable null category, visible only in "All notes" — exactly what
+// "Daily Journal" is *for* (a note that isn't about one specific trade and
+// isn't a multi-day recap), so it's the catch-all every other note belongs
+// to, and every journal entry is now reachable from some non-"All" tab.
+function categoryOf(j: JournalDraft): Exclude<NoteCategory, 'all' | 'favorites'> {
   if (j.noteType === 'session_recap') return 'session_recap';
   if (j.tradeId) return 'trade';
-  if (j.sessionId) return 'daily';
-  return null;
+  return 'daily';
 }
 
 function emptyDraft(overrides: Partial<JournalEntry> = {}): JournalDraft {
