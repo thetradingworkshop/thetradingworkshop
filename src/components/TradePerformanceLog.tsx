@@ -535,6 +535,30 @@ export function TradePerformanceLog({ trades, title, subtitle }: TradePerformanc
     setIsUpdatingRating(false);
   };
 
+  // Same write as updateTradeFields's reviewed toggle, but for a row in the
+  // table list rather than the (possibly not even open) detail drawer — lets
+  // "Reviewed" be flipped straight from the list without opening a trade.
+  // Mirrors both `trades` and `trade_reviews` for the same staleness reason
+  // documented on updateTradeFields, and patches `review` too when this
+  // happens to be the currently-open trade so the drawer doesn't show a
+  // stale state underneath.
+  const toggleRowReviewed = async (trade: Trade, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!user) return;
+    const reviewed = !trade.reviewed;
+    try {
+      const tradeRef = doc(db, 'trades', trade.id);
+      await setDoc(tradeRef, { reviewed, updatedAt: serverTimestamp() }, { merge: true });
+      const reviewRef = doc(db, 'trade_reviews', trade.id);
+      await setDoc(reviewRef, { reviewed, tradeId: trade.id, sessionId: trade.sessionId, userId: user.uid, updatedAt: new Date().toISOString() }, { merge: true });
+      if (selectedTrade?.id === trade.id) setReview(prev => ({ ...prev, reviewed }));
+    } catch (error) {
+      console.error('Error saving field:', error);
+      setToast({ message: 'Failed to save', type: 'error' });
+      setTimeout(() => setToast(null), 3000);
+    }
+  };
+
   const handleFlagToggle = (flag: string) => {
     setReview(prev => {
       const flags = prev.behaviorFlags || [];
@@ -734,11 +758,18 @@ export function TradePerformanceLog({ trades, title, subtitle }: TradePerformanc
                     </Badge>
                   </td>
                   <td className="px-4 py-3 text-center">
-                    {trade.reviewed ? (
-                      <CheckCircle2 className="w-4 h-4 text-emerald-500 mx-auto" aria-label="Reviewed" />
-                    ) : (
-                      <Circle className="w-4 h-4 text-muted-foreground/30 mx-auto" aria-label="Not reviewed" />
-                    )}
+                    <button
+                      onClick={(e) => toggleRowReviewed(trade, e)}
+                      className="mx-auto flex items-center justify-center rounded-full p-1 -m-1 transition-colors hover:bg-accent"
+                      aria-label={trade.reviewed ? "Mark as not reviewed" : "Mark as reviewed"}
+                      title={trade.reviewed ? "Reviewed — click to unmark" : "Mark as reviewed"}
+                    >
+                      {trade.reviewed ? (
+                        <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                      ) : (
+                        <Circle className="w-4 h-4 text-muted-foreground/30 hover:text-muted-foreground/60" />
+                      )}
+                    </button>
                   </td>
                   <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                     <button
