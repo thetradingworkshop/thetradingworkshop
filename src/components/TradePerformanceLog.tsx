@@ -1039,6 +1039,8 @@ export function TradePerformanceLog({ trades, title, subtitle }: TradePerformanc
                             placeholder="e.g. 14:20:00"
                             onCommit={(value) => updateTradeFields({ bestExitTime: value })}
                           />
+                          <StatRow label="Entry Price">{selectedTrade.avgEntryPrice.toFixed(2)}</StatRow>
+                          <StatRow label="Exit Price">{selectedTrade.avgExitPrice.toFixed(2)}</StatRow>
                         </div>
 
                         <div className="p-4 rounded-2xl bg-accent/10 border border-border/50 space-y-5">
