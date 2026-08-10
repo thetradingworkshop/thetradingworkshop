@@ -435,6 +435,25 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
   const [replayIndex, setReplayIndex] = useState<number | null>(null);
   const [replayPlaying, setReplayPlaying] = useState(false);
   const [replaySpeedMs, setReplaySpeedMs] = useState(600);
+  // Read by the chart-build effect (which reruns on a timeframe switch,
+  // since that swaps `market`) so it can rebuild the chart already
+  // truncated to the replay position instead of showing the full,
+  // un-replayed dataset — same stale-closure reasoning as toolRef.
+  const replayActiveRef = useRef(false);
+  useEffect(() => { replayActiveRef.current = replayActive; }, [replayActive]);
+  // Tracks the *time* of the current replay bar, not just its index — a
+  // timeframe switch can fetch a wildly different bar count (a few dozen
+  // narrow intraday bars vs. thousands for a long top-down lookback), so
+  // "index 14" means something completely different in the new dataset.
+  // Re-finding the nearest bar to this same moment in time, rather than
+  // reusing the raw index, is what keeps replay pointing at the same place
+  // in the trade across a timeframe switch instead of jumping to an
+  // unrelated point.
+  const replayCutoffTimeRef = useRef<number | null>(null);
+  useEffect(() => {
+    replayCutoffTimeRef.current = replayIndex !== null ? bars[replayIndex]?.time ?? null : null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [replayIndex]);
   const markersApiRef = useRef<ReturnType<typeof createSeriesMarkers> | null>(null);
 
   const tradeMarkers = useMemo<SeriesMarker<Time>[]>(() => {
@@ -468,14 +487,19 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trade.id, market, source]);
 
-  // Pushes the current replay position (or, once exited, the full dataset)
-  // to the already-built series/markers via their refs — no chart rebuild.
-  // Same reasoning as tradeMarkers above for why this depends on
-  // trade.id/market/source rather than `bars` itself: `bars` is a fresh
-  // array reference every render, so using it directly here previously
-  // caused an infinite loop (this effect calls setHoverBar while
-  // replaying, which re-renders, which recomputes `bars`, which re-runs
-  // this effect, ad infinitum).
+  // Pushes a replay step (or, once exited, the full dataset) to the
+  // already-built series/markers via their refs — no chart rebuild. Only
+  // depends on replayActive/replayIndex themselves: `bars`/`tradeMarkers`
+  // are read from this render's closure, which is always current for "the
+  // user stepped/played/exited" (the actual trigger for this effect).
+  // Deliberately NOT depending on trade.id/market/source/bars/tradeMarkers
+  // too — those change on a timeframe switch, which reruns the chart-build
+  // effect instead (using replayActiveRef/replayIndexRef to rebuild
+  // already-truncated); racing both effects over the same rebuild
+  // previously either overwrote the fresh series with stale data or, via
+  // `bars` being a fresh array reference every render, caused an infinite
+  // render loop (this effect calls setHoverBar while replaying → re-render
+  // → new `bars` reference → this effect re-fires → repeat).
   useEffect(() => {
     const candleSeries = candleSeriesRef.current;
     const volumeSeries = volumeSeriesRef.current;
@@ -488,7 +512,7 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
     markersApiRef.current?.setMarkers(cutoff === undefined ? tradeMarkers : tradeMarkers.filter(m => (m.time as unknown as number) <= cutoff));
     if (replayActive && visibleBars.length > 0) setHoverBar(visibleBars[visibleBars.length - 1]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [replayActive, replayIndex, trade.id, market, source, tradeMarkers]);
+  }, [replayActive, replayIndex]);
 
   // Auto-play: steps one bar every replaySpeedMs while playing, pausing
   // itself once it reaches the last bar.
@@ -501,8 +525,14 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
 
   // Switching to a different trade leaves this component mounted (no `key`
   // on it upstream) — replayIndex would otherwise carry over against a
-  // completely different bar count.
+  // completely different bar count. The refs are updated synchronously
+  // (not just via their own mirroring effects, which only take effect next
+  // render) so that if the chart-build effect also fires in this same
+  // commit — which it always does on a new trade — it already sees "not
+  // replaying" rather than the previous trade's stale replay position.
   useEffect(() => {
+    replayActiveRef.current = false;
+    replayCutoffTimeRef.current = null;
     setReplayActive(false);
     setReplayIndex(null);
     setReplayPlaying(false);
@@ -568,11 +598,24 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
     volumeSeriesRef.current = volumeSeries;
     applyChartSettings(chart, candleSeries, volumeSeries, chartSettingsRef.current);
 
-    const { candleData, volumeData } = toSeriesData(bars);
+    // Switching timeframe mid-replay reruns this whole effect (it's keyed
+    // on `market`, which a timeframe change replaces) — re-finding the bar
+    // nearest replayCutoffTimeRef's *time* in this (possibly wildly
+    // differently-sized) new `bars` array, rather than reusing the old
+    // index or just loading the full dataset, is what keeps the user at
+    // the same point in the trade instead of silently dumping them back on
+    // the full, un-replayed chart or jumping to an unrelated bar count.
+    let newReplayIndex: number | null = null;
+    if (replayActiveRef.current && replayCutoffTimeRef.current !== null) {
+      newReplayIndex = nearestBarIndex(bars, replayCutoffTimeRef.current);
+      setReplayIndex(newReplayIndex);
+    }
+    const replayBars = newReplayIndex !== null ? bars.slice(0, newReplayIndex + 1) : bars;
+    const { candleData, volumeData } = toSeriesData(replayBars);
     candleSeries.setData(candleData);
     volumeSeries.setData(volumeData);
 
-    setHoverBar(bars[bars.length - 1]);
+    setHoverBar(replayBars[replayBars.length - 1] ?? bars[bars.length - 1]);
     const barsByTime = new Map(bars.map(b => [b.time, b]));
     chart.subscribeCrosshairMove(param => {
       const bar = param.time != null ? barsByTime.get(param.time as unknown as number) : undefined;
@@ -583,7 +626,11 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
     // whole effect reruns on a genuinely new trade/timeframe; bar replay
     // below re-filters this same `tradeMarkers` list live via .setMarkers()
     // as it steps through, without rebuilding the plugin.
-    markersApiRef.current = createSeriesMarkers(candleSeries, tradeMarkers);
+    const replayCutoff = replayBars[replayBars.length - 1]?.time;
+    markersApiRef.current = createSeriesMarkers(
+      candleSeries,
+      replayCutoff === undefined ? tradeMarkers : tradeMarkers.filter(m => (m.time as unknown as number) <= replayCutoff)
+    );
 
     // --- Drawing tools (trend line / channel / box / fib / text note) -----
     // Read from refs rather than the `drawings`/`onDrawingsChange` props
