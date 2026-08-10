@@ -1434,16 +1434,34 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
     // fitting *all* of those bars into view by default would cram the
     // trade's own candles, markers, and any drawing on them down to a
     // sub-pixel sliver on one edge. Default the view to bracket the trade's
-    // own entry/exit bars instead, with padding on each side; "Auto" keeps
-    // looking the same as before since its fetch window already ~= the
-    // trade's own span.
+    // own entry/exit *and* every saved drawing's own time span instead — a
+    // drawing is very often placed somewhere other than exactly on the
+    // trade's own candles (marking a level from earlier/later context) —
+    // with padding on each side; "Auto" keeps looking the same as before
+    // since its fetch window already ~= the trade's own span.
+    //
+    // The padding itself has to be a fixed amount of real *time*, not a bar
+    // count — the previous version padded by a fraction of the trade's own
+    // bar-index span, which on a coarse interval (e.g. 15m, where a 30-min
+    // trade is only ~2 bars apart) came out to tens of minutes of padding,
+    // but the exact same formula on a fine interval (e.g. 1m, where that
+    // same trade is ~30 bars apart) came out to only a few minutes. A
+    // drawing placed comfortably inside the 15m view's padding could sit
+    // clean outside the 1m view's much stingier one — which is exactly why
+    // a position drawn while looking at 15m could vanish on switching to 1m.
     const entryEpoch = Math.floor(new Date(trade.entryTime).getTime() / 1000);
     const exitEpoch = Math.floor(new Date(trade.exitTime).getTime() / 1000);
-    const entryIdx = nearestBarIndex(bars, entryEpoch);
-    const exitIdx = nearestBarIndex(bars, exitEpoch);
-    const tradePadBars = Math.max(5, Math.round((Math.abs(exitIdx - entryIdx) + 1) * 0.5));
-    const defaultFrom = Math.max(-0.5, Math.min(entryIdx, exitIdx) - tradePadBars - 0.5);
-    const defaultTo = Math.min(bars.length - 0.5, Math.max(entryIdx, exitIdx) + tradePadBars + 0.5);
+    const spanEpochs = [entryEpoch, exitEpoch];
+    for (const d of drawingsRef.current) {
+      spanEpochs.push(Math.floor(d.time1), Math.floor(d.time2));
+    }
+    const minEpoch = Math.min(...spanEpochs);
+    const maxEpoch = Math.max(...spanEpochs);
+    const padSeconds = Math.max(30 * 60, (maxEpoch - minEpoch) * 0.5);
+    const minIdx = nearestBarIndex(bars, minEpoch - padSeconds);
+    const maxIdx = nearestBarIndex(bars, maxEpoch + padSeconds);
+    const defaultFrom = Math.max(-0.5, Math.min(minIdx, maxIdx) - 0.5);
+    const defaultTo = Math.min(bars.length - 0.5, Math.max(minIdx, maxIdx) + 0.5);
     const fitAllBars = () => {
       chart.timeScale().setVisibleLogicalRange({ from: defaultFrom, to: defaultTo });
     };
