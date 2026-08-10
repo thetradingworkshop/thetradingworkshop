@@ -360,18 +360,59 @@ async function startServer() {
   // bars for a top-down look at market structure leading into the trade,
   // within what Yahoo's chart API actually serves per interval.
   // Each entry maps a client-facing timeframe id to how far back to look and
-  // which Yahoo interval to request. For most entries the id and the Yahoo
-  // interval are the same string, but "w" is a distinct lookback duration
-  // (not a Yahoo interval on its own) served at 5m granularity — dense
-  // enough to be useful, well within Yahoo's ~60-day cap for that interval.
-  const TIMEFRAME_CONFIG: Record<string, { lookbackSeconds: number; interval: string }> = {
+  // which Yahoo interval to request. Most entries request that same
+  // interval directly from Yahoo; `aggregateHours` marks the two (4h/8h)
+  // that Yahoo has no native interval for at all — those fetch real hourly
+  // bars and get bucketed client-side (well, server-side, but before it
+  // reaches the client) by aggregateBars() below into 4/8-hour candles,
+  // same underlying trade data a real 4h/8h feed would be built from, just
+  // resampled here instead of upstream.
+  const TIMEFRAME_CONFIG: Record<string, { lookbackSeconds: number; interval: string; aggregateHours?: number }> = {
     "1m": { lookbackSeconds: 5 * 24 * 3600, interval: "1m" },
     "5m": { lookbackSeconds: 30 * 24 * 3600, interval: "5m" },
     "15m": { lookbackSeconds: 45 * 24 * 3600, interval: "15m" },
-    "w": { lookbackSeconds: 7 * 24 * 3600, interval: "5m" },
+    "30m": { lookbackSeconds: 60 * 24 * 3600, interval: "30m" },
     "1h": { lookbackSeconds: 180 * 24 * 3600, interval: "1h" },
-    "1d": { lookbackSeconds: 730 * 24 * 3600, interval: "1d" },
+    // 729 days, not some rounder/bigger number — verified directly against
+    // Yahoo: it serves 60m-interval data up to exactly 730 days back and
+    // hard-rejects (422) anything past that, regardless of how coarse the
+    // *displayed* candle ends up being after aggregateBars() buckets it
+    // down to 4h/8h — the raw fetch underneath is still 60m either way.
+    "4h": { lookbackSeconds: 729 * 24 * 3600, interval: "1h", aggregateHours: 4 },
+    "8h": { lookbackSeconds: 729 * 24 * 3600, interval: "1h", aggregateHours: 8 },
+    // "24 hours" and "1 day" end up as the exact same request — Yahoo has no
+    // rolling 24h interval distinct from its own calendar-day bars — kept as
+    // two config entries anyway so each timeframe-menu option still reports
+    // back the id the user actually picked (see `interval` in the response
+    // below), not a possibly-confusing "1d" label under an "24 hours" button.
+    "24h": { lookbackSeconds: 1460 * 24 * 3600, interval: "1d" },
+    "1d": { lookbackSeconds: 1460 * 24 * 3600, interval: "1d" },
+    "1w": { lookbackSeconds: 5 * 365 * 24 * 3600, interval: "1wk" },
+    "1mo": { lookbackSeconds: 15 * 365 * 24 * 3600, interval: "1mo" },
   };
+
+  // Buckets consecutive same-interval bars into `hours`-wide candles aligned
+  // to UTC boundaries divisible by `hours` (e.g. 4h buckets start at
+  // 00:00/04:00/08:00... UTC) — see the 4h/8h TIMEFRAME_CONFIG comment above.
+  function aggregateBars(bars: { time: number; open: number; high: number; low: number; close: number; volume: number }[], hours: number) {
+    const bucketSec = hours * 3600;
+    const buckets = new Map<number, typeof bars>();
+    for (const b of bars) {
+      const bucketStart = Math.floor(b.time / bucketSec) * bucketSec;
+      const group = buckets.get(bucketStart);
+      if (group) group.push(b); else buckets.set(bucketStart, [b]);
+    }
+    return Array.from(buckets.entries())
+      .sort(([a], [z]) => a - z)
+      .map(([time, group]) => ({
+        time,
+        open: group[0].open,
+        high: Math.max(...group.map(g => g.high)),
+        low: Math.min(...group.map(g => g.low)),
+        close: group[group.length - 1].close,
+        volume: group.reduce((sum, g) => sum + g.volume, 0),
+      }));
+  }
 
   app.get("/api/market/candles", async (req, res) => {
     const { symbol, start, end, interval: requestedInterval } = req.query as { symbol?: string; start?: string; end?: string; interval?: string };
@@ -461,7 +502,17 @@ async function startServer() {
         return res.status(404).json({ error: `No usable market data for ${yahooSymbol} in this window` });
       }
 
-      res.json({ symbol: root, yahooSymbol, interval, delayed: true, bars });
+      const outBars = timeframeConfig?.aggregateHours ? aggregateBars(bars, timeframeConfig.aggregateHours) : bars;
+      if (outBars.length === 0) {
+        return res.status(404).json({ error: `No usable market data for ${yahooSymbol} in this window` });
+      }
+      // Report back the id the user actually picked (e.g. "4h", "24h") when
+      // one was requested, not the raw Yahoo interval it was built from
+      // ("1h", "1d") — that's what the chart's own "(__ bars, delayed via
+      // Yahoo Finance)" label reads directly, and "1h bars" under a 4h
+      // button the user clicked would just be confusing.
+      const outInterval = timeframeConfig ? requestedInterval! : interval;
+      res.json({ symbol: root, yahooSymbol, interval: outInterval, delayed: true, bars: outBars });
     } catch (error) {
       console.error("Market data fetch failed:", error);
       res.status(502).json({ error: "Failed to fetch market data" });

@@ -309,15 +309,40 @@ function toSeriesData(bars: Bar[]): { candleData: CandlestickData[]; volumeData:
   };
 }
 
-const TIMEFRAMES: { id: string | undefined; label: string }[] = [
-  { id: undefined, label: 'Auto' },
-  { id: '1m', label: '1m' },
-  { id: '5m', label: '5m' },
-  { id: '15m', label: '15m' },
-  { id: 'w', label: 'W' },
-  { id: '1h', label: '1H' },
-  { id: '1d', label: '1D' },
+// Grouped by unit like TradingView's own timeframe menu — "Auto" (this
+// app's own zero-config default: a narrow window tightly bracketing the
+// trade, no interval picked) sits outside these groups as its own button.
+// No "Seconds" group: Yahoo Finance, this app's only market-data source,
+// has no seconds-level bars at all — every one of these, unlike a synthetic
+// seconds option would be, is real (delayed) price data. 4h/8h are the only
+// two without a native Yahoo interval; server.ts fetches real hourly bars
+// and buckets them itself (see aggregateBars there) rather than faking it.
+const TIMEFRAME_GROUPS: { label: string; options: { id: string; label: string; shortLabel: string }[] }[] = [
+  { label: 'Minutes', options: [
+    { id: '1m', label: '1 minute', shortLabel: '1m' },
+    { id: '5m', label: '5 minutes', shortLabel: '5m' },
+    { id: '15m', label: '15 minutes', shortLabel: '15m' },
+    { id: '30m', label: '30 minutes', shortLabel: '30m' },
+  ] },
+  { label: 'Hours', options: [
+    { id: '1h', label: '1 hour', shortLabel: '1H' },
+    { id: '4h', label: '4 hours', shortLabel: '4H' },
+    { id: '8h', label: '8 hours', shortLabel: '8H' },
+    { id: '24h', label: '24 hours', shortLabel: '24H' },
+  ] },
+  { label: 'Days', options: [
+    { id: '1d', label: '1 day', shortLabel: '1D' },
+  ] },
+  { label: 'Weeks', options: [
+    { id: '1w', label: '1 week', shortLabel: '1W' },
+  ] },
+  { label: 'Months', options: [
+    { id: '1mo', label: '1 month', shortLabel: '1M' },
+  ] },
 ];
+const TIMEFRAME_SHORT_LABEL: Record<string, string> = Object.fromEntries(
+  TIMEFRAME_GROUPS.flatMap(g => g.options.map(o => [o.id, o.shortLabel]))
+);
 
 interface TradeCandleChartProps {
   trade: Trade;
@@ -421,6 +446,9 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
   const [templateMenuOpen, setTemplateMenuOpen] = useState(false);
   const [templateSaveMode, setTemplateSaveMode] = useState(false);
   const [templateNameInput, setTemplateNameInput] = useState('');
+  // Timeframe picker's grouped dropdown (Minutes/Hours/Days/Weeks/Months) —
+  // "Auto" stays a separate standalone button outside this menu.
+  const [timeframeMenuOpen, setTimeframeMenuOpen] = useState(false);
 
   // The chart's own appearance (candle colors, canvas background/grid,
   // volume visibility) — global to the account, same as drawingDefaults.
@@ -1813,18 +1841,51 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
       <div className="flex items-center justify-between gap-2 shrink-0 flex-wrap">
         {onTimeframeChange && (
           <div className="flex items-center gap-1">
-            {TIMEFRAMES.map(tf => (
+            <button
+              onClick={() => onTimeframeChange(undefined)}
+              className={cn(
+                "px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors",
+                timeframe === undefined ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent"
+              )}
+            >
+              Auto
+            </button>
+            <div className="relative">
               <button
-                key={tf.label}
-                onClick={() => onTimeframeChange(tf.id)}
+                onClick={() => setTimeframeMenuOpen(o => !o)}
                 className={cn(
-                  "px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors",
-                  timeframe === tf.id ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent"
+                  "flex items-center gap-0.5 px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors",
+                  timeframe !== undefined ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent"
                 )}
               >
-                {tf.label}
+                {timeframe !== undefined ? (TIMEFRAME_SHORT_LABEL[timeframe] ?? timeframe) : 'Timeframe'}
+                <ChevronDown className="w-3 h-3" />
               </button>
-            ))}
+              {timeframeMenuOpen && (
+                <>
+                  <div className="fixed inset-0 z-[105]" onClick={() => setTimeframeMenuOpen(false)} />
+                  <div className="absolute top-full left-0 mt-1 w-48 rounded-xl border border-border bg-popover shadow-2xl z-[110] max-h-80 overflow-y-auto py-1.5">
+                    {TIMEFRAME_GROUPS.map(group => (
+                      <div key={group.label} className="py-1 first:pt-0 last:pb-0">
+                        <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70">{group.label}</div>
+                        {group.options.map(opt => (
+                          <button
+                            key={opt.id}
+                            onClick={() => { onTimeframeChange(opt.id); setTimeframeMenuOpen(false); }}
+                            className={cn(
+                              "w-full text-left px-3 py-1.5 text-xs font-medium transition-colors",
+                              timeframe === opt.id ? "bg-primary/10 text-primary font-bold" : "hover:bg-accent"
+                            )}
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         )}
         <div className="flex items-center gap-1">
