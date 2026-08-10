@@ -407,7 +407,16 @@ async function startServer() {
       // to exit+pad only for the unusual case of a trade whose exit is
       // itself still in the future relative to this request.
       period2 = Math.ceil(Math.max(endMs / 1000 + padSec, Date.now() / 1000));
-      period1 = period2 - timeframeConfig.lookbackSeconds;
+      // The lookback above is sized for *context* around a recent trade —
+      // but a trade older than that lookback would put period1 after the
+      // trade's own start, silently fetching a window of unrelated recent
+      // candles instead: no entry/exit markers, no drawings, nothing tying
+      // the chart to the trade at all, and no error to explain why (this is
+      // exactly what made a saved long/short position "disappear" on a
+      // timeframe switch — the fetch window had quietly moved out from
+      // under it). Extend back through the trade's own start whenever it's
+      // older than the preset's normal lookback would reach.
+      period1 = Math.min(period2 - timeframeConfig.lookbackSeconds, Math.floor(startMs / 1000 - padSec));
     } else {
       const durationSec = (endMs - startMs) / 1000;
       const padSec = Math.min(30 * 60, Math.max(5 * 60, durationSec * 0.25));

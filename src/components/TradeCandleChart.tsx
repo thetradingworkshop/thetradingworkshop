@@ -1426,8 +1426,26 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
     // ResizeObserver ticks into a visible range far wider than the actual
     // bar count (e.g. -81..39 for 40 bars), pushing most of the plotted
     // candles off to one side instead of spanning the width.
+    //
+    // A named timeframe (5m/15m/1h/1d/w) fetches weeks of *context* data
+    // around the trade, not just the trade's own narrow window (server.ts
+    // widens period1/period2 to guarantee the trade's own candles are
+    // actually in the response, regardless of how old the trade is) — so
+    // fitting *all* of those bars into view by default would cram the
+    // trade's own candles, markers, and any drawing on them down to a
+    // sub-pixel sliver on one edge. Default the view to bracket the trade's
+    // own entry/exit bars instead, with padding on each side; "Auto" keeps
+    // looking the same as before since its fetch window already ~= the
+    // trade's own span.
+    const entryEpoch = Math.floor(new Date(trade.entryTime).getTime() / 1000);
+    const exitEpoch = Math.floor(new Date(trade.exitTime).getTime() / 1000);
+    const entryIdx = nearestBarIndex(bars, entryEpoch);
+    const exitIdx = nearestBarIndex(bars, exitEpoch);
+    const tradePadBars = Math.max(5, Math.round((Math.abs(exitIdx - entryIdx) + 1) * 0.5));
+    const defaultFrom = Math.max(-0.5, Math.min(entryIdx, exitIdx) - tradePadBars - 0.5);
+    const defaultTo = Math.min(bars.length - 0.5, Math.max(entryIdx, exitIdx) + tradePadBars + 0.5);
     const fitAllBars = () => {
-      chart.timeScale().setVisibleLogicalRange({ from: -0.5, to: bars.length - 0.5 });
+      chart.timeScale().setVisibleLogicalRange({ from: defaultFrom, to: defaultTo });
     };
     // Calling this synchronously during the mount effect is unreliable —
     // the container hasn't necessarily been through a layout/paint pass yet
