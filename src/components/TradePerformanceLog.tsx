@@ -816,7 +816,7 @@ export function TradePerformanceLog({ trades, title, subtitle }: TradePerformanc
             className="absolute inset-0 bg-background/80 backdrop-blur-sm"
             onClick={() => setSelectedId(null)}
           />
-          <Card className="relative w-full max-w-[1600px] h-full rounded-none border-l border-border shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
+          <Card className="relative w-full h-full rounded-none border-l border-border shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
             <div className="p-8 border-b border-border flex items-center justify-between">
               <div>
                 <div className="flex items-center space-x-3 mb-1">
