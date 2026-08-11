@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, ReactNode, useEffect, useMemo } from 'react';
-import { Trade, ReconstructionStep, BrokerAccount } from '../types';
+import { Trade, ReconstructionStep, BrokerAccount, TradeIntent } from '../types';
 import { db, auth } from '../firebase';
 import { collection, query, where, onSnapshot, orderBy, addDoc, serverTimestamp, writeBatch, doc, deleteDoc, getDocFromServer } from 'firebase/firestore';
 import { useAuth } from './AuthContext';
@@ -112,7 +112,7 @@ interface TradeContextType {
   addTrades: (trades: Trade[], steps?: ReconstructionStep[]) => Promise<void>;
   deleteTrade: (tradeId: string) => Promise<void>;
   deleteTrades: (tradeIds: string[]) => Promise<void>;
-  logTradeIntent: (symbol: string, checklist: any, isOverride: boolean) => Promise<void>;
+  logTradeIntent: (symbol: string, checklist: TradeIntent['checklist'], isOverride: boolean) => Promise<void>;
   clearTrades: () => void;
   isLiveSyncing: boolean;
   selectedTradeForJournal: Trade | null;
@@ -426,7 +426,7 @@ export function TradeProvider({ children }: { children: ReactNode }) {
     await deleteTrades([tradeId]);
   };
 
-  const logTradeIntent = async (symbol: string, checklist: any, isOverride: boolean) => {
+  const logTradeIntent = async (symbol: string, checklist: TradeIntent['checklist'], isOverride: boolean) => {
     if (!user) return;
     try {
       const isValidSetup = Object.values(checklist).every(v => v === true);

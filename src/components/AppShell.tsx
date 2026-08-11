@@ -13,13 +13,15 @@ import {
   ChevronLeft,
   ChevronRight,
   Menu,
-  Zap
+  Zap,
+  ClipboardCheck
 } from 'lucide-react';
 import { cn } from '@/src/utils';
 import { Role } from '@/src/types';
 import { useTheme } from './ThemeProvider';
 import { Sun, Moon, Bell, User } from 'lucide-react';
-import { Toast } from './Shared';
+import { Toast, Button } from './Shared';
+import { LogIntentModal } from './LogIntentModal';
 
 const navItems = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: ['Admin', 'Mentor', 'Student', 'Viewer'] },
@@ -57,6 +59,7 @@ export function AppShell({
   const [isSidebarOpen, setIsSidebarOpen] = React.useState(true);
   const { theme, toggleTheme } = useTheme();
   const [toast, setToast] = React.useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [isLogIntentOpen, setIsLogIntentOpen] = React.useState(false);
   const { filters, setFilters, filterOptions, accountOptions, accountFilter, setAccountFilter } = useTrades();
   const showTradeControls = TRADE_SCOPED_PAGES.includes(activePage);
 
@@ -144,6 +147,14 @@ export function AppShell({
             )}
             <GlobalDateRangePicker />
 
+            {/* Global, not tied to any one screen — a trader needs to log a
+                setup within 5 minutes of entry (see the matching window in
+                SessionBuilder.ts) regardless of what page they're on when
+                they're about to place the trade. */}
+            <Button variant="primary" size="sm" icon={ClipboardCheck} onClick={() => setIsLogIntentOpen(true)}>
+              Log Setup
+            </Button>
+
             <button
               onClick={toggleTheme}
               className="w-10 h-10 rounded-xl border border-border flex items-center justify-center hover:bg-accent transition-colors"
@@ -174,13 +185,22 @@ export function AppShell({
 
         {/* Toast Notification */}
         {toast && (
-          <Toast 
-            message={toast.message} 
-            type={toast.type} 
-            onClose={() => setToast(null)} 
+          <Toast
+            message={toast.message}
+            type={toast.type}
+            onClose={() => setToast(null)}
           />
         )}
       </main>
+
+      <LogIntentModal
+        isOpen={isLogIntentOpen}
+        onClose={() => setIsLogIntentOpen(false)}
+        onSuccess={() => {
+          setIsLogIntentOpen(false);
+          setToast({ message: 'Setup logged — it will auto-match to your next trade on that symbol.', type: 'success' });
+        }}
+      />
     </div>
   );
 }

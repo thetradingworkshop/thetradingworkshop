@@ -96,10 +96,19 @@ export default function SessionDetailScreen() {
     if (!user) return;
     const loadIntents = async () => {
       try {
-        const startOfDay = new Date(sessionDateStr);
-        startOfDay.setHours(0, 0, 0, 0);
-        const endOfDay = new Date(sessionDateStr);
-        endOfDay.setHours(23, 59, 59, 999);
+        // `new Date(sessionDateStr)` parses the plain "yyyy-MM-dd" string as
+        // UTC midnight, but `.setHours()` then mutates it using *local* time
+        // components — in any timezone behind UTC, that silently shifts the
+        // whole window a day early (e.g. in EDT, "2026-08-10" ends up
+        // covering 2026-08-09T04:00Z..2026-08-10T03:59Z instead of the
+        // intended 2026-08-10 local day), so an intent logged in the
+        // evening — already the next UTC day — would fall outside this
+        // query and never get matched to its trade. Building the boundary
+        // Dates from local y/m/d components directly avoids the UTC-parse
+        // step entirely, so there's no timezone to get out of sync.
+        const [sessionYear, sessionMonth, sessionDay] = sessionDateStr.split('-').map(Number);
+        const startOfDay = new Date(sessionYear, sessionMonth - 1, sessionDay, 0, 0, 0, 0);
+        const endOfDay = new Date(sessionYear, sessionMonth - 1, sessionDay, 23, 59, 59, 999);
 
         const q = query(
           collection(db, 'trade_intents'),
