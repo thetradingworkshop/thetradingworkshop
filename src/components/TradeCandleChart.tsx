@@ -12,6 +12,7 @@ import {
   HistogramData,
   SeriesMarker,
   Time,
+  WhitespaceData,
 } from 'lightweight-charts';
 import { Pencil, Waves, Square, Percent, Type, Eraser, Settings2, Settings, Trash2, Minus, SeparatorVertical, ArrowUpRight, Ruler, CalendarRange, TrendingUp, TrendingDown, Maximize2, Minimize2, Camera, ChevronDown, X as XIcon, History, SkipBack, SkipForward, Play, Pause } from 'lucide-react';
 import { Trade, ChartDrawing, DrawingTemplate, DrawingTemplateStyle, ChartSettings } from '../types';
@@ -305,16 +306,59 @@ function nearestBarIndex(bars: Bar[], epochSeconds: number): number {
   return closestIdx;
 }
 
+// How many bars' worth of empty space past the last real candle to make
+// drawable — lightweight-charts only resolves timeScale().coordinateToTime()
+// / candleSeries.coordinateToPrice() for x/y positions that fall within its
+// own known time-point index, so without registering *some* future time
+// points, clicking or dragging past the last bar silently returns null and
+// drawing there does nothing. FUTURE_WHITESPACE_BARS is registered (so
+// panning/zooming a bit further right than the default view still works);
+// RIGHT_MARGIN_BARS is how much of that is actually shown by default.
+const FUTURE_WHITESPACE_BARS = 60;
+const RIGHT_MARGIN_BARS = 15;
+
+// Robust against the occasional overnight/weekend gap in daily+ data, which
+// would otherwise make a naive "last two bars' diff" wildly overestimate the
+// spacing and place the whitespace absurdly far into the future.
+function typicalBarSpacing(bars: Bar[]): number {
+  if (bars.length < 2) return 60; // arbitrary (1 minute) fallback — only matters when there's nothing to space against anyway
+  const diffs: number[] = [];
+  for (let i = 1; i < bars.length; i++) {
+    const d = bars[i].time - bars[i - 1].time;
+    if (d > 0) diffs.push(d);
+  }
+  if (diffs.length === 0) return 60;
+  diffs.sort((a, b) => a - b);
+  return diffs[Math.floor(diffs.length / 2)]; // median
+}
+
+// Time-only points with no OHLC — lightweight-charts renders nothing for
+// these, but registers their time with the chart's shared time scale, which
+// is what actually makes the empty margin past the last candle clickable.
+function futureWhitespace(bars: Bar[], count: number): WhitespaceData[] {
+  if (bars.length === 0) return [];
+  const spacing = typicalBarSpacing(bars);
+  const lastTime = bars[bars.length - 1].time;
+  return Array.from({ length: count }, (_, i) => ({ time: (lastTime + spacing * (i + 1)) as UTCTimestamp }));
+}
+
 // Shared by the initial chart build and every bar-replay step so both stay
 // in sync on exactly how a Bar becomes chart data.
-function toSeriesData(bars: Bar[]): { candleData: CandlestickData[]; volumeData: HistogramData[] } {
+function toSeriesData(bars: Bar[]): { candleData: (CandlestickData | WhitespaceData)[]; volumeData: (HistogramData | WhitespaceData)[] } {
+  const whitespace = futureWhitespace(bars, FUTURE_WHITESPACE_BARS);
   return {
-    candleData: bars.map(b => ({ time: b.time as UTCTimestamp, open: b.open, high: b.high, low: b.low, close: b.close })),
-    volumeData: bars.map(b => ({
-      time: b.time as UTCTimestamp,
-      value: b.volume,
-      color: b.close >= b.open ? 'rgba(16,185,129,0.4)' : 'rgba(244,63,94,0.4)',
-    })),
+    candleData: [
+      ...bars.map(b => ({ time: b.time as UTCTimestamp, open: b.open, high: b.high, low: b.low, close: b.close })),
+      ...whitespace,
+    ],
+    volumeData: [
+      ...bars.map(b => ({
+        time: b.time as UTCTimestamp,
+        value: b.volume,
+        color: b.close >= b.open ? 'rgba(16,185,129,0.4)' : 'rgba(244,63,94,0.4)',
+      })),
+      ...whitespace,
+    ],
   };
 }
 
@@ -1606,7 +1650,11 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
     const minIdx = nearestBarIndex(bars, minEpoch - padSeconds);
     const maxIdx = nearestBarIndex(bars, maxEpoch + padSeconds);
     const defaultFrom = Math.max(-0.5, Math.min(minIdx, maxIdx) - 0.5);
-    const defaultTo = Math.min(bars.length - 0.5, Math.max(minIdx, maxIdx) + 0.5);
+    // Beyond the real data, add a fixed extra margin so the whitespace
+    // registered above (see FUTURE_WHITESPACE_BARS/toSeriesData) is actually
+    // visible by default rather than requiring the user to scroll into it
+    // blind before they can draw there.
+    const defaultTo = Math.min(bars.length - 0.5, Math.max(minIdx, maxIdx) + 0.5) + RIGHT_MARGIN_BARS;
     const fitAllBars = () => {
       chart.timeScale().setVisibleLogicalRange({ from: defaultFrom, to: defaultTo });
     };
