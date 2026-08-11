@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { cn } from '@/src/utils';
 import { SectionHeader, Card, Badge, Button, Input, Modal, Table, TableHeader, TableRow, TableHead, TableCell, Toast } from '../components/Shared';
-import { Rocket, Plus, TrendingUp, TrendingDown, Activity, Award, MoreVertical, Trash2, Archive, ArchiveRestore, X } from 'lucide-react';
+import { DictationTextarea } from '../components/DictationTextarea';
+import { Rocket, Plus, TrendingUp, TrendingDown, Activity, Award, MoreVertical, Trash2, Archive, ArchiveRestore, Pencil, X } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useTrades } from '../context/TradeContext';
 import { subscribeStrategies, createStrategy, updateStrategy, deleteStrategy } from '../lib/strategies';
@@ -93,13 +94,28 @@ function emptyDraftCategories(): DraftCategory[] {
   return [{ id: newId(), name: '', rules: [{ id: newId(), text: '', showWhen: 'always' }] }];
 }
 
+// Reconstructs editable draft state from an existing strategy's saved
+// categories/rules — reusing the exact same ids so editing rule text
+// doesn't orphan any past trade's already-recorded strategyChecklist
+// (which keys off these ids, not array position).
+function draftFromStrategy(s: Strategy): DraftCategory[] {
+  if (s.categories.length === 0) return emptyDraftCategories();
+  return s.categories.map(c => ({
+    id: c.id,
+    name: c.name,
+    rules: c.rules.length ? c.rules.map(r => ({ id: r.id, text: r.text, showWhen: r.showWhen ?? 'always' })) : [{ id: newId(), text: '', showWhen: 'always' as RuleShowWhen }],
+  }));
+}
+
 export default function StrategiesScreen() {
   const { user } = useAuth();
   const { trades } = useTrades();
   const [strategies, setStrategies] = useState<Strategy[]>([]);
   const [subTab, setSubTab] = useState<SubTab>('mine');
   const [statusFilter, setStatusFilter] = useState<'active' | 'archived'>('active');
-  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  // null = closed, 'new' = Create Strategy modal, a Strategy = editing that
+  // one (the form modal is shared between both — see StrategyFormModal).
+  const [formTarget, setFormTarget] = useState<'new' | Strategy | null>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
@@ -131,8 +147,8 @@ export default function StrategiesScreen() {
     ? withTrades.reduce((a, b) => ((statsById.get(b.id)?.winRate ?? 0) > (statsById.get(a.id)?.winRate ?? 0) ? b : a))
     : null;
 
-  const handleCreate = async (name: string, icon: string, categories: DraftCategory[]) => {
-    if (!user) return;
+  const handleSubmitForm = async (name: string, icon: string, description: string, categories: DraftCategory[]) => {
+    if (!user || !formTarget) return;
     const cleanCategories: StrategyCategory[] = categories
       .filter(c => c.name.trim())
       .map(c => ({
@@ -141,12 +157,17 @@ export default function StrategiesScreen() {
         rules: c.rules.filter(r => r.text.trim()).map(r => ({ id: r.id, text: r.text.trim(), ...(r.showWhen !== 'always' ? { showWhen: r.showWhen } : {}) })),
       }));
     try {
-      await createStrategy(user.uid, name.trim(), icon.trim() || undefined, cleanCategories);
-      setIsCreateOpen(false);
-      setToast({ message: 'Strategy created', type: 'success' });
+      if (formTarget === 'new') {
+        await createStrategy(user.uid, name.trim(), icon.trim() || undefined, description.trim() || undefined, cleanCategories);
+        setToast({ message: 'Strategy created', type: 'success' });
+      } else {
+        await updateStrategy(formTarget.id, { name: name.trim(), icon: icon.trim(), description: description.trim(), categories: cleanCategories });
+        setToast({ message: 'Strategy updated', type: 'success' });
+      }
+      setFormTarget(null);
     } catch (err) {
-      console.error('Failed to create strategy:', err);
-      setToast({ message: 'Failed to create strategy', type: 'error' });
+      console.error('Failed to save strategy:', err);
+      setToast({ message: formTarget === 'new' ? 'Failed to create strategy' : 'Failed to update strategy', type: 'error' });
     } finally {
       setTimeout(() => setToast(null), 3000);
     }
@@ -183,7 +204,7 @@ export default function StrategiesScreen() {
         title="Strategies"
         subtitle="Reusable playbooks — define your entry/exit criteria once, then check off how much of it you actually followed on each trade."
         rightElement={
-          subTab === 'mine' ? <Button variant="primary" icon={Plus} onClick={() => setIsCreateOpen(true)}>Create Strategy</Button> : undefined
+          subTab === 'mine' ? <Button variant="primary" icon={Plus} onClick={() => setFormTarget('new')}>Create Strategy</Button> : undefined
         }
       />
 
@@ -263,6 +284,7 @@ export default function StrategiesScreen() {
                           <span>{s.icon || '📈'}</span>
                           {s.name}
                         </div>
+                        {s.description && <div className="text-xs text-muted-foreground mt-0.5 max-w-xs truncate">{s.description}</div>}
                         <div className="text-[11px] text-muted-foreground mt-0.5">{s.categories.length} categories · {ruleCount} rules</div>
                       </TableCell>
                       <TableCell className="text-right text-rose-500 font-medium">{stats.trades ? fmtMoney(stats.avgLoser) : '$0'}</TableCell>
@@ -286,6 +308,13 @@ export default function StrategiesScreen() {
                         </button>
                         {openMenuId === s.id && (
                           <div className="absolute right-4 top-10 z-20 w-44 rounded-xl border border-border bg-card shadow-lg overflow-hidden">
+                            <button
+                              onClick={() => { setOpenMenuId(null); setFormTarget(s); }}
+                              className="w-full flex items-center gap-2 px-3 py-2.5 text-xs font-bold text-left hover:bg-accent transition-colors"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                              Edit
+                            </button>
                             <button
                               onClick={() => toggleArchive(s)}
                               className="w-full flex items-center gap-2 px-3 py-2.5 text-xs font-bold text-left hover:bg-accent transition-colors"
@@ -312,7 +341,7 @@ export default function StrategiesScreen() {
         </>
       )}
 
-      <CreateStrategyModal isOpen={isCreateOpen} onClose={() => setIsCreateOpen(false)} onCreate={handleCreate} />
+      <StrategyFormModal target={formTarget} onClose={() => setFormTarget(null)} onSubmit={handleSubmitForm} />
 
       <Modal
         isOpen={pendingDeleteId !== null}
@@ -363,23 +392,35 @@ function SummaryCard({ icon: Icon, iconClass, label, strategy, stat, detail }: {
   );
 }
 
-function CreateStrategyModal({ isOpen, onClose, onCreate }: {
-  isOpen: boolean;
+function StrategyFormModal({ target, onClose, onSubmit }: {
+  target: 'new' | Strategy | null;
   onClose: () => void;
-  onCreate: (name: string, icon: string, categories: DraftCategory[]) => void;
+  onSubmit: (name: string, icon: string, description: string, categories: DraftCategory[]) => void;
 }) {
   const [name, setName] = useState('');
   const [icon, setIcon] = useState('');
+  const [description, setDescription] = useState('');
   const [categories, setCategories] = useState<DraftCategory[]>(emptyDraftCategories());
   const [error, setError] = useState<string | null>(null);
+  const isEditing = target !== null && target !== 'new';
 
-  const reset = () => {
-    setName('');
-    setIcon('');
-    setCategories(emptyDraftCategories());
+  // Re-seed whenever what's being edited changes — covers both "just
+  // opened" (target flips from null) and switching straight from editing
+  // one strategy to another without the modal fully closing in between.
+  useEffect(() => {
+    if (target === 'new') {
+      setName('');
+      setIcon('');
+      setDescription('');
+      setCategories(emptyDraftCategories());
+    } else if (target) {
+      setName(target.name);
+      setIcon(target.icon ?? '');
+      setDescription(target.description ?? '');
+      setCategories(draftFromStrategy(target));
+    }
     setError(null);
-  };
-  const handleClose = () => { reset(); onClose(); };
+  }, [target]);
 
   const addCategory = () => setCategories(prev => [...prev, { id: newId(), name: '', rules: [{ id: newId(), text: '', showWhen: 'always' as RuleShowWhen }] }]);
   const removeCategory = (id: string) => setCategories(prev => prev.filter(c => c.id !== id));
@@ -393,12 +434,11 @@ function CreateStrategyModal({ isOpen, onClose, onCreate }: {
     if (!name.trim()) { setError('Give this strategy a name.'); return; }
     const hasAnyRule = categories.some(c => c.name.trim() && c.rules.some(r => r.text.trim()));
     if (!hasAnyRule) { setError('Add at least one category with one rule.'); return; }
-    onCreate(name, icon, categories);
-    reset();
+    onSubmit(name, icon, description, categories);
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={handleClose} title="Create Strategy" maxWidth="lg">
+    <Modal isOpen={target !== null} onClose={onClose} title={isEditing ? 'Edit Strategy' : 'Create Strategy'} maxWidth="lg">
       <div className="space-y-5">
         <div className="grid grid-cols-[1fr_100px] gap-4">
           <div className="space-y-2">
@@ -409,6 +449,18 @@ function CreateStrategyModal({ isOpen, onClose, onCreate }: {
             <label className="text-xs font-bold uppercase text-muted-foreground">Icon</label>
             <Input value={icon} onChange={(e) => setIcon(e.target.value)} placeholder="📈" maxLength={2} />
           </div>
+        </div>
+
+        <div className="space-y-2">
+          <label className="text-xs font-bold uppercase text-muted-foreground">
+            Description <span className="normal-case text-muted-foreground/70">(optional)</span>
+          </label>
+          <DictationTextarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="What is this strategy, and when do you use it?"
+            className="w-full h-20 p-3 bg-accent/30 border border-border rounded-xl text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/20"
+          />
         </div>
 
         <div className="space-y-4 max-h-[420px] overflow-y-auto pr-1">
@@ -462,8 +514,8 @@ function CreateStrategyModal({ isOpen, onClose, onCreate }: {
         {error && <p className="text-xs text-rose-500">{error}</p>}
 
         <div className="flex justify-end space-x-3 pt-2">
-          <Button variant="outline" onClick={handleClose}>Cancel</Button>
-          <Button variant="primary" icon={Rocket} onClick={handleSubmit}>Create Strategy</Button>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button variant="primary" icon={Rocket} onClick={handleSubmit}>{isEditing ? 'Save Changes' : 'Create Strategy'}</Button>
         </div>
       </div>
     </Modal>

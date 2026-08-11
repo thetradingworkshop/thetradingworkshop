@@ -464,6 +464,7 @@ export interface Strategy {
   id: string;
   userId: string;
   name: string;
+  description?: string; // a brief freeform note on what the strategy is/when to use it
   icon?: string; // a single emoji, optional
   status: 'active' | 'archived';
   categories: StrategyCategory[];

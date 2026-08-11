@@ -26,12 +26,13 @@ export function subscribeStrategies(userId: string, onChange: (strategies: Strat
   });
 }
 
-export async function createStrategy(userId: string, name: string, icon: string | undefined, categories: StrategyCategory[]): Promise<string> {
+export async function createStrategy(userId: string, name: string, icon: string | undefined, description: string | undefined, categories: StrategyCategory[]): Promise<string> {
   const now = new Date().toISOString();
   const docRef = await addDoc(collection(db, 'strategies'), {
     userId,
     name,
     ...(icon ? { icon } : {}),
+    ...(description ? { description } : {}),
     status: 'active' as const,
     categories,
     createdAt: now,
@@ -41,7 +42,12 @@ export async function createStrategy(userId: string, name: string, icon: string 
   return docRef.id;
 }
 
-export async function updateStrategy(id: string, patch: Partial<Pick<Strategy, 'name' | 'icon' | 'status' | 'categories'>>): Promise<void> {
+// Always pass icon/description as plain strings (possibly empty), never
+// undefined — Firestore's client SDK rejects a literal `undefined` value
+// outright, and unlike createStrategy's conditional spread (which omits
+// the field to keep new documents free of empty-string clutter), an edit
+// needs to be able to explicitly clear a field the strategy already has.
+export async function updateStrategy(id: string, patch: Partial<Pick<Strategy, 'name' | 'icon' | 'description' | 'status' | 'categories'>>): Promise<void> {
   await updateDoc(doc(db, 'strategies', id), { ...patch, updatedAt: new Date().toISOString() });
 }
 

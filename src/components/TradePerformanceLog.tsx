@@ -1460,6 +1460,7 @@ function StrategyTabContent({ trade, strategies, onAssign, onChecklistChange }: 
             <span className="text-lg">{assigned.icon || '📈'}</span>
             <span className="font-bold text-foreground">{assigned.name}</span>
           </div>
+          {assigned.description && <p className="text-xs text-muted-foreground mt-1 max-w-sm">{assigned.description}</p>}
           <p className="text-xs text-muted-foreground mt-1">{checkedCount} of {allRuleIds.length} rules followed</p>
         </div>
         <div className="flex flex-col items-end gap-1.5">
