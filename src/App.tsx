@@ -75,7 +75,7 @@ function AppContent() {
       case 'sessions':
         return <SessionDetailScreen />;
       case 'dayview':
-        return <DayViewScreen />;
+        return <DayViewScreen setActivePage={setActivePage} />;
       case 'trades':
         return <TradesScreen />;
       case 'journal':

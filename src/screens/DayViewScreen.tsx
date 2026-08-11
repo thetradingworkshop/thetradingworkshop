@@ -1,19 +1,26 @@
-import React, { useMemo, useState } from 'react';
-import { format, startOfWeek, endOfWeek, isWithinInterval } from 'date-fns';
+import React, { useEffect, useMemo, useState } from 'react';
+import { format, startOfWeek, endOfWeek, endOfDay, isWithinInterval, startOfDay } from 'date-fns';
 import { cn } from '@/src/utils';
 import { SectionHeader, Card, Badge } from '../components/Shared';
-import { ChevronDown, CalendarDays } from 'lucide-react';
+import { ChevronDown, CalendarDays, NotebookPen } from 'lucide-react';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { db } from '../firebase';
 import { useTrades } from '../context/TradeContext';
 import { useDateRange } from '../context/DateContext';
+import { useAuth } from '../context/AuthContext';
 import { SessionBuilder } from '../services/SessionBuilder';
 import { DayEquitySparkline } from '../components/DayEquitySparkline';
+import { DayViewCalendarRail } from '../components/DayViewCalendarRail';
 import { Trade, Session } from '../types';
 
 // Phase 1 of the Day View build (see the "Day View Teardown" reference) —
 // a scrollable feed of collapsible per-day cards, plus a Day/Week toggle.
-// Deliberately not yet wired up: the note button, the calendar rail,
-// session replay, and "Review with Zella AI" — later phases, each with
-// their own real backend/data work, not stubbed here.
+// Phase 2 adds the calendar rail (independent month navigation, reusing
+// analyticsService's buildCalendarDays) and the per-day "Add/View note"
+// button, which reuses JournalScreen's own note find-or-create logic via
+// TradeContext's selectedSessionForJournal — no note-authoring logic is
+// duplicated here. Still not wired up: session replay and "Review with
+// Zella AI" — later phases, each with their own real backend work.
 
 type Mode = 'day' | 'week';
 
@@ -92,12 +99,44 @@ function buildWeekGroups(trades: Trade[]): FeedGroup[] {
 
 const fmtMoney = (v: number) => `${v < 0 ? '-' : '+'}$${Math.abs(v).toFixed(2)}`;
 
-export default function DayViewScreen() {
-  const { filteredTrades } = useTrades();
-  const { getEffectiveRange } = useDateRange();
+interface DayViewScreenProps {
+  setActivePage: (id: string) => void;
+}
+
+export default function DayViewScreen({ setActivePage }: DayViewScreenProps) {
+  const { trades, filteredTrades, setSelectedSessionForJournal } = useTrades();
+  const { user } = useAuth();
+  const { getEffectiveRange, setPageOverride } = useDateRange();
   const effectiveRange = getEffectiveRange('dayview');
   const [mode, setMode] = useState<Mode>('day');
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [selectedDateKey, setSelectedDateKey] = useState<string | null>(null);
+
+  // Daily Journal entries, scoped to this user only (matching JournalScreen's
+  // own subscription) — used only to know *which* days already have a note,
+  // never to render note content here. Kept as a plain id set so the
+  // calendar rail's per-cell check and the feed card's per-card check are
+  // both a single membership lookup, no re-querying per day.
+  const [noteSessionIds, setNoteSessionIds] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    if (!user) return;
+    const unsubscribe = onSnapshot(
+      query(collection(db, 'journals'), where('userId', '==', user.uid)),
+      (snapshot) => {
+        const ids = new Set<string>();
+        snapshot.docs.forEach(d => {
+          const data: any = d.data();
+          // Same "Daily Journal" bucket JournalScreen's categoryOf() uses:
+          // not a trade note, not a multi-day session recap.
+          if (!data.tradeId && data.noteType !== 'session_recap' && data.sessionId) {
+            ids.add(data.sessionId);
+          }
+        });
+        setNoteSessionIds(ids);
+      }
+    );
+    return () => unsubscribe();
+  }, [user]);
 
   const rangedTrades = useMemo(
     () => filteredTrades.filter(t => isWithinInterval(new Date(t.entryTime), { start: effectiveRange.from, end: effectiveRange.to })),
@@ -117,6 +156,22 @@ export default function DayViewScreen() {
     });
   };
 
+  const handleSelectCalendarDay = (date: Date) => {
+    const key = format(date, 'yyyy-MM-dd');
+    setSelectedDateKey(key);
+    setPageOverride('dayview', { from: startOfDay(date), to: endOfDay(date), label: format(date, 'MMM d, yyyy') });
+    setMode('day');
+  };
+  const clearCalendarSelection = () => {
+    setSelectedDateKey(null);
+    setPageOverride('dayview', null);
+  };
+
+  const openNote = (group: FeedGroup) => {
+    setSelectedSessionForJournal({ sessionId: group.session.id, sessionDate: group.session.sessionDate });
+    setActivePage('journal');
+  };
+
   return (
     <div className="space-y-6 pb-20">
       <SectionHeader
@@ -124,38 +179,73 @@ export default function DayViewScreen() {
         subtitle="Every trading day (or week) as its own card — equity curve, stats, and the trades behind them, without opening one session at a time."
       />
 
-      <div className="flex items-center gap-1 w-fit p-1 rounded-xl bg-accent/30 border border-border">
-        {(['day', 'week'] as const).map(m => (
-          <button
-            key={m}
-            onClick={() => setMode(m)}
-            className={cn(
-              "px-4 py-1.5 rounded-lg text-xs font-bold capitalize transition-colors",
-              mode === m ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent"
-            )}
-          >
-            {m}
-          </button>
-        ))}
-      </div>
-
-      {groups.length === 0 ? (
-        <Card className="text-center py-16">
-          <CalendarDays className="w-8 h-8 text-muted-foreground/40 mx-auto mb-3" />
-          <p className="text-sm text-muted-foreground italic">No trades in {effectiveRange.label.toLowerCase()}.</p>
-        </Card>
-      ) : (
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-6 items-start">
         <div className="space-y-4">
-          {groups.map(g => (
-            <DayCard key={g.key} group={g} expanded={!collapsed.has(g.key)} onToggle={() => toggle(g.key)} />
-          ))}
+          <div className="flex items-center gap-1 w-fit p-1 rounded-xl bg-accent/30 border border-border">
+            {(['day', 'week'] as const).map(m => (
+              <button
+                key={m}
+                onClick={() => setMode(m)}
+                className={cn(
+                  "px-4 py-1.5 rounded-lg text-xs font-bold capitalize transition-colors",
+                  mode === m ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent"
+                )}
+              >
+                {m}
+              </button>
+            ))}
+          </div>
+
+          {groups.length === 0 ? (
+            <Card className="text-center py-16">
+              <CalendarDays className="w-8 h-8 text-muted-foreground/40 mx-auto mb-3" />
+              <p className="text-sm text-muted-foreground italic">No trades in {effectiveRange.label.toLowerCase()}.</p>
+            </Card>
+          ) : (
+            <div className="space-y-4">
+              {groups.map(g => (
+                <DayCard
+                  key={g.key}
+                  group={g}
+                  expanded={!collapsed.has(g.key)}
+                  onToggle={() => toggle(g.key)}
+                  showNoteButton={mode === 'day'}
+                  hasNote={noteSessionIds.has(g.session.id)}
+                  onNote={() => openNote(g)}
+                />
+              ))}
+            </div>
+          )}
         </div>
-      )}
+
+        <DayViewCalendarRail
+          trades={trades}
+          userId={user?.uid ?? ''}
+          noteSessionIds={noteSessionIds}
+          selectedDateKey={selectedDateKey}
+          onSelectDay={handleSelectCalendarDay}
+          onClearSelection={clearCalendarSelection}
+        />
+      </div>
     </div>
   );
 }
 
-function DayCard({ group, expanded, onToggle }: { group: FeedGroup; expanded: boolean; onToggle: () => void }) {
+function DayCard({
+  group,
+  expanded,
+  onToggle,
+  showNoteButton,
+  hasNote,
+  onNote,
+}: {
+  group: FeedGroup;
+  expanded: boolean;
+  onToggle: () => void;
+  showNoteButton: boolean;
+  hasNote: boolean;
+  onNote: () => void;
+}) {
   const { session, trades } = group;
   const isUp = session.netPnl >= 0;
 
@@ -172,17 +262,32 @@ function DayCard({ group, expanded, onToggle }: { group: FeedGroup; expanded: bo
 
   return (
     <Card noPadding>
-      <button
-        onClick={onToggle}
-        className="w-full flex items-center gap-3 px-6 py-4 text-left hover:bg-accent/20 transition-colors"
-      >
-        <ChevronDown className={cn("w-4 h-4 text-muted-foreground transition-transform shrink-0", !expanded && "-rotate-90")} />
-        <span className="font-bold text-foreground">{group.label}</span>
-        <Badge variant={isUp ? 'positive' : 'negative'} className="ml-1">
-          Net P&L {fmtMoney(session.netPnl)}
-        </Badge>
-        <span className="ml-auto text-xs text-muted-foreground">{session.totalTrades} trade{session.totalTrades === 1 ? '' : 's'}</span>
-      </button>
+      <div className="w-full flex items-center gap-3 px-6 py-4 hover:bg-accent/20 transition-colors">
+        <button onClick={onToggle} className="flex items-center gap-3 flex-1 min-w-0 text-left">
+          <ChevronDown className={cn("w-4 h-4 text-muted-foreground transition-transform shrink-0", !expanded && "-rotate-90")} />
+          <span className="font-bold text-foreground">{group.label}</span>
+          <Badge variant={isUp ? 'positive' : 'negative'} className="ml-1">
+            Net P&L {fmtMoney(session.netPnl)}
+          </Badge>
+        </button>
+        <div className="flex items-center gap-3 shrink-0">
+          {showNoteButton && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onNote(); }}
+              className={cn(
+                "flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold border transition-colors",
+                hasNote
+                  ? "border-primary/40 text-primary bg-primary/5 hover:bg-primary/10"
+                  : "border-border text-muted-foreground hover:bg-accent"
+              )}
+            >
+              <NotebookPen className="w-3.5 h-3.5" />
+              {hasNote ? 'View note' : 'Add note'}
+            </button>
+          )}
+          <span className="text-xs text-muted-foreground">{session.totalTrades} trade{session.totalTrades === 1 ? '' : 's'}</span>
+        </div>
+      </div>
 
       {expanded && (
         <div className="px-6 pb-6 pt-2 border-t border-border/60 space-y-5">

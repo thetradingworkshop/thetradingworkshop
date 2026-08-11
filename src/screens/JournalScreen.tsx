@@ -256,8 +256,15 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
   }, [user]);
 
   // Trade note: open the existing note for this trade, or start a new one pre-filled from it.
+  // Gated on `!isLoading` (and re-runs on `journals`) because this screen
+  // can mount fresh off a cross-screen navigation (e.g. Day View's note
+  // button) with `selectedTradeForJournal` already set from the previous
+  // screen — at that first render `journals` is still its initial `[]`,
+  // since the onSnapshot subscription below hasn't resolved yet. Without
+  // this gate, the match against an empty array always misses and creates
+  // a duplicate blank draft instead of opening the trader's real note.
   useEffect(() => {
-    if (!selectedTradeForJournal) return;
+    if (!selectedTradeForJournal || isLoading) return;
     const trade: any = selectedTradeForJournal;
     const existing = journals.find(j => j.tradeId === trade.id);
     if (existing) {
@@ -272,11 +279,14 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
       }));
     }
     setSelectedTradeForJournal(null);
-  }, [selectedTradeForJournal]);
+  }, [selectedTradeForJournal, isLoading, journals]);
 
-  // Daily journal: open the existing entry for this session/day, or start a new one.
+  // Daily journal: open the existing entry for this session/day, or start a
+  // new one. Same `!isLoading` gate as the trade-note effect above, and for
+  // the same reason — Day View's "View note" button navigates here with
+  // `selectedSessionForJournal` already set before `journals` has loaded.
   useEffect(() => {
-    if (!selectedSessionForJournal) return;
+    if (!selectedSessionForJournal || isLoading) return;
     const { sessionId, sessionDate } = selectedSessionForJournal;
     const existing = journals.find(j => j.sessionId === sessionId && !j.tradeId);
     if (existing) {
@@ -290,7 +300,7 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
       }));
     }
     setSelectedSessionForJournal(null);
-  }, [selectedSessionForJournal]);
+  }, [selectedSessionForJournal, isLoading, journals]);
 
   const openNew = () => setDraft(emptyDraft());
   const openEdit = () => selectedJournal && setDraft({ ...selectedJournal });
