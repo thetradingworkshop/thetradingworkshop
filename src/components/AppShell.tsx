@@ -14,7 +14,8 @@ import {
   ChevronRight,
   Menu,
   Zap,
-  ClipboardCheck
+  ClipboardCheck,
+  Rocket
 } from 'lucide-react';
 import { cn } from '@/src/utils';
 import { Role } from '@/src/types';
@@ -31,6 +32,7 @@ const navItems = [
   { id: 'trades', label: 'Trades', icon: BarChart3, roles: ['Admin', 'Mentor', 'Student'] },
   { id: 'journal', label: 'Journal', icon: BookOpen, roles: ['Admin', 'Mentor', 'Student'] },
   { id: 'range', label: 'Range Analysis', icon: Target, roles: ['Admin', 'Mentor', 'Student'] },
+  { id: 'strategies', label: 'Strategies', icon: Rocket, roles: ['Admin', 'Mentor', 'Student'] },
   { id: 'mentor', label: 'Mentor', icon: Users, roles: ['Admin', 'Mentor'] },
   { id: 'reports', label: 'Weekly Reports', icon: FileText, roles: ['Admin', 'Mentor', 'Student'] },
   { id: 'settings', label: 'Settings', icon: Settings, roles: ['Admin', 'Mentor', 'Student'] },

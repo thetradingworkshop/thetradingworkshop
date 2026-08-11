@@ -419,9 +419,57 @@ export interface TradeReview {
   bestExitTime?: string;
   reviewed?: boolean;
   drawings?: ChartDrawing[];
+
+  // Which reusable Strategy (see below) this trade is tagged with, and
+  // which of *that* strategy's individual rules were actually followed on
+  // this specific trade — keyed by StrategyRule.id, not by index, so
+  // editing a strategy's rule list later doesn't silently misalign
+  // already-recorded checklists on past trades. `strategy` (the plain-text
+  // field above) is a separate, older, freeform field kept for backward
+  // compatibility — applying a strategyId also mirrors its name into
+  // `strategy` so existing freeform display/aggregation isn't broken, but
+  // the two are otherwise independent.
+  strategyId?: string;
+  strategyChecklist?: Record<string, boolean>;
 }
 
 export type Trade = TradeTruth & TradeDerivedMetrics & TradeReview;
+
+// A single checkable criterion within a strategy, e.g. "Clear shift
+// (Displacement) in pre-determined area".
+export interface StrategyRule {
+  id: string;
+  text: string;
+  // Only show/count this rule on trades matching this outcome — e.g. a
+  // trade-management rule that only makes sense once a trade is already
+  // winning. Undefined/'always' shows on every trade.
+  showWhen?: 'always' | 'winner' | 'loser' | 'breakeven';
+}
+
+// Rules are grouped under named categories (e.g. "Entry Criteria", "Exit
+// Criteria") purely for display/organization — the category itself isn't
+// separately checkable, only its individual rules are.
+export interface StrategyCategory {
+  id: string;
+  name: string;
+  rules: StrategyRule[];
+}
+
+// A reusable trading playbook, authored once and applied across many
+// trades — the categories/rules are entirely user-defined (no fixed
+// schema), tracked per-trade via Trade.strategyChecklist above so a
+// trader can see, after the fact, whether they executed a given trade
+// according to their own plan in full or only in part.
+export interface Strategy {
+  id: string;
+  userId: string;
+  name: string;
+  icon?: string; // a single emoji, optional
+  status: 'active' | 'archived';
+  categories: StrategyCategory[];
+  createdAt: string;
+  updatedAt: string;
+}
 
 export interface BehaviorImpact {
   behavior: string;

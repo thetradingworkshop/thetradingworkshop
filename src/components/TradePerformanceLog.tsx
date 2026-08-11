@@ -25,13 +25,16 @@ import {
   BarChart3,
   MessageSquare,
   LineChart,
-  Link2
+  Link2,
+  Rocket,
+  ChevronDown
 } from 'lucide-react';
-import { Trade, TradeReview, TagCategory } from '../types';
+import { Trade, TradeReview, TagCategory, Strategy } from '../types';
 import { doc, getDoc, getDocs, addDoc, setDoc, serverTimestamp, collection, query, where, onSnapshot, deleteField, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../context/AuthContext';
 import { useTrades } from '../context/TradeContext';
+import { subscribeStrategies } from '../lib/strategies';
 import { TagCategoriesPicker } from './TagCategoriesPicker';
 import { TradeCandleChart } from './TradeCandleChart';
 import { RunningPnlChart } from './RunningPnlChart';
@@ -121,6 +124,16 @@ export function TradePerformanceLog({ trades, title, subtitle }: TradePerformanc
   const { user } = useAuth();
   const { deleteTrades, tradeIdToOpen, setTradeIdToOpen } = useTrades();
   const [searchQuery, setSearchQuery] = useState('');
+  // The user's whole strategy library, for the Strategy tab's
+  // pick-a-strategy list and for looking up the name/categories/rules of
+  // whichever one a selected trade is tagged with. Kept live (not
+  // fetched once) since a strategy edited on the Strategies screen while
+  // this drawer is open should immediately show its new rule text here.
+  const [strategies, setStrategies] = useState<Strategy[]>([]);
+  useEffect(() => {
+    if (!user) return;
+    return subscribeStrategies(user.uid, setStrategies);
+  }, [user]);
   // Holds only the id, not a snapshot of the trade object — deriving
   // selectedTrade from the live `trades` prop below means it automatically
   // reflects Firestore updates (e.g. right after saveReview writes new
@@ -153,7 +166,7 @@ export function TradePerformanceLog({ trades, title, subtitle }: TradePerformanc
   const [pendingDeleteIds, setPendingDeleteIds] = useState<string[] | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [tagCategories, setTagCategories] = useState<TagCategory[]>([]);
-  const [leftTab, setLeftTab] = useState<'stats' | 'executions' | 'attachments'>('stats');
+  const [leftTab, setLeftTab] = useState<'stats' | 'strategy' | 'executions' | 'attachments'>('stats');
   const [rightTab, setRightTab] = useState<'chart' | 'notes' | 'pnl'>('chart');
 
   useEffect(() => {
@@ -860,6 +873,7 @@ export function TradePerformanceLog({ trades, title, subtitle }: TradePerformanc
                 <div className="flex items-center gap-1 p-4 border-b border-border shrink-0">
                   {([
                     { id: 'stats', label: 'Stats' },
+                    { id: 'strategy', label: 'Strategy' },
                     { id: 'executions', label: 'Executions' },
                     { id: 'attachments', label: 'Attachments' },
                   ] as const).map(tab => (
@@ -1179,6 +1193,15 @@ export function TradePerformanceLog({ trades, title, subtitle }: TradePerformanc
                     </>
                   )}
 
+                  {leftTab === 'strategy' && selectedTrade && (
+                    <StrategyTabContent
+                      trade={selectedTrade}
+                      strategies={strategies}
+                      onAssign={(strategyId) => updateTradeFields({ strategyId, strategyChecklist: {} })}
+                      onChecklistChange={(checklist) => updateTradeFields({ strategyChecklist: checklist })}
+                    />
+                  )}
+
                   {leftTab === 'executions' && (
                     <section className="space-y-6">
                       <h3 className="text-sm font-bold flex items-center space-x-2">
@@ -1342,5 +1365,156 @@ export function TradePerformanceLog({ trades, title, subtitle }: TradePerformanc
         />
       )}
     </div>
+  );
+}
+
+// The Strategy tab: pick which of your reusable playbooks this trade was
+// meant to follow, then check off — after the fact — which of its
+// individual rules you actually executed on. Answers "did I run my own
+// plan in full, or only in part" per trade, same idea as the reference
+// screenshot's "X of N rules followed" readout.
+function StrategyTabContent({ trade, strategies, onAssign, onChecklistChange }: {
+  trade: Trade;
+  strategies: Strategy[];
+  onAssign: (strategyId: string) => void;
+  onChecklistChange: (checklist: Record<string, boolean>) => void;
+}) {
+  const activeStrategies = strategies.filter(s => s.status === 'active');
+  const assigned = trade.strategyId ? strategies.find(s => s.id === trade.strategyId) : null;
+  const [pickerOpen, setPickerOpen] = useState(false);
+
+  if (!trade.strategyId) {
+    return (
+      <section className="space-y-4">
+        <div className="text-center py-8">
+          <Rocket className="w-8 h-8 text-muted-foreground/40 mx-auto mb-3" />
+          <p className="text-sm font-bold text-foreground">No strategy assigned</p>
+          <p className="text-xs text-muted-foreground mt-1">Tag this trade with one of your playbooks to track how much of it you followed.</p>
+        </div>
+        {activeStrategies.length === 0 ? (
+          <p className="text-xs text-muted-foreground text-center italic">You haven't created any strategies yet — head to the Strategies section to add one.</p>
+        ) : (
+          <div className="space-y-1.5">
+            {activeStrategies.map(s => (
+              <button
+                key={s.id}
+                onClick={() => onAssign(s.id)}
+                className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl border border-border bg-accent/20 hover:bg-accent/40 text-left transition-colors"
+              >
+                <span>{s.icon || '📈'}</span>
+                <span className="text-sm font-bold">{s.name}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </section>
+    );
+  }
+
+  if (!assigned) {
+    return (
+      <section className="space-y-3">
+        <div className="p-4 rounded-2xl bg-rose-500/5 border border-rose-500/20">
+          <p className="text-sm font-bold text-rose-600">This strategy no longer exists</p>
+          <p className="text-xs text-muted-foreground mt-1">It was deleted from your Strategies library — any rules checked here previously are preserved, but there's nothing left to display or add to.</p>
+        </div>
+        <button onClick={() => onAssign('')} className="text-xs font-bold text-primary hover:underline">Clear assignment</button>
+      </section>
+    );
+  }
+
+  // A rule only applies to this trade if its "show only when" setting
+  // matches the trade's actual outcome — e.g. a rule about trailing a stop
+  // once in profit shouldn't appear (or count against you) on a trade that
+  // lost. Categories with nothing applicable to this outcome are skipped
+  // entirely rather than shown empty.
+  const outcome: 'winner' | 'loser' | 'breakeven' = trade.pnlCurrency > 0 ? 'winner' : trade.pnlCurrency < 0 ? 'loser' : 'breakeven';
+  const applies = (rule: { showWhen?: string }) => !rule.showWhen || rule.showWhen === 'always' || rule.showWhen === outcome;
+  const visibleCategories = assigned.categories
+    .map(cat => ({ ...cat, rules: cat.rules.filter(applies) }))
+    .filter(cat => cat.rules.length > 0);
+  const allRuleIds = visibleCategories.flatMap(c => c.rules.map(r => r.id));
+  const checklist = trade.strategyChecklist ?? {};
+  const checkedCount = allRuleIds.filter(id => checklist[id]).length;
+  const pct = allRuleIds.length ? Math.round((checkedCount / allRuleIds.length) * 100) : 0;
+
+  const toggleRule = (ruleId: string) => {
+    onChecklistChange({ ...checklist, [ruleId]: !checklist[ruleId] });
+  };
+  const checkAllInCategory = (categoryId: string) => {
+    const cat = visibleCategories.find(c => c.id === categoryId);
+    if (!cat) return;
+    const next = { ...checklist };
+    const allChecked = cat.rules.every(r => checklist[r.id]);
+    // Toggles the whole category: if everything in it is already checked,
+    // "Check all" un-checks it instead of being a no-op.
+    for (const r of cat.rules) next[r.id] = !allChecked;
+    onChecklistChange(next);
+  };
+
+  return (
+    <section className="space-y-5">
+      <div className="flex items-start justify-between">
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="text-lg">{assigned.icon || '📈'}</span>
+            <span className="font-bold text-foreground">{assigned.name}</span>
+          </div>
+          <p className="text-xs text-muted-foreground mt-1">{checkedCount} of {allRuleIds.length} rules followed</p>
+        </div>
+        <div className="flex flex-col items-end gap-1.5">
+          <Badge variant={pct === 100 ? 'positive' : pct === 0 ? 'neutral' : 'warning'}>{pct}%</Badge>
+          <div className="relative">
+            <button onClick={() => setPickerOpen(o => !o)} className="text-[11px] font-bold text-primary hover:underline flex items-center gap-0.5">
+              Change <ChevronDown className="w-3 h-3" />
+            </button>
+            {pickerOpen && (
+              <div className="absolute right-0 top-6 z-20 w-56 rounded-xl border border-border bg-card shadow-lg overflow-hidden max-h-64 overflow-y-auto">
+                {activeStrategies.map(s => (
+                  <button
+                    key={s.id}
+                    onClick={() => { onAssign(s.id); setPickerOpen(false); }}
+                    className={cn(
+                      "w-full flex items-center gap-2 px-3 py-2.5 text-xs font-bold text-left hover:bg-accent transition-colors",
+                      s.id === assigned.id && "bg-accent/60"
+                    )}
+                  >
+                    <span>{s.icon || '📈'}</span>
+                    {s.name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-5">
+        {visibleCategories.map(cat => (
+          <div key={cat.id} className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{cat.name}</span>
+              <button onClick={() => checkAllInCategory(cat.id)} className="text-[10px] font-bold text-primary hover:underline">Check all</button>
+            </div>
+            <div className="space-y-1">
+              {cat.rules.map(rule => (
+                <label
+                  key={rule.id}
+                  className="flex items-start gap-2.5 px-3 py-2 rounded-xl border border-border bg-accent/10 hover:bg-accent/20 cursor-pointer transition-colors"
+                >
+                  <input
+                    type="checkbox"
+                    checked={!!checklist[rule.id]}
+                    onChange={() => toggleRule(rule.id)}
+                    className="mt-0.5 rounded border-border shrink-0"
+                  />
+                  <span className="text-sm">{rule.text}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }

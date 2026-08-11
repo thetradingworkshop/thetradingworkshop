@@ -9,6 +9,7 @@ import SessionDetailScreen from './screens/SessionDetailScreen';
 import TradesScreen from './screens/TradesScreen';
 import JournalScreen from './screens/JournalScreen';
 import RangeAnalysisScreen from './screens/RangeAnalysisScreen';
+import StrategiesScreen from './screens/StrategiesScreen';
 import MentorDashboardScreen from './screens/MentorDashboardScreen';
 import WeeklyReportsScreen from './screens/WeeklyReportsScreen';
 import SettingsScreen from './screens/SettingsScreen';
@@ -78,6 +79,8 @@ function AppContent() {
         return <JournalScreen setActivePage={setActivePage} />;
       case 'range':
         return <RangeAnalysisScreen />;
+      case 'strategies':
+        return <StrategiesScreen />;
       case 'mentor':
         return <MentorDashboardScreen />;
       case 'reports':
