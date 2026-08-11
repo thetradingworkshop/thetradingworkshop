@@ -10,6 +10,7 @@ import TradesScreen from './screens/TradesScreen';
 import JournalScreen from './screens/JournalScreen';
 import RangeAnalysisScreen from './screens/RangeAnalysisScreen';
 import StrategiesScreen from './screens/StrategiesScreen';
+import DayViewScreen from './screens/DayViewScreen';
 import MentorDashboardScreen from './screens/MentorDashboardScreen';
 import WeeklyReportsScreen from './screens/WeeklyReportsScreen';
 import SettingsScreen from './screens/SettingsScreen';
@@ -73,6 +74,8 @@ function AppContent() {
         return <DataConnectionsScreen />;
       case 'sessions':
         return <SessionDetailScreen />;
+      case 'dayview':
+        return <DayViewScreen />;
       case 'trades':
         return <TradesScreen />;
       case 'journal':

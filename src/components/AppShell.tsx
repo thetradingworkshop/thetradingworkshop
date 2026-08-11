@@ -15,7 +15,8 @@ import {
   Menu,
   Zap,
   ClipboardCheck,
-  Rocket
+  Rocket,
+  CalendarDays
 } from 'lucide-react';
 import { cn } from '@/src/utils';
 import { Role } from '@/src/types';
@@ -29,6 +30,7 @@ const navItems = [
   { id: 'connections', label: 'Broker Connections', icon: Zap, roles: ['Admin', 'Student'] },
   { id: 'import', label: 'Import Orders', icon: Upload, roles: ['Admin', 'Student'] },
   { id: 'sessions', label: 'Sessions', icon: Calendar, roles: ['Admin', 'Mentor', 'Student'] },
+  { id: 'dayview', label: 'Day View', icon: CalendarDays, roles: ['Admin', 'Mentor', 'Student'] },
   { id: 'trades', label: 'Trades', icon: BarChart3, roles: ['Admin', 'Mentor', 'Student'] },
   { id: 'journal', label: 'Journal', icon: BookOpen, roles: ['Admin', 'Mentor', 'Student'] },
   { id: 'range', label: 'Range Analysis', icon: Target, roles: ['Admin', 'Mentor', 'Student'] },
@@ -45,7 +47,7 @@ import { AccountFilterDropdown } from './AccountFilterDropdown';
 import { useTrades } from '../context/TradeContext';
 
 // Filters + Accounts only make sense where trades are actually shown.
-const TRADE_SCOPED_PAGES = ['dashboard', 'trades', 'sessions'];
+const TRADE_SCOPED_PAGES = ['dashboard', 'trades', 'sessions', 'dayview'];
 
 export function AppShell({ 
   children, 
