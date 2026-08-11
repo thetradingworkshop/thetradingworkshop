@@ -109,7 +109,11 @@ export default function DayViewScreen({ setActivePage }: DayViewScreenProps) {
   const { getEffectiveRange, setPageOverride } = useDateRange();
   const effectiveRange = getEffectiveRange('dayview');
   const [mode, setMode] = useState<Mode>('day');
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  // Cards start collapsed — the equity curve and stat grid are always
+  // visible regardless of this state (see DayCard), so "expanding" a card
+  // only ever reveals its per-trade table. Tracking *expanded* keys (not
+  // collapsed ones) means a freshly-loaded day defaults to compact.
+  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
   const [selectedDateKey, setSelectedDateKey] = useState<string | null>(null);
 
   // Daily Journal entries, scoped to this user only (matching JournalScreen's
@@ -149,7 +153,7 @@ export default function DayViewScreen({ setActivePage }: DayViewScreenProps) {
   );
 
   const toggle = (key: string) => {
-    setCollapsed(prev => {
+    setExpandedKeys(prev => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key); else next.add(key);
       return next;
@@ -207,7 +211,7 @@ export default function DayViewScreen({ setActivePage }: DayViewScreenProps) {
                 <DayCard
                   key={g.key}
                   group={g}
-                  expanded={!collapsed.has(g.key)}
+                  expanded={expandedKeys.has(g.key)}
                   onToggle={() => toggle(g.key)}
                   showNoteButton={mode === 'day'}
                   hasNote={noteSessionIds.has(g.session.id)}
@@ -289,21 +293,27 @@ function DayCard({
         </div>
       </div>
 
-      {expanded && (
-        <div className="px-6 pb-6 pt-2 border-t border-border/60 space-y-5">
-          <div className="grid grid-cols-1 lg:grid-cols-[1.3fr_1fr] gap-6">
-            <DayEquitySparkline points={sparkPoints} className="h-[90px] w-full" />
-            <div className="grid grid-cols-3 gap-x-4 gap-y-3 content-start">
-              <Stat label="Total Trades" value={String(session.totalTrades)} />
-              <Stat label="Win Rate" value={`${session.winRate.toFixed(2)}%`} />
-              <Stat label="Gross P&L" value={fmtMoney(grossPnl)} />
-              <Stat label="Volume" value={String(session.totalVolume)} />
-              <Stat label="Winners / Losers" value={`${session.winCount} / ${session.lossCount}`} />
-              <Stat label="Profit Factor" value={session.profitFactor.toFixed(2)} />
-              <Stat label="Commissions" value={`$${commissions.toFixed(2)}`} />
-            </div>
+      {/* Equity curve + stat grid are the day's headline numbers — always
+          visible, no click required. The chevron/expand toggle only ever
+          reveals or hides the per-trade table below, for a trader who wants
+          to inspect the individual fills that made up the day. */}
+      <div className="px-6 pb-5 pt-2 border-t border-border/60">
+        <div className="grid grid-cols-1 lg:grid-cols-[1.3fr_1fr] gap-6">
+          <DayEquitySparkline points={sparkPoints} className="h-[90px] w-full" />
+          <div className="grid grid-cols-3 gap-x-4 gap-y-3 content-start">
+            <Stat label="Total Trades" value={String(session.totalTrades)} />
+            <Stat label="Win Rate" value={`${session.winRate.toFixed(2)}%`} />
+            <Stat label="Gross P&L" value={fmtMoney(grossPnl)} />
+            <Stat label="Volume" value={String(session.totalVolume)} />
+            <Stat label="Winners / Losers" value={`${session.winCount} / ${session.lossCount}`} />
+            <Stat label="Profit Factor" value={session.profitFactor.toFixed(2)} />
+            <Stat label="Commissions" value={`$${commissions.toFixed(2)}`} />
           </div>
+        </div>
+      </div>
 
+      {expanded && (
+        <div className="px-6 pb-6">
           <div className="rounded-xl border border-border/60 overflow-hidden">
             <table className="w-full text-xs">
               <thead className="bg-accent/20">
