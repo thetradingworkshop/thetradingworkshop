@@ -12,6 +12,7 @@ import { TradePerformanceLog } from '../components/TradePerformanceLog';
 import { MentorService, StructuredInsight } from '../services/mentorService';
 import { RuleBasedMentorService, RuleBasedInsight } from '../services/RuleBasedMentorService';
 import { RuleBasedMentor } from '../components/RuleBasedMentor';
+import { DictationTextarea } from '../components/DictationTextarea';
 import { AnthropicProvider } from '../services/aiProviders';
 import { Session, TradeIntent } from '../types';
 import { doc, getDoc, setDoc, collection, query, where, getDocs, serverTimestamp } from 'firebase/firestore';
@@ -751,7 +752,7 @@ export default function SessionDetailScreen() {
             </div>
             <div className="space-y-2">
               <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Premarket Plan</label>
-              <textarea 
+              <DictationTextarea
                 className="w-full h-24 p-4 bg-accent/30 border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
                 placeholder="What was your plan for today?"
                 value={sessionJournal.premarketPlan}
@@ -760,7 +761,7 @@ export default function SessionDetailScreen() {
             </div>
             <div className="space-y-2">
               <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Session Notes</label>
-              <textarea 
+              <DictationTextarea
                 className="w-full h-32 p-4 bg-accent/30 border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
                 placeholder="General notes about the session..."
                 value={sessionJournal.sessionNotes}
@@ -779,7 +780,7 @@ export default function SessionDetailScreen() {
           <div className="space-y-6">
             <div className="space-y-2">
               <label className="text-[10px] font-bold uppercase tracking-widest text-emerald-600">What went well?</label>
-              <textarea 
+              <DictationTextarea
                 className="w-full h-20 p-4 bg-emerald-500/5 border border-emerald-500/10 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 resize-none"
                 placeholder="List your wins and good habits..."
                 value={sessionJournal.whatWentWell}
@@ -788,7 +789,7 @@ export default function SessionDetailScreen() {
             </div>
             <div className="space-y-2">
               <label className="text-[10px] font-bold uppercase tracking-widest text-rose-600">What hurt?</label>
-              <textarea 
+              <DictationTextarea
                 className="w-full h-20 p-4 bg-rose-500/5 border border-rose-500/10 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-rose-500/20 resize-none"
                 placeholder="What mistakes did you make?"
                 value={sessionJournal.whatHurt}
@@ -797,7 +798,7 @@ export default function SessionDetailScreen() {
             </div>
             <div className="space-y-2">
               <label className="text-[10px] font-bold uppercase tracking-widest text-indigo-600">Corrective Action</label>
-              <textarea 
+              <DictationTextarea
                 className="w-full h-20 p-4 bg-indigo-500/5 border border-indigo-500/10 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 resize-none"
                 placeholder="What will you do differently tomorrow?"
                 value={sessionJournal.correctiveAction}

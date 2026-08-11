@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Bold, Italic, Underline, List, ListOrdered, Image as ImageIcon, Loader2 } from 'lucide-react';
 import { cn } from '@/src/utils';
 import { processImageFile } from '@/src/lib/imageProcessing';
+import { DictationButton } from './DictationButton';
 
 function isContentEmpty(html?: string): boolean {
   if (!html) return true;
@@ -57,6 +58,14 @@ export function RichTextEditor({ initialValue, onChange, placeholder, minHeightC
   const insertImageDataUrl = (dataUrl: string) => {
     editorRef.current?.focus();
     document.execCommand('insertImage', false, dataUrl);
+    emitChange();
+  };
+
+  // Trailing space so back-to-back dictated phrases don't run together —
+  // same convention DictationTextarea uses for plain textareas.
+  const insertDictatedText = (text: string) => {
+    editorRef.current?.focus();
+    document.execCommand('insertText', false, `${text} `);
     emitChange();
   };
 
@@ -122,6 +131,8 @@ export function RichTextEditor({ initialValue, onChange, placeholder, minHeightC
           <ImageIcon className="w-3.5 h-3.5" />
           <input type="file" accept="image/*" className="hidden" onChange={handleFileInput} />
         </label>
+        <div className="w-px h-4 bg-border mx-1" />
+        <DictationButton onTranscript={insertDictatedText} />
         {isProcessingImage && <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground ml-1" />}
       </div>
 

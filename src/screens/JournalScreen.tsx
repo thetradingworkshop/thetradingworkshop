@@ -8,6 +8,7 @@ import { useTrades } from '../context/TradeContext';
 import { useAuth } from '../context/AuthContext';
 import { JournalEntry, Trade } from '../types';
 import { RichTextEditor, isContentEmpty, stripHtml } from '../components/RichTextEditor';
+import { DictationTextarea } from '../components/DictationTextarea';
 import { RecapEquityChart } from '../components/RecapEquityChart';
 import { format } from 'date-fns';
 
@@ -1062,7 +1063,7 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
             {draft.tradeId && (
             <div className="space-y-2">
               <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Why did you enter?</label>
-              <textarea
+              <DictationTextarea
                 className="w-full h-16 p-4 bg-accent/30 border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
                 value={draft.entryReason || ''}
                 onChange={(e) => setDraft(prev => prev && ({ ...prev, entryReason: e.target.value }))}
@@ -1092,7 +1093,7 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
 
             <div className="space-y-2">
               <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">What would you change?</label>
-              <textarea
+              <DictationTextarea
                 className="w-full h-16 p-4 bg-accent/30 border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
                 value={draft.improvements || ''}
                 onChange={(e) => setDraft(prev => prev && ({ ...prev, improvements: e.target.value }))}
