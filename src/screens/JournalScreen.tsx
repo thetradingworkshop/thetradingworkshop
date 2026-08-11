@@ -2,13 +2,14 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { cn, omitUndefined } from '@/src/utils';
 import { SectionHeader, Card, Button, Badge, Toast, Modal, Input } from '../components/Shared';
 import { Search, Plus, Calendar, Share2, MessageSquare, ExternalLink, RotateCcw, Trash2, BookOpen, Edit3, Link as LinkIcon, Zap, X, TrendingUp, TrendingDown, BrainCircuit, Save, Loader2, Star, FileText, BarChart3, FileBarChart, ChevronRight } from 'lucide-react';
-import { collection, query, where, onSnapshot, orderBy, addDoc, updateDoc, deleteDoc, doc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, orderBy, addDoc, updateDoc, deleteDoc, deleteField, doc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useTrades } from '../context/TradeContext';
 import { useAuth } from '../context/AuthContext';
 import { JournalEntry, Trade } from '../types';
 import { RichTextEditor, isContentEmpty, stripHtml } from '../components/RichTextEditor';
 import { DictationTextarea } from '../components/DictationTextarea';
+import { TradePickerModal } from '../components/TradePickerModal';
 import { RecapEquityChart } from '../components/RecapEquityChart';
 import { format } from 'date-fns';
 
@@ -151,6 +152,11 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [draft, setDraft] = useState<JournalDraft | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  // Repointing a note at a different trade — e.g. a manual placeholder
+  // entry gets deleted once the real broker-imported trade lands, and the
+  // note written against it needs a new home instead of being left
+  // pointing at a trade that no longer exists.
+  const [isRelinkOpen, setIsRelinkOpen] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [isPublicPreview, setIsPublicPreview] = useState(false);
   const [activeCategory, setActiveCategory] = useState<NoteCategory>('all');
@@ -354,7 +360,15 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
       const now = new Date().toISOString();
       if (draft.id) {
         const { id, ...rest } = draft;
-        await updateDoc(doc(db, 'journals', id), omitUndefined({ ...rest, updatedAt: now }) as any);
+        // omitUndefined strips an unset tradeId from the payload entirely —
+        // fine for every other field, but that means `updateDoc` would just
+        // leave whatever tradeId was already on the Firestore doc in place
+        // rather than actually clearing it, silently undoing "Unlink" the
+        // moment the page reloads. deleteField() is what actually removes
+        // the field server-side instead of merely not mentioning it.
+        const payload = omitUndefined({ ...rest, updatedAt: now }) as Record<string, unknown>;
+        if (rest.tradeId === undefined) payload.tradeId = deleteField();
+        await updateDoc(doc(db, 'journals', id), payload);
         setToast({ message: 'Journal updated', type: 'success' });
       } else {
         const docRef = await addDoc(collection(db, 'journals'), omitUndefined({
@@ -1038,8 +1052,32 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
             </div>
 
             {(draft.tradeId || draft.sessionId) && (
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                {draft.tradeId && <Badge variant="neutral" className="font-mono">Trade: {draft.tradeId}</Badge>}
+              <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
+                {draft.tradeId && (
+                  <>
+                    <Badge
+                      variant={trades.some(t => t.id === draft.tradeId) ? 'neutral' : 'negative'}
+                      className="font-mono"
+                    >
+                      Trade: {draft.tradeId}
+                      {!trades.some(t => t.id === draft.tradeId) && ' (deleted)'}
+                    </Badge>
+                    <button
+                      type="button"
+                      onClick={() => setIsRelinkOpen(true)}
+                      className="text-primary hover:underline font-bold"
+                    >
+                      Relink
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDraft(prev => prev && ({ ...prev, tradeId: undefined }))}
+                      className="text-muted-foreground hover:underline"
+                    >
+                      Unlink
+                    </button>
+                  </>
+                )}
                 {draft.sessionId && <Badge variant="neutral" className="font-mono">Session: {draft.sessionId}</Badge>}
               </div>
             )}
@@ -1113,6 +1151,14 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
           </div>
         )}
       </Modal>
+
+      <TradePickerModal
+        isOpen={isRelinkOpen}
+        onClose={() => setIsRelinkOpen(false)}
+        trades={trades}
+        title="Relink to a trade"
+        onSelect={(trade) => setDraft(prev => prev && ({ ...prev, tradeId: trade.id }))}
+      />
 
       {/* New Sessions Recap Modal */}
       <Modal
