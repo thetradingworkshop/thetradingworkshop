@@ -51,10 +51,12 @@ import {
 interface DrawingProps {
   type: ChartDrawing['type'];
   color: string;
+  opacity: number; // 0-1, how `color` itself renders
   lineStyle: LineStyle;
   extend: Extend;
   label: string; // the overlay label, or the text note's own content
   labelColor: string;
+  labelOpacity: number; // 0-1, how `labelColor` itself renders
   labelSize: number;
   labelBold: boolean;
   p1: { time: number; price: number };
@@ -71,7 +73,9 @@ interface DrawingProps {
   lotSize: number | null; // position only
   qtyPrecision: number | null; // position only, null = default
   targetColor: string | null; // position only
+  targetOpacity: number | null; // position only
   stopColor: string | null; // position only
+  stopOpacity: number | null; // position only
   showPriceLabels: boolean | null; // position only
   levels: ChannelLevel[] | null; // channel only
   backgroundVisible: boolean | null; // channel only
@@ -102,9 +106,11 @@ const DEFAULT_DRAWING_COLOR = '#5a7d9f';
 function hardcodedDefaultStyle(type: ChartDrawing['type']): DrawingTemplateStyle {
   const base: DrawingTemplateStyle = {
     color: DEFAULT_DRAWING_COLOR,
+    opacity: 1,
     lineStyle: 'solid',
     extend: 'none',
     labelColor: DEFAULT_DRAWING_COLOR,
+    labelOpacity: 1,
     labelSize: type === 'text' ? 11 : 12,
     labelBold: type === 'text',
   };
@@ -113,7 +119,9 @@ function hardcodedDefaultStyle(type: ChartDrawing['type']): DrawingTemplateStyle
   if (type === 'position') return {
     ...base,
     targetColor: '#22c55e',
+    targetOpacity: 1,
     stopColor: '#ef4444',
+    stopOpacity: 1,
     showPriceLabels: true,
     accountSize: 10000,
     riskMode: 'usd',
@@ -397,7 +405,7 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
     targetOffset: number,
     stopOffset: number,
     sizing: { accountSize: number; riskMode: RiskMode; riskValue: number; pointValue: number; leverage: number; lotSize: number },
-    display: { targetColor: string; stopColor: string; showPriceLabels: boolean; qtyPrecision: number | undefined },
+    display: { targetColor: string; targetOpacity: number; stopColor: string; stopOpacity: number; showPriceLabels: boolean; qtyPrecision: number | undefined },
   ) => void) | null>(null);
   const applyChannelLevelsRef = useRef<((levels: ChannelLevel[], background: { visible: boolean; color: string; opacity: number }) => void) | null>(null);
   const commitPropertiesRef = useRef<(() => void) | null>(null);
@@ -705,9 +713,11 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
       const p2: TrendLinePoint = { time: d.time2 as UTCTimestamp, price: d.price2 };
       const color = d.color ?? '#5a7d9f';
       const style: DrawingStylePatch = {
+        opacity: d.opacity ?? 1,
         lineStyle: d.lineStyle ?? 'solid',
         extend: d.extend ?? 'none',
         labelColor: d.labelColor ?? color,
+        labelOpacity: d.labelOpacity ?? 1,
         labelSize: d.labelSize ?? 12,
         labelBold: d.labelBold ?? false,
       };
@@ -716,7 +726,7 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
         case 'channel': prim = new PriceChannelPrimitive(d.id, p1, p2, d.offset ?? 0, color, { ...style, label: d.text ?? '' }, d.levels, d.backgroundVisible !== undefined ? { visible: d.backgroundVisible, color: d.backgroundColor ?? color, opacity: d.backgroundOpacity ?? 0.12 } : undefined); break;
         case 'box': prim = new RectanglePrimitive(d.id, p1, p2, color, { ...style, label: d.text ?? '' }); break;
         case 'fib': prim = new FibRetracementPrimitive(d.id, p1, p2, color, { ...style, label: d.text ?? '' }, d.levels, d.backgroundVisible !== undefined ? { visible: d.backgroundVisible, color: d.backgroundColor ?? color, opacity: d.backgroundOpacity ?? 0.1 } : undefined); break;
-        case 'text': prim = new TextNotePrimitive(d.id, p1, d.text ?? '', color, d.labelSize ?? 11, d.labelBold ?? true); break;
+        case 'text': prim = new TextNotePrimitive(d.id, p1, d.text ?? '', color, d.labelSize ?? 11, d.labelBold ?? true, d.opacity ?? 1); break;
         case 'arrow': prim = new ArrowPrimitive(d.id, p1, p2, color, { ...style, label: d.text ?? '' }); break;
         case 'pricerange': prim = new PriceRangePrimitive(d.id, p1, p2, color, { ...style, label: d.text ?? '' }); break;
         case 'timerange': prim = new TimeRangePrimitive(d.id, p1, p2, color, { ...style, label: d.text ?? '' }); break;
@@ -724,7 +734,7 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
         case 'vline': prim = new VerticalLinePrimitive(d.id, d.time1 as UTCTimestamp, color, { ...style, label: d.text ?? '' }); break;
         case 'position': prim = new PositionPrimitive(d.id, p1, p2, d.direction ?? 'long', d.targetOffset ?? 0, d.stopOffset ?? 0, color, { ...style, label: d.text ?? '' },
           { accountSize: d.accountSize ?? 10000, riskMode: d.riskMode ?? 'usd', riskValue: d.riskValue ?? 100, pointValue: d.pointValue ?? 1, leverage: d.leverage ?? 1, lotSize: d.lotSize ?? 1 },
-          { targetColor: d.targetColor ?? '#22c55e', stopColor: d.stopColor ?? '#ef4444', showPriceLabels: d.showPriceLabels ?? true, qtyPrecision: d.qtyPrecision },
+          { targetColor: d.targetColor ?? '#22c55e', targetOpacity: d.targetOpacity ?? 1, stopColor: d.stopColor ?? '#ef4444', stopOpacity: d.stopOpacity ?? 1, showPriceLabels: d.showPriceLabels ?? true, qtyPrecision: d.qtyPrecision },
         ); break;
         default: prim = new TrendLinePrimitive(d.id, p1, p2, color, { ...style, label: d.text ?? '' }); break;
       }
@@ -741,7 +751,7 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
     const emitDrawings = () => {
       const next: ChartDrawing[] = Array.from(primitives.values()).map(prim => {
         if (prim instanceof PriceChannelPrimitive) {
-          return withLabel({ id: prim.id, type: 'channel', time1: prim.p1.time as unknown as number, price1: prim.p1.price, time2: prim.p2.time as unknown as number, price2: prim.p2.price, offset: prim.offset, color: prim.color, lineStyle: prim.lineStyle, extend: prim.extend, labelColor: prim.labelColor, labelSize: prim.labelSize, labelBold: prim.labelBold, levels: prim.levels, backgroundVisible: prim.backgroundVisible, backgroundColor: prim.backgroundColor, backgroundOpacity: prim.backgroundOpacity }, prim.label);
+          return withLabel({ id: prim.id, type: 'channel', time1: prim.p1.time as unknown as number, price1: prim.p1.price, time2: prim.p2.time as unknown as number, price2: prim.p2.price, offset: prim.offset, color: prim.color, opacity: prim.opacity, lineStyle: prim.lineStyle, extend: prim.extend, labelColor: prim.labelColor, labelOpacity: prim.labelOpacity, labelSize: prim.labelSize, labelBold: prim.labelBold, levels: prim.levels, backgroundVisible: prim.backgroundVisible, backgroundColor: prim.backgroundColor, backgroundOpacity: prim.backgroundOpacity }, prim.label);
         }
         if (prim instanceof PositionPrimitive) {
           // qtyPrecision is the one position field that's legitimately
@@ -750,38 +760,38 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
           // when actually set, same idiom as withLabel's `text` above.
           return withLabel({
             id: prim.id, type: 'position', time1: prim.p1.time as unknown as number, price1: prim.p1.price, time2: prim.p2.time as unknown as number, price2: prim.p2.price,
-            color: prim.color, direction: prim.direction, targetOffset: prim.targetOffset, stopOffset: prim.stopOffset,
+            color: prim.color, opacity: prim.opacity, direction: prim.direction, targetOffset: prim.targetOffset, stopOffset: prim.stopOffset,
             accountSize: prim.accountSize, riskMode: prim.riskMode, riskValue: prim.riskValue, pointValue: prim.pointValue, leverage: prim.leverage, lotSize: prim.lotSize,
-            targetColor: prim.targetColor, stopColor: prim.stopColor, showPriceLabels: prim.showPriceLabels,
-            labelColor: prim.labelColor, labelSize: prim.labelSize, labelBold: prim.labelBold,
+            targetColor: prim.targetColor, targetOpacity: prim.targetOpacity, stopColor: prim.stopColor, stopOpacity: prim.stopOpacity, showPriceLabels: prim.showPriceLabels,
+            labelColor: prim.labelColor, labelOpacity: prim.labelOpacity, labelSize: prim.labelSize, labelBold: prim.labelBold,
             ...(prim.qtyPrecision !== undefined ? { qtyPrecision: prim.qtyPrecision } : {}),
           }, prim.label);
         }
         if (prim instanceof RectanglePrimitive) {
-          return withLabel({ id: prim.id, type: 'box', time1: prim.p1.time as unknown as number, price1: prim.p1.price, time2: prim.p2.time as unknown as number, price2: prim.p2.price, color: prim.color, lineStyle: prim.lineStyle, extend: prim.extend, labelColor: prim.labelColor, labelSize: prim.labelSize, labelBold: prim.labelBold }, prim.label);
+          return withLabel({ id: prim.id, type: 'box', time1: prim.p1.time as unknown as number, price1: prim.p1.price, time2: prim.p2.time as unknown as number, price2: prim.p2.price, color: prim.color, opacity: prim.opacity, lineStyle: prim.lineStyle, extend: prim.extend, labelColor: prim.labelColor, labelOpacity: prim.labelOpacity, labelSize: prim.labelSize, labelBold: prim.labelBold }, prim.label);
         }
         if (prim instanceof FibRetracementPrimitive) {
-          return withLabel({ id: prim.id, type: 'fib', time1: prim.p1.time as unknown as number, price1: prim.p1.price, time2: prim.p2.time as unknown as number, price2: prim.p2.price, color: prim.color, lineStyle: prim.lineStyle, labelColor: prim.labelColor, labelSize: prim.labelSize, labelBold: prim.labelBold, levels: prim.levels, backgroundVisible: prim.backgroundVisible, backgroundColor: prim.backgroundColor, backgroundOpacity: prim.backgroundOpacity }, prim.label);
+          return withLabel({ id: prim.id, type: 'fib', time1: prim.p1.time as unknown as number, price1: prim.p1.price, time2: prim.p2.time as unknown as number, price2: prim.p2.price, color: prim.color, opacity: prim.opacity, lineStyle: prim.lineStyle, labelColor: prim.labelColor, labelOpacity: prim.labelOpacity, labelSize: prim.labelSize, labelBold: prim.labelBold, levels: prim.levels, backgroundVisible: prim.backgroundVisible, backgroundColor: prim.backgroundColor, backgroundOpacity: prim.backgroundOpacity }, prim.label);
         }
         if (prim instanceof TextNotePrimitive) {
-          return withLabel({ id: prim.id, type: 'text', time1: prim.point.time as unknown as number, price1: prim.point.price, time2: 0, price2: 0, color: prim.color, labelSize: prim.fontSize, labelBold: prim.bold }, prim.text);
+          return withLabel({ id: prim.id, type: 'text', time1: prim.point.time as unknown as number, price1: prim.point.price, time2: 0, price2: 0, color: prim.color, opacity: prim.opacity, labelSize: prim.fontSize, labelBold: prim.bold }, prim.text);
         }
         if (prim instanceof ArrowPrimitive) {
-          return withLabel({ id: prim.id, type: 'arrow', time1: prim.p1.time as unknown as number, price1: prim.p1.price, time2: prim.p2.time as unknown as number, price2: prim.p2.price, color: prim.color, lineStyle: prim.lineStyle, labelColor: prim.labelColor, labelSize: prim.labelSize, labelBold: prim.labelBold }, prim.label);
+          return withLabel({ id: prim.id, type: 'arrow', time1: prim.p1.time as unknown as number, price1: prim.p1.price, time2: prim.p2.time as unknown as number, price2: prim.p2.price, color: prim.color, opacity: prim.opacity, lineStyle: prim.lineStyle, labelColor: prim.labelColor, labelOpacity: prim.labelOpacity, labelSize: prim.labelSize, labelBold: prim.labelBold }, prim.label);
         }
         if (prim instanceof PriceRangePrimitive) {
-          return withLabel({ id: prim.id, type: 'pricerange', time1: prim.p1.time as unknown as number, price1: prim.p1.price, time2: prim.p2.time as unknown as number, price2: prim.p2.price, color: prim.color, labelColor: prim.labelColor, labelSize: prim.labelSize, labelBold: prim.labelBold }, prim.label);
+          return withLabel({ id: prim.id, type: 'pricerange', time1: prim.p1.time as unknown as number, price1: prim.p1.price, time2: prim.p2.time as unknown as number, price2: prim.p2.price, color: prim.color, opacity: prim.opacity, labelColor: prim.labelColor, labelOpacity: prim.labelOpacity, labelSize: prim.labelSize, labelBold: prim.labelBold }, prim.label);
         }
         if (prim instanceof TimeRangePrimitive) {
-          return withLabel({ id: prim.id, type: 'timerange', time1: prim.p1.time as unknown as number, price1: prim.p1.price, time2: prim.p2.time as unknown as number, price2: prim.p2.price, color: prim.color, labelColor: prim.labelColor, labelSize: prim.labelSize, labelBold: prim.labelBold }, prim.label);
+          return withLabel({ id: prim.id, type: 'timerange', time1: prim.p1.time as unknown as number, price1: prim.p1.price, time2: prim.p2.time as unknown as number, price2: prim.p2.price, color: prim.color, opacity: prim.opacity, labelColor: prim.labelColor, labelOpacity: prim.labelOpacity, labelSize: prim.labelSize, labelBold: prim.labelBold }, prim.label);
         }
         if (prim instanceof HorizontalLinePrimitive) {
-          return withLabel({ id: prim.id, type: 'hline', time1: 0, price1: prim.price, time2: 0, price2: 0, color: prim.color, lineStyle: prim.lineStyle, labelColor: prim.labelColor, labelSize: prim.labelSize, labelBold: prim.labelBold }, prim.label);
+          return withLabel({ id: prim.id, type: 'hline', time1: 0, price1: prim.price, time2: 0, price2: 0, color: prim.color, opacity: prim.opacity, lineStyle: prim.lineStyle, labelColor: prim.labelColor, labelOpacity: prim.labelOpacity, labelSize: prim.labelSize, labelBold: prim.labelBold }, prim.label);
         }
         if (prim instanceof VerticalLinePrimitive) {
-          return withLabel({ id: prim.id, type: 'vline', time1: prim.time as unknown as number, price1: 0, time2: 0, price2: 0, color: prim.color, lineStyle: prim.lineStyle, labelColor: prim.labelColor, labelSize: prim.labelSize, labelBold: prim.labelBold }, prim.label);
+          return withLabel({ id: prim.id, type: 'vline', time1: prim.time as unknown as number, price1: 0, time2: 0, price2: 0, color: prim.color, opacity: prim.opacity, lineStyle: prim.lineStyle, labelColor: prim.labelColor, labelOpacity: prim.labelOpacity, labelSize: prim.labelSize, labelBold: prim.labelBold }, prim.label);
         }
-        return withLabel({ id: prim.id, type: 'trendline', time1: prim.p1.time as unknown as number, price1: prim.p1.price, time2: prim.p2.time as unknown as number, price2: prim.p2.price, color: prim.color, lineStyle: prim.lineStyle, extend: prim.extend, labelColor: prim.labelColor, labelSize: prim.labelSize, labelBold: prim.labelBold }, prim.label);
+        return withLabel({ id: prim.id, type: 'trendline', time1: prim.p1.time as unknown as number, price1: prim.p1.price, time2: prim.p2.time as unknown as number, price2: prim.p2.price, color: prim.color, opacity: prim.opacity, lineStyle: prim.lineStyle, extend: prim.extend, labelColor: prim.labelColor, labelOpacity: prim.labelOpacity, labelSize: prim.labelSize, labelBold: prim.labelBold }, prim.label);
       });
       onDrawingsChangeRef.current(next);
     };
@@ -925,10 +935,12 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
         return {
           type: 'text',
           color: prim.color,
+          opacity: prim.opacity,
           lineStyle: 'solid',
           extend: 'none',
           label: prim.text,
           labelColor: prim.color,
+          labelOpacity: prim.opacity,
           labelSize: prim.fontSize,
           labelBold: prim.bold,
           p1: { time: prim.point.time as unknown as number, price: prim.point.price },
@@ -945,7 +957,9 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
           lotSize: null,
           qtyPrecision: null,
           targetColor: null,
+          targetOpacity: null,
           stopColor: null,
+          stopOpacity: null,
           showPriceLabels: null,
           levels: null,
           backgroundVisible: null,
@@ -957,10 +971,12 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
         return {
           type: 'hline',
           color: prim.color,
+          opacity: prim.opacity,
           lineStyle: prim.lineStyle,
           extend: 'none',
           label: prim.label,
           labelColor: prim.labelColor,
+          labelOpacity: prim.labelOpacity,
           labelSize: prim.labelSize,
           labelBold: prim.labelBold,
           p1: { time: 0, price: prim.price },
@@ -977,7 +993,9 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
           lotSize: null,
           qtyPrecision: null,
           targetColor: null,
+          targetOpacity: null,
           stopColor: null,
+          stopOpacity: null,
           showPriceLabels: null,
           levels: null,
           backgroundVisible: null,
@@ -989,10 +1007,12 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
         return {
           type: 'vline',
           color: prim.color,
+          opacity: prim.opacity,
           lineStyle: prim.lineStyle,
           extend: 'none',
           label: prim.label,
           labelColor: prim.labelColor,
+          labelOpacity: prim.labelOpacity,
           labelSize: prim.labelSize,
           labelBold: prim.labelBold,
           p1: { time: prim.time as unknown as number, price: 0 },
@@ -1009,7 +1029,9 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
           lotSize: null,
           qtyPrecision: null,
           targetColor: null,
+          targetOpacity: null,
           stopColor: null,
+          stopOpacity: null,
           showPriceLabels: null,
           levels: null,
           backgroundVisible: null,
@@ -1029,10 +1051,12 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
       return {
         type,
         color: prim.color,
+        opacity: prim.opacity,
         lineStyle: prim.lineStyle,
         extend: prim.extend,
         label: prim.label,
         labelColor: prim.labelColor,
+        labelOpacity: prim.labelOpacity,
         labelSize: prim.labelSize,
         labelBold: prim.labelBold,
         p1: { time: prim.p1.time as unknown as number, price: prim.p1.price },
@@ -1049,7 +1073,9 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
         lotSize: prim instanceof PositionPrimitive ? prim.lotSize : null,
         qtyPrecision: prim instanceof PositionPrimitive ? prim.qtyPrecision ?? null : null,
         targetColor: prim instanceof PositionPrimitive ? prim.targetColor : null,
+        targetOpacity: prim instanceof PositionPrimitive ? prim.targetOpacity : null,
         stopColor: prim instanceof PositionPrimitive ? prim.stopColor : null,
+        stopOpacity: prim instanceof PositionPrimitive ? prim.stopOpacity : null,
         showPriceLabels: prim instanceof PositionPrimitive ? prim.showPriceLabels : null,
         levels: prim instanceof PriceChannelPrimitive ? prim.levels : prim instanceof FibRetracementPrimitive ? prim.levels : null,
         backgroundVisible: prim instanceof PriceChannelPrimitive ? prim.backgroundVisible : prim instanceof FibRetracementPrimitive ? prim.backgroundVisible : null,
@@ -1067,7 +1093,7 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
       const prim = primitives.get(activeSelection);
       if (!prim) return;
       if (prim instanceof TextNotePrimitive) {
-        prim.setStyle({ color: patch.color, text: patch.label, fontSize: patch.labelSize, bold: patch.labelBold });
+        prim.setStyle({ color: patch.color, opacity: patch.opacity, text: patch.label, fontSize: patch.labelSize, bold: patch.labelBold });
       } else {
         prim.setStyle(patch);
       }
@@ -1097,7 +1123,7 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
       prim.setTargetOffset(targetOffset);
       prim.setStopOffset(stopOffset);
       prim.setSizing(sizing.accountSize, sizing.riskMode, sizing.riskValue, sizing.pointValue, sizing.leverage, sizing.lotSize);
-      prim.setDisplayOptions(display.targetColor, display.stopColor, display.showPriceLabels, display.qtyPrecision);
+      prim.setDisplayOptions(display.targetColor, display.stopColor, display.showPriceLabels, display.qtyPrecision, display.targetOpacity, display.stopOpacity);
     };
     applyChannelLevelsRef.current = (levels, background) => {
       if (!activeSelection) return;
@@ -1189,7 +1215,7 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
     const newDrawingColor = (type: ChartDrawing['type']) => newDrawingStyle(type).color ?? DEFAULT_DRAWING_COLOR;
     const newDrawingPatch = (type: ChartDrawing['type']): DrawingStylePatch => {
       const s = newDrawingStyle(type);
-      return { lineStyle: s.lineStyle, extend: s.extend, labelColor: s.labelColor, labelSize: s.labelSize, labelBold: s.labelBold };
+      return { opacity: s.opacity, lineStyle: s.lineStyle, extend: s.extend, labelColor: s.labelColor, labelOpacity: s.labelOpacity, labelSize: s.labelSize, labelBold: s.labelBold };
     };
     const newDrawingBackground = (type: 'channel' | 'fib') => {
       const s = newDrawingStyle(type);
@@ -1206,7 +1232,14 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
     };
     const newDrawingDisplay = () => {
       const s = newDrawingStyle('position');
-      return { targetColor: s.targetColor ?? '#22c55e', stopColor: s.stopColor ?? '#ef4444', showPriceLabels: s.showPriceLabels ?? true, qtyPrecision: s.qtyPrecision };
+      return {
+        targetColor: s.targetColor ?? '#22c55e',
+        targetOpacity: s.targetOpacity ?? 1,
+        stopColor: s.stopColor ?? '#ef4444',
+        stopOpacity: s.stopOpacity ?? 1,
+        showPriceLabels: s.showPriceLabels ?? true,
+        qtyPrecision: s.qtyPrecision,
+      };
     };
 
     commitTextRef.current = (text: string) => {
@@ -1216,7 +1249,7 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
       if (!anchor || !text.trim()) { resetTool(); return; }
       const id = `drawing-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const textStyle = newDrawingStyle('text');
-      const prim = new TextNotePrimitive(id, anchor, text.trim(), newDrawingColor('text'), textStyle.labelSize ?? 11, textStyle.labelBold ?? true);
+      const prim = new TextNotePrimitive(id, anchor, text.trim(), newDrawingColor('text'), textStyle.labelSize ?? 11, textStyle.labelBold ?? true, textStyle.opacity ?? 1);
       candleSeries.attachPrimitive(prim);
       primitives.set(id, prim);
       resetTool();
@@ -1686,10 +1719,12 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
     if (!propForm) return;
     applyStyleRef.current?.({
       color: propForm.color,
+      opacity: propForm.opacity,
       lineStyle: propForm.lineStyle,
       extend: propForm.extend,
       label: propForm.label,
       labelColor: propForm.labelColor,
+      labelOpacity: propForm.labelOpacity,
       labelSize: propForm.labelSize,
       labelBold: propForm.labelBold,
     });
@@ -1707,7 +1742,9 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
         lotSize: propForm.lotSize ?? 1,
       }, {
         targetColor: propForm.targetColor ?? '#22c55e',
+        targetOpacity: propForm.targetOpacity ?? 1,
         stopColor: propForm.stopColor ?? '#ef4444',
+        stopOpacity: propForm.stopOpacity ?? 1,
         showPriceLabels: propForm.showPriceLabels ?? true,
         qtyPrecision: propForm.qtyPrecision ?? undefined,
       });
@@ -1742,9 +1779,11 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
   // profile ("1% risk, 10x leverage") is exactly what's worth saving.
   const extractStyleFromForm = (form: DrawingProps): DrawingTemplateStyle => ({
     color: form.color,
+    opacity: form.opacity,
     lineStyle: form.lineStyle,
     extend: form.extend,
     labelColor: form.labelColor,
+    labelOpacity: form.labelOpacity,
     labelSize: form.labelSize,
     labelBold: form.labelBold,
     ...(form.levels ? { levels: form.levels } : {}),
@@ -1762,16 +1801,20 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
     ...(form.type === 'position' && form.lotSize !== null ? { lotSize: form.lotSize } : {}),
     ...(form.type === 'position' && form.qtyPrecision !== null ? { qtyPrecision: form.qtyPrecision } : {}),
     ...(form.type === 'position' && form.targetColor !== null ? { targetColor: form.targetColor } : {}),
+    ...(form.type === 'position' && form.targetOpacity !== null ? { targetOpacity: form.targetOpacity } : {}),
     ...(form.type === 'position' && form.stopColor !== null ? { stopColor: form.stopColor } : {}),
+    ...(form.type === 'position' && form.stopOpacity !== null ? { stopOpacity: form.stopOpacity } : {}),
     ...(form.type === 'position' && form.showPriceLabels !== null ? { showPriceLabels: form.showPriceLabels } : {}),
   });
   const applyStyleToForm = (style: DrawingTemplateStyle) => {
     setPropForm(prev => prev ? {
       ...prev,
       color: style.color ?? prev.color,
+      opacity: style.opacity ?? prev.opacity,
       lineStyle: style.lineStyle ?? prev.lineStyle,
       extend: style.extend ?? prev.extend,
       labelColor: style.labelColor ?? prev.labelColor,
+      labelOpacity: style.labelOpacity ?? prev.labelOpacity,
       labelSize: style.labelSize ?? prev.labelSize,
       labelBold: style.labelBold ?? prev.labelBold,
       levels: style.levels ?? prev.levels,
@@ -1787,7 +1830,9 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
         lotSize: style.lotSize ?? prev.lotSize,
         qtyPrecision: style.qtyPrecision ?? prev.qtyPrecision,
         targetColor: style.targetColor ?? prev.targetColor,
+        targetOpacity: style.targetOpacity ?? prev.targetOpacity,
         stopColor: style.stopColor ?? prev.stopColor,
+        stopOpacity: style.stopOpacity ?? prev.stopOpacity,
         showPriceLabels: style.showPriceLabels ?? prev.showPriceLabels,
       } : {}),
     } : prev);
@@ -2291,6 +2336,15 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
                             onChange={e => patchChannelLevel(i, { color: e.target.value })}
                             className="h-7 w-8 shrink-0 rounded border border-border bg-background cursor-pointer"
                           />
+                          <input
+                            type="range"
+                            min={0}
+                            max={100}
+                            value={Math.round((lvl.opacity ?? 1) * 100)}
+                            onChange={e => patchChannelLevel(i, { opacity: Number(e.target.value) / 100 })}
+                            className="w-12 shrink-0"
+                            title="Opacity"
+                          />
                           <select
                             value={lvl.lineStyle}
                             onChange={e => patchChannelLevel(i, { lineStyle: e.target.value as LineStyle })}
@@ -2369,6 +2423,19 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
                       className="h-9 flex-1 font-mono text-xs"
                     />
                   </div>
+                  <div className="flex items-center gap-2 mt-2">
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      value={Math.round(propForm.opacity * 100)}
+                      onChange={e => patchProp('opacity', Number(e.target.value) / 100)}
+                      className="flex-1"
+                    />
+                    <span className="w-10 shrink-0 text-right text-xs font-mono text-muted-foreground">
+                      {Math.round(propForm.opacity * 100)}%
+                    </span>
+                  </div>
                 </div>
                 {propForm.type === 'position' && (
                   <>
@@ -2388,6 +2455,19 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
                             className="h-9 flex-1 font-mono text-xs"
                           />
                         </div>
+                        <div className="flex items-center gap-2 mt-2">
+                          <input
+                            type="range"
+                            min={0}
+                            max={100}
+                            value={Math.round((propForm.targetOpacity ?? 1) * 100)}
+                            onChange={e => patchProp('targetOpacity', Number(e.target.value) / 100)}
+                            className="flex-1"
+                          />
+                          <span className="w-10 shrink-0 text-right text-xs font-mono text-muted-foreground">
+                            {Math.round((propForm.targetOpacity ?? 1) * 100)}%
+                          </span>
+                        </div>
                       </div>
                       <div className="flex-1">
                         <label className="block text-xs font-bold text-rose-500 mb-1.5">Stop color</label>
@@ -2403,6 +2483,19 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
                             onChange={e => patchProp('stopColor', e.target.value)}
                             className="h-9 flex-1 font-mono text-xs"
                           />
+                        </div>
+                        <div className="flex items-center gap-2 mt-2">
+                          <input
+                            type="range"
+                            min={0}
+                            max={100}
+                            value={Math.round((propForm.stopOpacity ?? 1) * 100)}
+                            onChange={e => patchProp('stopOpacity', Number(e.target.value) / 100)}
+                            className="flex-1"
+                          />
+                          <span className="w-10 shrink-0 text-right text-xs font-mono text-muted-foreground">
+                            {Math.round((propForm.stopOpacity ?? 1) * 100)}%
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -2476,6 +2569,19 @@ export function TradeCandleChart({ trade, market, isLoadingMarket, timeframe, on
                       onChange={e => patchProp('labelColor', e.target.value)}
                       className="h-9 flex-1 font-mono text-xs"
                     />
+                  </div>
+                  <div className="flex items-center gap-2 mt-2">
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      value={Math.round(propForm.labelOpacity * 100)}
+                      onChange={e => patchProp('labelOpacity', Number(e.target.value) / 100)}
+                      className="flex-1"
+                    />
+                    <span className="w-10 shrink-0 text-right text-xs font-mono text-muted-foreground">
+                      {Math.round(propForm.labelOpacity * 100)}%
+                    </span>
                   </div>
                 </div>
                 <div className="flex items-center gap-4">

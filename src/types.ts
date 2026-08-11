@@ -284,9 +284,11 @@ export interface ChartDrawing {
   offset?: number; // price units; the channel's second line, only for type 'channel'
   text?: string; // note content for type 'text'; an optional overlay label for every other type
   color?: string;
+  opacity?: number; // 0-1, defaults to 1 (opaque); how `color` itself renders — separate from the fixed, non-user-set fill tint some types (box, price range, position's zones) already draw underneath it
   lineStyle?: 'solid' | 'dashed' | 'dotted'; // trendline/channel/box/fib/hline/vline only
   extend?: 'none' | 'left' | 'right' | 'both'; // trendline/channel/box only
   labelColor?: string; // color for `text`, defaults to `color`
+  labelOpacity?: number; // 0-1, defaults to 1; same idea as `opacity` but for `labelColor`
   labelSize?: number; // font size for `text`, defaults to 12 (11 for type 'text')
   labelBold?: boolean;
   // type 'channel'/'fib' only: each drawing's price levels (channel's
@@ -317,6 +319,8 @@ export interface ChartDrawing {
   qtyPrecision?: number; // decimal places for the displayed Quantity, undefined = default (3)
   targetColor?: string; // defaults to green; independent of the entry line's `color`
   stopColor?: string; // defaults to red; independent of the entry line's `color`
+  targetOpacity?: number; // 0-1, defaults to 1; how `targetColor` itself renders
+  stopOpacity?: number; // 0-1, defaults to 1; how `stopColor` itself renders
   showPriceLabels?: boolean; // the offset/%/$ and Qty·R:R text overlays; box/lines/handles always show
 }
 
@@ -333,9 +337,11 @@ export interface ChartDrawing {
 // that type starts from.
 export interface DrawingTemplateStyle {
   color?: string;
+  opacity?: number;
   lineStyle?: 'solid' | 'dashed' | 'dotted';
   extend?: 'none' | 'left' | 'right' | 'both';
   labelColor?: string;
+  labelOpacity?: number;
   labelSize?: number;
   labelBold?: boolean;
   levels?: ChannelLevel[];
@@ -352,6 +358,8 @@ export interface DrawingTemplateStyle {
   qtyPrecision?: number;
   targetColor?: string;
   stopColor?: string;
+  targetOpacity?: number;
+  stopOpacity?: number;
   showPriceLabels?: boolean;
 }
 

@@ -36,10 +36,12 @@ export type Extend = 'none' | 'left' | 'right' | 'both';
 // note) exposes through the properties panel's Style/Text tabs.
 export interface DrawingStylePatch {
   color?: string;
+  opacity?: number;
   lineStyle?: LineStyle;
   extend?: Extend;
   label?: string;
   labelColor?: string;
+  labelOpacity?: number;
   labelSize?: number;
   labelBold?: boolean;
 }
@@ -53,6 +55,7 @@ export interface ChannelLevel {
   ratio: number;
   visible: boolean;
   color: string;
+  opacity?: number; // 0-1, defaults to 1
   lineStyle: LineStyle;
   lineWidth: number;
 }
@@ -91,6 +94,22 @@ function applyLineDash(ctx: CanvasRenderingContext2D, style: LineStyle, scale: n
   if (style === 'dashed') ctx.setLineDash([6 * scale, 4 * scale]);
   else if (style === 'dotted') ctx.setLineDash([1.5 * scale, 3.5 * scale]);
   else ctx.setLineDash([]);
+}
+
+// Converts a plain 6-digit hex color + an opacity (0-1) into an rgba()
+// string, for the "Opacity" slider every drawing's Style/Text tab now has
+// next to its color picker — a native <input type="color"> has no alpha
+// channel of its own, so opacity is tracked as a separate 0-1 field and
+// combined with the hex color only at draw time. Anything that isn't a
+// plain 6-digit hex (already rgba(), a CSS name, etc.) is returned as-is,
+// since there's no clean alpha channel to inject into it.
+export function withAlpha(color: string, opacity: number): string {
+  const hex = /^#([0-9a-fA-F]{6})$/.exec(color);
+  if (!hex) return color;
+  const r = parseInt(hex[1].slice(0, 2), 16);
+  const g = parseInt(hex[1].slice(2, 4), 16);
+  const b = parseInt(hex[1].slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${Math.max(0, Math.min(1, opacity))})`;
 }
 
 function strokeLine(ctx: CanvasRenderingContext2D, x1: number, y1: number, x2: number, y2: number, color: string, style: LineStyle, scale: number, lineWidth = 2) {
@@ -167,12 +186,14 @@ export function priceOnLineAtTime(p1: TrendLinePoint, p2: TrendLinePoint, time: 
 abstract class TwoPointPrimitive implements ISeriesPrimitive<Time> {
   readonly id: string;
   color: string;
+  opacity: number;
   p1: TrendLinePoint;
   p2: TrendLinePoint;
   lineStyle: LineStyle;
   extend: Extend;
   label: string;
   labelColor: string;
+  labelOpacity: number;
   labelSize: number;
   labelBold: boolean;
   selected = false;
@@ -190,10 +211,12 @@ abstract class TwoPointPrimitive implements ISeriesPrimitive<Time> {
     this.p1 = p1;
     this.p2 = p2;
     this.color = color;
+    this.opacity = style?.opacity ?? 1;
     this.lineStyle = style?.lineStyle ?? 'solid';
     this.extend = style?.extend ?? 'none';
     this.label = style?.label ?? '';
     this.labelColor = style?.labelColor ?? color;
+    this.labelOpacity = style?.labelOpacity ?? 1;
     this.labelSize = style?.labelSize ?? 12;
     this.labelBold = style?.labelBold ?? false;
   }
@@ -248,10 +271,12 @@ abstract class TwoPointPrimitive implements ISeriesPrimitive<Time> {
 
   setStyle(patch: DrawingStylePatch): void {
     if (patch.color !== undefined) this.color = patch.color;
+    if (patch.opacity !== undefined) this.opacity = patch.opacity;
     if (patch.lineStyle !== undefined) this.lineStyle = patch.lineStyle;
     if (patch.extend !== undefined) this.extend = patch.extend;
     if (patch.label !== undefined) this.label = patch.label;
     if (patch.labelColor !== undefined) this.labelColor = patch.labelColor;
+    if (patch.labelOpacity !== undefined) this.labelOpacity = patch.labelOpacity;
     if (patch.labelSize !== undefined) this.labelSize = patch.labelSize;
     if (patch.labelBold !== undefined) this.labelBold = patch.labelBold;
     this._requestUpdate?.();
@@ -267,15 +292,15 @@ class TrendLinePaneRenderer implements IPrimitivePaneRenderer {
 
   draw(target: CanvasRenderingTarget2D): void {
     target.useBitmapCoordinateSpace(scope => {
-      const { p1Coord: p1, p2Coord: p2, color, lineStyle, extend, selected, label, labelColor, labelSize, labelBold } = this._source;
+      const { p1Coord: p1, p2Coord: p2, color, opacity, lineStyle, extend, selected, label, labelColor, labelOpacity, labelSize, labelBold } = this._source;
       if (p1.x === null || p1.y === null || p2.x === null || p2.y === null) return;
       const ctx = scope.context;
       const hr = scope.horizontalPixelRatio;
       const vr = scope.verticalPixelRatio;
       const [a, b] = extendLine(p1, p2, extend, 0, scope.mediaSize.width);
       ctx.save();
-      strokeLine(ctx, a.x! * hr, a.y! * vr, b.x! * hr, b.y! * vr, color, lineStyle, hr);
-      if (label) drawLabel(ctx, p2.x! * hr, p2.y! * vr, label, labelColor, labelSize, labelBold, vr);
+      strokeLine(ctx, a.x! * hr, a.y! * vr, b.x! * hr, b.y! * vr, withAlpha(color, opacity), lineStyle, hr);
+      if (label) drawLabel(ctx, p2.x! * hr, p2.y! * vr, label, withAlpha(labelColor, labelOpacity), labelSize, labelBold, vr);
       if (selected) { drawHandle(ctx, p1.x, p1.y, color, hr, vr); drawHandle(ctx, p2.x, p2.y, color, hr, vr); }
       ctx.restore();
     });
@@ -307,7 +332,7 @@ class RectanglePaneRenderer implements IPrimitivePaneRenderer {
 
   draw(target: CanvasRenderingTarget2D): void {
     target.useBitmapCoordinateSpace(scope => {
-      const { p1Coord: p1, p2Coord: p2, color, lineStyle, extend, selected, label, labelColor, labelSize, labelBold } = this._source;
+      const { p1Coord: p1, p2Coord: p2, color, opacity, lineStyle, extend, selected, label, labelColor, labelOpacity, labelSize, labelBold } = this._source;
       if (p1.x === null || p1.y === null || p2.x === null || p2.y === null) return;
       const ctx = scope.context;
       const hr = scope.horizontalPixelRatio;
@@ -326,12 +351,12 @@ class RectanglePaneRenderer implements IPrimitivePaneRenderer {
       ctx.fillStyle = color;
       ctx.fillRect(left, top, width, height);
       ctx.globalAlpha = 1;
-      ctx.strokeStyle = color;
+      ctx.strokeStyle = withAlpha(color, opacity);
       ctx.lineWidth = 2;
       applyLineDash(ctx, lineStyle, hr);
       ctx.strokeRect(left, top, width, height);
       ctx.setLineDash([]);
-      if (label) drawLabel(ctx, p2.x * hr, Math.min(p1.y, p2.y) * vr, label, labelColor, labelSize, labelBold, vr);
+      if (label) drawLabel(ctx, p2.x * hr, Math.min(p1.y, p2.y) * vr, label, withAlpha(labelColor, labelOpacity), labelSize, labelBold, vr);
       if (selected) { drawHandle(ctx, p1.x, p1.y, color, hr, vr); drawHandle(ctx, p2.x, p2.y, color, hr, vr); }
       ctx.restore();
     });
@@ -381,7 +406,7 @@ class PriceChannelPaneRenderer implements IPrimitivePaneRenderer {
     target.useBitmapCoordinateSpace(scope => {
       const {
         p1Coord: p1, p2Coord: p2, p1OffsetCoord: p1o, p2OffsetCoord: p2o,
-        color, levels, levelCoords, extend, selected, label, labelColor, labelSize, labelBold,
+        color, levels, levelCoords, extend, selected, label, labelColor, labelOpacity, labelSize, labelBold,
         backgroundVisible, backgroundColor, backgroundOpacity,
       } = this._source;
       if (p1.x === null || p1.y === null || p2.x === null || p2.y === null || p1o.x === null || p1o.y === null || p2o.x === null || p2o.y === null) return;
@@ -411,9 +436,9 @@ class PriceChannelPaneRenderer implements IPrimitivePaneRenderer {
         const coord = levelCoords.find(lc => lc.ratio === lvl.ratio);
         if (!coord || coord.y1 === null || coord.y2 === null || p1.x === null || p2.x === null) continue;
         const [la, lb] = extendLine({ x: p1.x, y: coord.y1 }, { x: p2.x, y: coord.y2 }, extend, 0, scope.mediaSize.width);
-        strokeLine(ctx, la.x! * hr, la.y! * vr, lb.x! * hr, lb.y! * vr, lvl.color, lvl.lineStyle, hr, lvl.lineWidth);
+        strokeLine(ctx, la.x! * hr, la.y! * vr, lb.x! * hr, lb.y! * vr, withAlpha(lvl.color, lvl.opacity ?? 1), lvl.lineStyle, hr, lvl.lineWidth);
       }
-      if (label) drawLabel(ctx, p2.x * hr, p2.y * vr, label, labelColor, labelSize, labelBold, vr);
+      if (label) drawLabel(ctx, p2.x * hr, p2.y * vr, label, withAlpha(labelColor, labelOpacity), labelSize, labelBold, vr);
       if (selected) {
         drawHandle(ctx, p1.x, p1.y, color, hr, vr);
         drawHandle(ctx, p2.x, p2.y, color, hr, vr);
@@ -528,7 +553,7 @@ class FibRetracementPaneRenderer implements IPrimitivePaneRenderer {
   draw(target: CanvasRenderingTarget2D): void {
     target.useBitmapCoordinateSpace(scope => {
       const {
-        p1Coord, p2Coord, levels, levelCoords, color, selected, label, labelColor, labelSize, labelBold,
+        p1Coord, p2Coord, levels, levelCoords, color, selected, label, labelColor, labelOpacity, labelSize, labelBold,
         backgroundVisible, backgroundColor, backgroundOpacity,
       } = this._source;
       const x1 = p1Coord.x, x2 = p2Coord.x;
@@ -556,11 +581,12 @@ class FibRetracementPaneRenderer implements IPrimitivePaneRenderer {
         const lvl = levels.find(l => l.ratio === coord.ratio);
         if (!lvl?.visible) continue;
         const y = coord.y * vr;
-        strokeLine(ctx, left, y, right, y, lvl.color, lvl.lineStyle, hr, lvl.lineWidth);
-        ctx.fillStyle = lvl.color;
+        const lvlColor = withAlpha(lvl.color, lvl.opacity ?? 1);
+        strokeLine(ctx, left, y, right, y, lvlColor, lvl.lineStyle, hr, lvl.lineWidth);
+        ctx.fillStyle = lvlColor;
         ctx.fillText(`${(coord.ratio * 100).toFixed(1)}%  ${coord.price.toFixed(2)}`, left + 4 * hr, y - 6 * vr);
       }
-      if (label) drawLabel(ctx, p2Coord.x! * hr, p2Coord.y! * vr, label, labelColor, labelSize, labelBold, vr);
+      if (label) drawLabel(ctx, p2Coord.x! * hr, p2Coord.y! * vr, label, withAlpha(labelColor, labelOpacity), labelSize, labelBold, vr);
       if (selected) { drawHandle(ctx, p1Coord.x, p1Coord.y, color, hr, vr); drawHandle(ctx, p2Coord.x, p2Coord.y, color, hr, vr); }
       ctx.restore();
     });
@@ -645,7 +671,7 @@ class TextNotePaneRenderer implements IPrimitivePaneRenderer {
 
   draw(target: CanvasRenderingTarget2D): void {
     target.useBitmapCoordinateSpace(scope => {
-      const { pointCoord: point, text, color, fontSize, bold, selected } = this._source;
+      const { pointCoord: point, text, color, opacity, fontSize, bold, selected } = this._source;
       const { x, y } = point;
       if (x === null || y === null || !text) return;
       const ctx = scope.context;
@@ -653,9 +679,10 @@ class TextNotePaneRenderer implements IPrimitivePaneRenderer {
       const vr = scope.verticalPixelRatio;
       const px = x * hr;
       const py = y * vr;
+      const strokeColor = withAlpha(color, opacity);
       ctx.save();
 
-      ctx.fillStyle = color;
+      ctx.fillStyle = strokeColor;
       ctx.beginPath();
       ctx.arc(px, py, 3 * hr, 0, Math.PI * 2);
       ctx.fill();
@@ -678,7 +705,7 @@ class TextNotePaneRenderer implements IPrimitivePaneRenderer {
         ctx.rect(boxX, boxY, boxW, boxH);
       }
       ctx.fill();
-      ctx.strokeStyle = color;
+      ctx.strokeStyle = strokeColor;
       ctx.lineWidth = 1;
       ctx.stroke();
 
@@ -702,6 +729,7 @@ class TextNotePaneView implements IPrimitivePaneView {
 export class TextNotePrimitive implements ISeriesPrimitive<Time> {
   readonly id: string;
   color: string;
+  opacity: number;
   point: TrendLinePoint;
   text: string;
   fontSize: number;
@@ -715,11 +743,12 @@ export class TextNotePrimitive implements ISeriesPrimitive<Time> {
   private _requestUpdate: (() => void) | null = null;
   private _paneViews: IPrimitivePaneView[];
 
-  constructor(id: string, point: TrendLinePoint, text: string, color = '#5a7d9f', fontSize = 11, bold = true) {
+  constructor(id: string, point: TrendLinePoint, text: string, color = '#5a7d9f', fontSize = 11, bold = true, opacity = 1) {
     this.id = id;
     this.point = point;
     this.text = text;
     this.color = color;
+    this.opacity = opacity;
     this.fontSize = fontSize;
     this.bold = bold;
     this._paneViews = [new TextNotePaneView(this)];
@@ -762,8 +791,9 @@ export class TextNotePrimitive implements ISeriesPrimitive<Time> {
     this._requestUpdate?.();
   }
 
-  setStyle(patch: { color?: string; text?: string; fontSize?: number; bold?: boolean }): void {
+  setStyle(patch: { color?: string; opacity?: number; text?: string; fontSize?: number; bold?: boolean }): void {
     if (patch.color !== undefined) this.color = patch.color;
+    if (patch.opacity !== undefined) this.opacity = patch.opacity;
     if (patch.text !== undefined) this.text = patch.text;
     if (patch.fontSize !== undefined) this.fontSize = patch.fontSize;
     if (patch.bold !== undefined) this.bold = patch.bold;
@@ -792,24 +822,25 @@ class ArrowPaneRenderer implements IPrimitivePaneRenderer {
 
   draw(target: CanvasRenderingTarget2D): void {
     target.useBitmapCoordinateSpace(scope => {
-      const { p1Coord: p1, p2Coord: p2, color, lineStyle, selected, label, labelColor, labelSize, labelBold } = this._source;
+      const { p1Coord: p1, p2Coord: p2, color, opacity, lineStyle, selected, label, labelColor, labelOpacity, labelSize, labelBold } = this._source;
       if (p1.x === null || p1.y === null || p2.x === null || p2.y === null) return;
       const ctx = scope.context;
       const hr = scope.horizontalPixelRatio;
       const vr = scope.verticalPixelRatio;
       const x1 = p1.x * hr, y1 = p1.y * vr, x2 = p2.x * hr, y2 = p2.y * vr;
+      const strokeColor = withAlpha(color, opacity);
       ctx.save();
-      strokeLine(ctx, x1, y1, x2, y2, color, lineStyle, hr);
+      strokeLine(ctx, x1, y1, x2, y2, strokeColor, lineStyle, hr);
       const angle = Math.atan2(y2 - y1, x2 - x1);
       const headLen = 10 * hr;
-      ctx.fillStyle = color;
+      ctx.fillStyle = strokeColor;
       ctx.beginPath();
       ctx.moveTo(x2, y2);
       ctx.lineTo(x2 - headLen * Math.cos(angle - Math.PI / 7), y2 - headLen * Math.sin(angle - Math.PI / 7));
       ctx.lineTo(x2 - headLen * Math.cos(angle + Math.PI / 7), y2 - headLen * Math.sin(angle + Math.PI / 7));
       ctx.closePath();
       ctx.fill();
-      if (label) drawLabel(ctx, x2, y2, label, labelColor, labelSize, labelBold, vr);
+      if (label) drawLabel(ctx, x2, y2, label, withAlpha(labelColor, labelOpacity), labelSize, labelBold, vr);
       if (selected) { drawHandle(ctx, p1.x, p1.y, color, hr, vr); drawHandle(ctx, p2.x, p2.y, color, hr, vr); }
       ctx.restore();
     });
@@ -844,7 +875,7 @@ class PriceRangePaneRenderer implements IPrimitivePaneRenderer {
 
   draw(target: CanvasRenderingTarget2D): void {
     target.useBitmapCoordinateSpace(scope => {
-      const { p1Coord: p1, p2Coord: p2, selected } = this._source;
+      const { p1Coord: p1, p2Coord: p2, opacity, selected } = this._source;
       if (p1.x === null || p1.y === null || p2.x === null || p2.y === null) return;
       const ctx = scope.context;
       const hr = scope.horizontalPixelRatio;
@@ -852,6 +883,7 @@ class PriceRangePaneRenderer implements IPrimitivePaneRenderer {
       const priceDelta = this._source.p2.price - this._source.p1.price;
       const up = priceDelta >= 0;
       const color = up ? '#22c55e' : '#ef4444';
+      const strokeColor = withAlpha(color, opacity);
       const left = Math.min(p1.x, p2.x) * hr;
       const right = Math.max(p1.x, p2.x) * hr;
       const top = Math.min(p1.y, p2.y) * vr;
@@ -861,13 +893,13 @@ class PriceRangePaneRenderer implements IPrimitivePaneRenderer {
       ctx.fillStyle = color;
       ctx.fillRect(left, top, right - left, bottom - top);
       ctx.globalAlpha = 1;
-      ctx.strokeStyle = color;
+      ctx.strokeStyle = strokeColor;
       ctx.lineWidth = 1.5;
       ctx.strokeRect(left, top, right - left, bottom - top);
       const pct = this._source.p1.price !== 0 ? (priceDelta / this._source.p1.price) * 100 : 0;
       const text = `${up ? '+' : ''}${priceDelta.toFixed(2)} (${up ? '+' : ''}${pct.toFixed(2)}%)`;
       ctx.font = `700 ${11 * vr}px sans-serif`;
-      ctx.fillStyle = color;
+      ctx.fillStyle = strokeColor;
       ctx.textBaseline = 'middle';
       ctx.textAlign = 'center';
       ctx.fillText(text, (left + right) / 2, (top + bottom) / 2);
@@ -923,11 +955,12 @@ class TimeRangePaneRenderer implements IPrimitivePaneRenderer {
 
   draw(target: CanvasRenderingTarget2D): void {
     target.useBitmapCoordinateSpace(scope => {
-      const { p1Coord: p1, p2Coord: p2, color, selected } = this._source;
+      const { p1Coord: p1, p2Coord: p2, color, opacity, selected } = this._source;
       if (p1.x === null || p1.y === null || p2.x === null || p2.y === null) return;
       const ctx = scope.context;
       const hr = scope.horizontalPixelRatio;
       const vr = scope.verticalPixelRatio;
+      const strokeColor = withAlpha(color, opacity);
       const left = Math.min(p1.x, p2.x) * hr;
       const right = Math.max(p1.x, p2.x) * hr;
       const top = Math.min(p1.y, p2.y) * vr;
@@ -937,12 +970,12 @@ class TimeRangePaneRenderer implements IPrimitivePaneRenderer {
       ctx.fillStyle = color;
       ctx.fillRect(left, top, right - left, bottom - top);
       ctx.globalAlpha = 1;
-      ctx.strokeStyle = color;
+      ctx.strokeStyle = strokeColor;
       ctx.lineWidth = 1.5;
       ctx.strokeRect(left, top, right - left, bottom - top);
       const seconds = (this._source.p2.time as unknown as number) - (this._source.p1.time as unknown as number);
       ctx.font = `700 ${11 * vr}px sans-serif`;
-      ctx.fillStyle = color;
+      ctx.fillStyle = strokeColor;
       ctx.textBaseline = 'bottom';
       ctx.textAlign = 'center';
       ctx.fillText(formatDuration(seconds), (left + right) / 2, top - 4 * vr);
@@ -989,7 +1022,7 @@ class HorizontalLinePaneRenderer implements IPrimitivePaneRenderer {
 
   draw(target: CanvasRenderingTarget2D): void {
     target.useBitmapCoordinateSpace(scope => {
-      const { priceCoord: y, color, lineStyle, selected, label, labelColor, labelSize, labelBold } = this._source;
+      const { priceCoord: y, color, opacity, lineStyle, selected, label, labelColor, labelOpacity, labelSize, labelBold } = this._source;
       if (y === null) return;
       const ctx = scope.context;
       const hr = scope.horizontalPixelRatio;
@@ -997,8 +1030,8 @@ class HorizontalLinePaneRenderer implements IPrimitivePaneRenderer {
       const py = y * vr;
       const width = scope.mediaSize.width * hr;
       ctx.save();
-      strokeLine(ctx, 0, py, width, py, color, lineStyle, hr);
-      if (label) drawLabel(ctx, width - 60 * hr, py, label, labelColor, labelSize, labelBold, vr);
+      strokeLine(ctx, 0, py, width, py, withAlpha(color, opacity), lineStyle, hr);
+      if (label) drawLabel(ctx, width - 60 * hr, py, label, withAlpha(labelColor, labelOpacity), labelSize, labelBold, vr);
       if (selected) drawHandle(ctx, width / 2, py, color, hr, vr);
       ctx.restore();
     });
@@ -1015,10 +1048,12 @@ class HorizontalLinePaneView implements IPrimitivePaneView {
 export class HorizontalLinePrimitive implements ISeriesPrimitive<Time> {
   readonly id: string;
   color: string;
+  opacity: number;
   price: number;
   lineStyle: LineStyle;
   label: string;
   labelColor: string;
+  labelOpacity: number;
   labelSize: number;
   labelBold: boolean;
   selected = false;
@@ -1034,9 +1069,11 @@ export class HorizontalLinePrimitive implements ISeriesPrimitive<Time> {
     this.id = id;
     this.price = price;
     this.color = color;
+    this.opacity = style?.opacity ?? 1;
     this.lineStyle = style?.lineStyle ?? 'solid';
     this.label = style?.label ?? '';
     this.labelColor = style?.labelColor ?? color;
+    this.labelOpacity = style?.labelOpacity ?? 1;
     this.labelSize = style?.labelSize ?? 12;
     this.labelBold = style?.labelBold ?? false;
     this._paneViews = [new HorizontalLinePaneView(this)];
@@ -1078,9 +1115,11 @@ export class HorizontalLinePrimitive implements ISeriesPrimitive<Time> {
 
   setStyle(patch: DrawingStylePatch): void {
     if (patch.color !== undefined) this.color = patch.color;
+    if (patch.opacity !== undefined) this.opacity = patch.opacity;
     if (patch.lineStyle !== undefined) this.lineStyle = patch.lineStyle;
     if (patch.label !== undefined) this.label = patch.label;
     if (patch.labelColor !== undefined) this.labelColor = patch.labelColor;
+    if (patch.labelOpacity !== undefined) this.labelOpacity = patch.labelOpacity;
     if (patch.labelSize !== undefined) this.labelSize = patch.labelSize;
     if (patch.labelBold !== undefined) this.labelBold = patch.labelBold;
     this._requestUpdate?.();
@@ -1100,7 +1139,7 @@ class VerticalLinePaneRenderer implements IPrimitivePaneRenderer {
 
   draw(target: CanvasRenderingTarget2D): void {
     target.useBitmapCoordinateSpace(scope => {
-      const { timeCoord: x, color, lineStyle, selected, label, labelColor, labelSize, labelBold } = this._source;
+      const { timeCoord: x, color, opacity, lineStyle, selected, label, labelColor, labelOpacity, labelSize, labelBold } = this._source;
       if (x === null) return;
       const ctx = scope.context;
       const hr = scope.horizontalPixelRatio;
@@ -1108,8 +1147,8 @@ class VerticalLinePaneRenderer implements IPrimitivePaneRenderer {
       const px = x * hr;
       const height = scope.mediaSize.height * vr;
       ctx.save();
-      strokeLine(ctx, px, 0, px, height, color, lineStyle, vr);
-      if (label) drawLabel(ctx, px, 20 * vr, label, labelColor, labelSize, labelBold, vr);
+      strokeLine(ctx, px, 0, px, height, withAlpha(color, opacity), lineStyle, vr);
+      if (label) drawLabel(ctx, px, 20 * vr, label, withAlpha(labelColor, labelOpacity), labelSize, labelBold, vr);
       if (selected) drawHandle(ctx, px, height / 2, color, hr, vr);
       ctx.restore();
     });
@@ -1126,10 +1165,12 @@ class VerticalLinePaneView implements IPrimitivePaneView {
 export class VerticalLinePrimitive implements ISeriesPrimitive<Time> {
   readonly id: string;
   color: string;
+  opacity: number;
   time: Time;
   lineStyle: LineStyle;
   label: string;
   labelColor: string;
+  labelOpacity: number;
   labelSize: number;
   labelBold: boolean;
   selected = false;
@@ -1145,9 +1186,11 @@ export class VerticalLinePrimitive implements ISeriesPrimitive<Time> {
     this.id = id;
     this.time = time;
     this.color = color;
+    this.opacity = style?.opacity ?? 1;
     this.lineStyle = style?.lineStyle ?? 'solid';
     this.label = style?.label ?? '';
     this.labelColor = style?.labelColor ?? color;
+    this.labelOpacity = style?.labelOpacity ?? 1;
     this.labelSize = style?.labelSize ?? 12;
     this.labelBold = style?.labelBold ?? false;
     this._paneViews = [new VerticalLinePaneView(this)];
@@ -1189,9 +1232,11 @@ export class VerticalLinePrimitive implements ISeriesPrimitive<Time> {
 
   setStyle(patch: DrawingStylePatch): void {
     if (patch.color !== undefined) this.color = patch.color;
+    if (patch.opacity !== undefined) this.opacity = patch.opacity;
     if (patch.lineStyle !== undefined) this.lineStyle = patch.lineStyle;
     if (patch.label !== undefined) this.label = patch.label;
     if (patch.labelColor !== undefined) this.labelColor = patch.labelColor;
+    if (patch.labelOpacity !== undefined) this.labelOpacity = patch.labelOpacity;
     if (patch.labelSize !== undefined) this.labelSize = patch.labelSize;
     if (patch.labelBold !== undefined) this.labelBold = patch.labelBold;
     this._requestUpdate?.();
@@ -1220,7 +1265,8 @@ class PositionPaneRenderer implements IPrimitivePaneRenderer {
     target.useBitmapCoordinateSpace(scope => {
       const {
         p1Coord: p1, p2Coord: p2, targetCoordY, stopCoordY, targetOffset, stopOffset, selected,
-        quantity, targetAmount, stopAmount, riskRewardRatio, targetColor, stopColor, showPriceLabels, qtyPrecision,
+        quantity, targetAmount, stopAmount, riskRewardRatio, targetColor, targetOpacity, stopColor, stopOpacity,
+        showPriceLabels, qtyPrecision, color, opacity,
       } = this._source;
       if (p1.x === null || p1.y === null || p2.x === null || targetCoordY === null || stopCoordY === null) return;
       const ctx = scope.context;
@@ -1231,6 +1277,9 @@ class PositionPaneRenderer implements IPrimitivePaneRenderer {
       const entryY = p1.y * vr;
       const targetY = targetCoordY * vr;
       const stopY = stopCoordY * vr;
+      const targetStroke = withAlpha(targetColor, targetOpacity);
+      const stopStroke = withAlpha(stopColor, stopOpacity);
+      const entryStroke = withAlpha(color, opacity);
       ctx.save();
       ctx.globalAlpha = 0.25;
       ctx.fillStyle = targetColor;
@@ -1243,9 +1292,9 @@ class PositionPaneRenderer implements IPrimitivePaneRenderer {
       // along them (see hitHandle in TradeCandleChart.tsx) — square handles
       // at both ends make that discoverable, matching TradingView's own
       // Long/Short Position box rather than a single easy-to-miss center grip.
-      strokeLine(ctx, left, targetY, right, targetY, targetColor, 'solid', hr, 1.5);
-      strokeLine(ctx, left, stopY, right, stopY, stopColor, 'solid', hr, 1.5);
-      ctx.strokeStyle = '#e2e8f0';
+      strokeLine(ctx, left, targetY, right, targetY, targetStroke, 'solid', hr, 1.5);
+      strokeLine(ctx, left, stopY, right, stopY, stopStroke, 'solid', hr, 1.5);
+      ctx.strokeStyle = entryStroke;
       ctx.lineWidth = 1.5;
       ctx.setLineDash([4 * hr, 3 * hr]);
       ctx.beginPath();
@@ -1261,23 +1310,23 @@ class PositionPaneRenderer implements IPrimitivePaneRenderer {
         const qtyStr = quantity.toFixed(qtyPrecision ?? 3);
         ctx.font = `700 ${11 * vr}px sans-serif`;
         ctx.textBaseline = 'middle';
-        ctx.fillStyle = targetColor;
+        ctx.fillStyle = targetStroke;
         ctx.fillText(
           `+${targetOffset.toFixed(2)} (${pctTarget.toFixed(2)}%)  $${targetAmount.toFixed(2)}`,
           left + 6 * hr, Math.min(entryY, targetY) + Math.abs(targetY - entryY) / 2
         );
-        ctx.fillStyle = stopColor;
+        ctx.fillStyle = stopStroke;
         ctx.fillText(
           `-${stopOffset.toFixed(2)} (${pctStop.toFixed(2)}%)  $${stopAmount.toFixed(2)}`,
           left + 6 * hr, Math.min(entryY, stopY) + Math.abs(stopY - entryY) / 2
         );
-        ctx.fillStyle = '#e2e8f0';
+        ctx.fillStyle = entryStroke;
         ctx.fillText(`Qty ${qtyStr}  ·  R:R ${riskRewardRatio.toFixed(2)}`, left + 6 * hr, entryY - 12 * vr);
       }
 
       if (selected) {
-        drawHandle(ctx, p1.x, p1.y, '#e2e8f0', hr, vr);
-        drawHandle(ctx, p2.x, p2.y, '#e2e8f0', hr, vr);
+        drawHandle(ctx, p1.x, p1.y, color, hr, vr);
+        drawHandle(ctx, p2.x, p2.y, color, hr, vr);
         drawHandle(ctx, p1.x, targetCoordY, targetColor, hr, vr);
         drawHandle(ctx, p2.x, targetCoordY, targetColor, hr, vr);
         drawHandle(ctx, p1.x, stopCoordY, stopColor, hr, vr);
@@ -1317,7 +1366,9 @@ export class PositionPrimitive extends TwoPointPrimitive {
   // is drawn.
   qtyPrecision: number | undefined; // decimal places for the displayed Quantity, undefined = default (3)
   targetColor: string;
+  targetOpacity: number;
   stopColor: string;
+  stopOpacity: number;
   showPriceLabels: boolean;
 
   constructor(
@@ -1330,7 +1381,7 @@ export class PositionPrimitive extends TwoPointPrimitive {
     color = '#5a7d9f',
     style?: DrawingStylePatch,
     sizing?: { accountSize: number; riskMode: RiskMode; riskValue: number; pointValue: number; leverage: number; lotSize?: number },
-    display?: { targetColor?: string; stopColor?: string; showPriceLabels?: boolean; qtyPrecision?: number },
+    display?: { targetColor?: string; targetOpacity?: number; stopColor?: string; stopOpacity?: number; showPriceLabels?: boolean; qtyPrecision?: number },
   ) {
     super(id, p1, p2, color, style);
     this.direction = direction;
@@ -1343,7 +1394,9 @@ export class PositionPrimitive extends TwoPointPrimitive {
     this.leverage = sizing?.leverage ?? 1;
     this.lotSize = sizing?.lotSize ?? 1;
     this.targetColor = display?.targetColor ?? '#22c55e';
+    this.targetOpacity = display?.targetOpacity ?? 1;
     this.stopColor = display?.stopColor ?? '#ef4444';
+    this.stopOpacity = display?.stopOpacity ?? 1;
     this.showPriceLabels = display?.showPriceLabels ?? true;
     this.qtyPrecision = display?.qtyPrecision;
     this._paneViews = [new PositionPaneView(this)];
@@ -1403,11 +1456,20 @@ export class PositionPrimitive extends TwoPointPrimitive {
     this._requestUpdate?.();
   }
 
-  setDisplayOptions(targetColor: string, stopColor: string, showPriceLabels: boolean, qtyPrecision: number | undefined): void {
+  setDisplayOptions(
+    targetColor: string,
+    stopColor: string,
+    showPriceLabels: boolean,
+    qtyPrecision: number | undefined,
+    targetOpacity?: number,
+    stopOpacity?: number,
+  ): void {
     this.targetColor = targetColor;
     this.stopColor = stopColor;
     this.showPriceLabels = showPriceLabels;
     this.qtyPrecision = qtyPrecision;
+    if (targetOpacity !== undefined) this.targetOpacity = targetOpacity;
+    if (stopOpacity !== undefined) this.stopOpacity = stopOpacity;
     this._requestUpdate?.();
   }
 
