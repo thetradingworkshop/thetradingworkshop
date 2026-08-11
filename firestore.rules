@@ -159,6 +159,13 @@ service cloud.firestore {
              (!('modelValidation' in data) || isValidModelValidation(data.modelValidation));
     }
 
+    function isValidStrategy(data) {
+      return data.userId is string &&
+             data.name is string &&
+             data.status in ['active', 'archived'] &&
+             data.categories is list;
+    }
+
     function isValidTradeIntent(data) {
       return data.userId is string &&
              data.symbol is string &&
@@ -262,6 +269,23 @@ service cloud.firestore {
       allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
       allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid && isValidDrawingTemplate(request.resource.data);
       allow update: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin()) && isValidDrawingTemplate(request.resource.data);
+      allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+    }
+
+    // Strategies
+    // Document ID: auto-generated
+    // Fields:
+    //   - userId: string (required)
+    //   - name: string (required)
+    //   - icon: string (optional, single emoji)
+    //   - status: string (required, active/archived)
+    //   - categories: list (required, StrategyCategory[] — name + nested rules,
+    //     each rule optionally carrying a showWhen outcome filter)
+    //   - createdAt/updatedAt: string (required)
+    match /strategies/{strategyId} {
+      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid && isValidStrategy(request.resource.data);
+      allow update: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin()) && isValidStrategy(request.resource.data);
       allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
     }
 
