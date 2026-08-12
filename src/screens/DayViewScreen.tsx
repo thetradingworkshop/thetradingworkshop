@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { format, startOfWeek, endOfWeek, endOfDay, isWithinInterval, startOfDay } from 'date-fns';
 import { cn } from '@/src/utils';
 import { SectionHeader, Card, Badge } from '../components/Shared';
-import { ChevronDown, CalendarDays, NotebookPen } from 'lucide-react';
+import { ChevronDown, CalendarDays, NotebookPen, Clapperboard } from 'lucide-react';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useTrades } from '../context/TradeContext';
@@ -11,6 +11,7 @@ import { useAuth } from '../context/AuthContext';
 import { SessionBuilder } from '../services/SessionBuilder';
 import { DayEquitySparkline } from '../components/DayEquitySparkline';
 import { DayViewCalendarRail } from '../components/DayViewCalendarRail';
+import { DayReplayModal } from '../components/DayReplayModal';
 import { Trade, Session } from '../types';
 
 // Phase 1 of the Day View build (see the "Day View Teardown" reference) —
@@ -19,8 +20,11 @@ import { Trade, Session } from '../types';
 // analyticsService's buildCalendarDays) and the per-day "Add/View note"
 // button, which reuses JournalScreen's own note find-or-create logic via
 // TradeContext's selectedSessionForJournal — no note-authoring logic is
-// duplicated here. Still not wired up: session replay and "Review with
-// Zella AI" — later phases, each with their own real backend work.
+// duplicated here. Phase 3 adds "Replay" (Day mode only — a week's worth of
+// trades sequenced together doesn't map to TradeZella's per-day replay
+// concept), opening DayReplayModal to step through that day's trades in
+// order. Still not wired up: "Review with Zella AI" — its own phase, real
+// backend work (an LLM call), not stubbed here.
 
 type Mode = 'day' | 'week';
 
@@ -115,6 +119,7 @@ export default function DayViewScreen({ setActivePage }: DayViewScreenProps) {
   // collapsed ones) means a freshly-loaded day defaults to compact.
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
   const [selectedDateKey, setSelectedDateKey] = useState<string | null>(null);
+  const [replayGroup, setReplayGroup] = useState<FeedGroup | null>(null);
 
   // Daily Journal entries, scoped to this user only (matching JournalScreen's
   // own subscription) — used only to know *which* days already have a note,
@@ -216,6 +221,8 @@ export default function DayViewScreen({ setActivePage }: DayViewScreenProps) {
                   showNoteButton={mode === 'day'}
                   hasNote={noteSessionIds.has(g.session.id)}
                   onNote={() => openNote(g)}
+                  showReplayButton={mode === 'day'}
+                  onReplay={() => setReplayGroup(g)}
                 />
               ))}
             </div>
@@ -231,6 +238,14 @@ export default function DayViewScreen({ setActivePage }: DayViewScreenProps) {
           onClearSelection={clearCalendarSelection}
         />
       </div>
+
+      {replayGroup && (
+        <DayReplayModal
+          trades={replayGroup.trades}
+          dayLabel={replayGroup.label}
+          onClose={() => setReplayGroup(null)}
+        />
+      )}
     </div>
   );
 }
@@ -242,6 +257,8 @@ function DayCard({
   showNoteButton,
   hasNote,
   onNote,
+  showReplayButton,
+  onReplay,
 }: {
   group: FeedGroup;
   expanded: boolean;
@@ -249,6 +266,8 @@ function DayCard({
   showNoteButton: boolean;
   hasNote: boolean;
   onNote: () => void;
+  showReplayButton: boolean;
+  onReplay: () => void;
 }) {
   const { session, trades } = group;
   const isUp = session.netPnl >= 0;
@@ -275,6 +294,15 @@ function DayCard({
           </Badge>
         </button>
         <div className="flex items-center gap-3 shrink-0">
+          {showReplayButton && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onReplay(); }}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold border border-border text-muted-foreground hover:bg-accent transition-colors"
+            >
+              <Clapperboard className="w-3.5 h-3.5" />
+              Replay
+            </button>
+          )}
           {showNoteButton && (
             <button
               onClick={(e) => { e.stopPropagation(); onNote(); }}
