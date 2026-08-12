@@ -68,6 +68,23 @@ const MENTOR_INSIGHT_SCHEMA = {
   additionalProperties: false,
 } as const;
 
+// Day View Phase 4 ("Review with AI") — distinct from MENTOR_INSIGHT_SCHEMA
+// above: that one polishes the wording of an already-computed deterministic
+// insight; this one is a genuine free-form narrative generated straight from
+// a single day's trades, its journal note, and strategy-rule adherence, with
+// no deterministic structure underneath it to preserve.
+const DAY_REVIEW_SCHEMA = {
+  type: "object",
+  properties: {
+    narrative: { type: "string" },
+    wins: { type: "array", items: { type: "string" } },
+    mistakes: { type: "array", items: { type: "string" } },
+    themes: { type: "array", items: { type: "string" } },
+  },
+  required: ["narrative", "wins", "mistakes", "themes"],
+  additionalProperties: false,
+} as const;
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -346,6 +363,95 @@ async function startServer() {
       }
       console.error("Mentor enhancement failed:", error);
       res.json(insight);
+    }
+  });
+
+  // Day View Phase 4 — "Review with AI". Cached in `session_reviews`
+  // (Admin-SDK-only writes, see firestore.rules) keyed by `${userId}_${sessionDate}`
+  // so opening the same day's review twice doesn't re-call the model; pass
+  // forceRegenerate to bypass the cache and overwrite it.
+  app.post("/api/day-review/generate", async (req, res) => {
+    const { userId, sessionDate, dayLabel, trades, journalNote, strategyNotes, forceRegenerate } = req.body as {
+      userId: string;
+      sessionDate: string;
+      dayLabel: string;
+      trades: { symbol: string; direction: string; isWinner: boolean; pnlCurrency: number; entryTime: string; exitTime: string }[];
+      journalNote?: string;
+      strategyNotes?: string[];
+      forceRegenerate?: boolean;
+    };
+
+    if (!userId || !sessionDate || !Array.isArray(trades) || trades.length === 0) {
+      return res.status(400).json({ error: "userId, sessionDate, and a non-empty trades array are required" });
+    }
+
+    const reviewId = `${userId}_${sessionDate}`;
+    const reviewRef = db.collection("session_reviews").doc(reviewId);
+
+    if (!forceRegenerate) {
+      const existing = await reviewRef.get();
+      if (existing.exists) {
+        return res.json({ ...existing.data(), cached: true });
+      }
+    }
+
+    const tradeLines = trades.map(t =>
+      `- ${t.symbol} ${t.direction}: ${t.isWinner ? 'WIN' : 'LOSS'} ($${t.pnlCurrency.toFixed(2)}), entered ${new Date(t.entryTime).toLocaleTimeString('en-US')}, exited ${new Date(t.exitTime).toLocaleTimeString('en-US')}`
+    ).join('\n');
+
+    const prompt = `
+      You are an expert trading performance coach reviewing one trader's single trading day.
+      Write a short narrative review of this specific day, then break it into three parts.
+
+      DAY: ${dayLabel}
+
+      TRADES (chronological):
+      ${tradeLines}
+
+      ${journalNote ? `THE TRADER'S OWN JOURNAL NOTE FOR THIS DAY:\n${journalNote}\n` : ''}
+      ${strategyNotes && strategyNotes.length > 0 ? `STRATEGY RULE ADHERENCE:\n${strategyNotes.join('\n')}\n` : ''}
+
+      INSTRUCTIONS:
+      1. "narrative" is 2-4 sentences, written directly to the trader ("you"), grounded in the actual trades and figures above — no generic platitudes.
+      2. "wins" lists what genuinely went well today (specific, not generic) — an empty array is fine if nothing did.
+      3. "mistakes" lists specific errors or rule breaks visible in the data above — an empty array is fine if none are evident.
+      4. "themes" lists 1-3 short recurring patterns worth watching across future sessions, inferred only from what's actually present today.
+      5. Never fabricate details not present in the trades, journal note, or strategy notes above.
+    `;
+
+    try {
+      const response = await anthropic.messages.create({
+        model: "claude-opus-4-8",
+        max_tokens: 1024,
+        output_config: { format: { type: "json_schema", schema: DAY_REVIEW_SCHEMA } },
+        messages: [{ role: "user", content: prompt }],
+      });
+
+      const textBlock = response.content.find((b): b is Anthropic.TextBlock => b.type === "text");
+      if (!textBlock) throw new Error("No text response from Claude");
+      const generated = JSON.parse(textBlock.text);
+
+      const review = {
+        userId,
+        sessionDate,
+        narrative: generated.narrative,
+        wins: generated.wins ?? [],
+        mistakes: generated.mistakes ?? [],
+        themes: generated.themes ?? [],
+        generatedAt: new Date().toISOString(),
+        model: "claude-opus-4-8",
+      };
+      await reviewRef.set(review);
+
+      res.json({ ...review, cached: false });
+    } catch (error: any) {
+      const isRateLimited = error?.status === 429;
+      if (isRateLimited) {
+        console.warn("Claude API rate limited (day review).");
+        return res.status(429).json({ error: "Rate limited, try again shortly." });
+      }
+      console.error("Day review generation failed:", error);
+      res.status(500).json({ error: "Failed to generate day review" });
     }
   });
 

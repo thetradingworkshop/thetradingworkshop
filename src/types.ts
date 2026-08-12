@@ -472,6 +472,23 @@ export interface Strategy {
   updatedAt: string;
 }
 
+// Day View Phase 4 — a cached LLM-generated narrative for one trading day,
+// assembled server-side from that day's trades, its Daily Journal note (if
+// any), and any assigned strategies' rule adherence. Cached so opening the
+// same day twice doesn't re-call the model; `id` is `${userId}_${sessionDate}`,
+// the same shape Session.id already uses.
+export interface DayReview {
+  id: string;
+  userId: string;
+  sessionDate: string;
+  narrative: string;
+  wins: string[];
+  mistakes: string[];
+  themes: string[];
+  generatedAt: string;
+  model: string;
+}
+
 export interface BehaviorImpact {
   behavior: string;
   impact: number;

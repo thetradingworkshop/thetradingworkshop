@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { format, startOfWeek, endOfWeek, endOfDay, isWithinInterval, startOfDay } from 'date-fns';
 import { cn } from '@/src/utils';
 import { SectionHeader, Card, Badge } from '../components/Shared';
-import { ChevronDown, CalendarDays, NotebookPen, Clapperboard } from 'lucide-react';
+import { ChevronDown, CalendarDays, NotebookPen, Clapperboard, Sparkles } from 'lucide-react';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useTrades } from '../context/TradeContext';
@@ -12,7 +12,11 @@ import { SessionBuilder } from '../services/SessionBuilder';
 import { DayEquitySparkline } from '../components/DayEquitySparkline';
 import { DayViewCalendarRail } from '../components/DayViewCalendarRail';
 import { DayReplayModal } from '../components/DayReplayModal';
-import { Trade, Session } from '../types';
+import { DayReviewModal } from '../components/DayReviewModal';
+import { subscribeDayReviews } from '../lib/dayReview';
+import { subscribeStrategies } from '../lib/strategies';
+import { stripHtml } from '../components/RichTextEditor';
+import { Trade, Session, DayReview, Strategy } from '../types';
 
 // Phase 1 of the Day View build (see the "Day View Teardown" reference) —
 // a scrollable feed of collapsible per-day cards, plus a Day/Week toggle.
@@ -23,8 +27,41 @@ import { Trade, Session } from '../types';
 // duplicated here. Phase 3 adds "Replay" (Day mode only — a week's worth of
 // trades sequenced together doesn't map to TradeZella's per-day replay
 // concept), opening DayReplayModal to step through that day's trades in
-// order. Still not wired up: "Review with Zella AI" — its own phase, real
-// backend work (an LLM call), not stubbed here.
+// order. Phase 4 adds "Review with AI" — a real LLM call (server-side, see
+// /api/day-review/generate) over that day's trades, its journal note, and
+// strategy-rule adherence, cached in session_reviews.
+
+// Same outcome convention used everywhere else a StrategyRule's showWhen is
+// evaluated (StrategiesScreen, TradePerformanceLog's Strategy tab).
+function outcomeOf(t: Trade): 'winner' | 'loser' | 'breakeven' {
+  return t.pnlCurrency > 0 ? 'winner' : t.pnlCurrency < 0 ? 'loser' : 'breakeven';
+}
+
+// One line per strategy-tagged trade summarizing rule adherence, for the AI
+// review prompt — "reads... the trader's saved rules/strategies" per the
+// Day View Teardown's spec for this feature. Trades with no strategy
+// assigned, or whose strategy has since been deleted, are silently skipped.
+function buildStrategyNotes(trades: Trade[], strategies: Strategy[]): string[] {
+  const byId = new Map(strategies.map(s => [s.id, s]));
+  const notes: string[] = [];
+  for (const t of trades) {
+    if (!t.strategyId) continue;
+    const strategy = byId.get(t.strategyId);
+    if (!strategy) continue;
+    const outcome = outcomeOf(t);
+    const applicable = strategy.categories.flatMap(c =>
+      c.rules.filter(r => !r.showWhen || r.showWhen === 'always' || r.showWhen === outcome)
+    );
+    if (applicable.length === 0) continue;
+    const followed = applicable.filter(r => t.strategyChecklist?.[r.id]);
+    const broken = applicable.filter(r => !t.strategyChecklist?.[r.id]);
+    notes.push(
+      `${t.symbol} (${strategy.name}): followed ${followed.length}/${applicable.length} rules` +
+      (broken.length > 0 ? ` — broke: ${broken.map(r => r.text).join('; ')}` : '')
+    );
+  }
+  return notes;
+}
 
 type Mode = 'day' | 'week';
 
@@ -120,31 +157,52 @@ export default function DayViewScreen({ setActivePage }: DayViewScreenProps) {
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
   const [selectedDateKey, setSelectedDateKey] = useState<string | null>(null);
   const [replayGroup, setReplayGroup] = useState<FeedGroup | null>(null);
+  const [reviewGroup, setReviewGroup] = useState<FeedGroup | null>(null);
 
   // Daily Journal entries, scoped to this user only (matching JournalScreen's
-  // own subscription) — used only to know *which* days already have a note,
-  // never to render note content here. Kept as a plain id set so the
-  // calendar rail's per-cell check and the feed card's per-card check are
-  // both a single membership lookup, no re-querying per day.
-  const [noteSessionIds, setNoteSessionIds] = useState<Set<string>>(new Set());
+  // own subscription) — keyed by sessionId so both "does this day have a
+  // note" (calendar dot, card button label) and "what does that note say"
+  // (fed into the AI review prompt below) are the same single lookup, no
+  // re-querying per day and no separate fetch when opening Review with AI.
+  const [journalsBySessionId, setJournalsBySessionId] = useState<Map<string, { id: string; content: string }>>(new Map());
   useEffect(() => {
     if (!user) return;
     const unsubscribe = onSnapshot(
       query(collection(db, 'journals'), where('userId', '==', user.uid)),
       (snapshot) => {
-        const ids = new Set<string>();
+        const map = new Map<string, { id: string; content: string }>();
         snapshot.docs.forEach(d => {
           const data: any = d.data();
           // Same "Daily Journal" bucket JournalScreen's categoryOf() uses:
           // not a trade note, not a multi-day session recap.
           if (!data.tradeId && data.noteType !== 'session_recap' && data.sessionId) {
-            ids.add(data.sessionId);
+            map.set(data.sessionId, { id: d.id, content: data.content || '' });
           }
         });
-        setNoteSessionIds(ids);
+        setJournalsBySessionId(map);
       }
     );
     return () => unsubscribe();
+  }, [user]);
+  const noteSessionIds = useMemo(() => new Set(journalsBySessionId.keys()), [journalsBySessionId]);
+
+  // For the AI review's "reads... the trader's saved rules/strategies" —
+  // same subscription StrategiesScreen and the trade drawer's Strategy tab
+  // already use.
+  const [strategies, setStrategies] = useState<Strategy[]>([]);
+  useEffect(() => {
+    if (!user) return;
+    return subscribeStrategies(user.uid, setStrategies);
+  }, [user]);
+
+  // Cached AI reviews, one live subscription for the whole page (mirrors the
+  // journals subscription above) — a Map keyed by sessionDate so each card's
+  // "Review with AI" vs "View AI Review" label, and the modal's initial
+  // cached content, are both plain lookups.
+  const [dayReviews, setDayReviews] = useState<Map<string, DayReview>>(new Map());
+  useEffect(() => {
+    if (!user) return;
+    return subscribeDayReviews(user.uid, setDayReviews);
   }, [user]);
 
   const rangedTrades = useMemo(
@@ -223,6 +281,9 @@ export default function DayViewScreen({ setActivePage }: DayViewScreenProps) {
                   onNote={() => openNote(g)}
                   showReplayButton={mode === 'day'}
                   onReplay={() => setReplayGroup(g)}
+                  showReviewButton={mode === 'day'}
+                  hasReview={dayReviews.has(g.key)}
+                  onReview={() => setReviewGroup(g)}
                 />
               ))}
             </div>
@@ -246,6 +307,27 @@ export default function DayViewScreen({ setActivePage }: DayViewScreenProps) {
           onClose={() => setReplayGroup(null)}
         />
       )}
+
+      {reviewGroup && user && (
+        <DayReviewModal
+          userId={user.uid}
+          sessionId={reviewGroup.session.id}
+          sessionDate={reviewGroup.session.sessionDate}
+          dayLabel={reviewGroup.label}
+          trades={reviewGroup.trades.map(t => ({
+            symbol: t.symbol,
+            direction: t.direction,
+            isWinner: t.isWinner,
+            pnlCurrency: t.pnlCurrency,
+            entryTime: t.entryTime,
+            exitTime: t.exitTime,
+          }))}
+          journalNote={stripHtml(journalsBySessionId.get(reviewGroup.session.id)?.content) || undefined}
+          strategyNotes={buildStrategyNotes(reviewGroup.trades, strategies)}
+          existingReview={dayReviews.get(reviewGroup.key) ?? null}
+          onClose={() => setReviewGroup(null)}
+        />
+      )}
     </div>
   );
 }
@@ -259,6 +341,9 @@ function DayCard({
   onNote,
   showReplayButton,
   onReplay,
+  showReviewButton,
+  hasReview,
+  onReview,
 }: {
   group: FeedGroup;
   expanded: boolean;
@@ -268,6 +353,9 @@ function DayCard({
   onNote: () => void;
   showReplayButton: boolean;
   onReplay: () => void;
+  showReviewButton: boolean;
+  hasReview: boolean;
+  onReview: () => void;
 }) {
   const { session, trades } = group;
   const isUp = session.netPnl >= 0;
@@ -294,6 +382,20 @@ function DayCard({
           </Badge>
         </button>
         <div className="flex items-center gap-3 shrink-0">
+          {showReviewButton && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onReview(); }}
+              className={cn(
+                "flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold border transition-colors",
+                hasReview
+                  ? "border-primary/40 text-primary bg-primary/5 hover:bg-primary/10"
+                  : "border-border text-muted-foreground hover:bg-accent"
+              )}
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              {hasReview ? 'View AI Review' : 'Review with AI'}
+            </button>
+          )}
           {showReplayButton && (
             <button
               onClick={(e) => { e.stopPropagation(); onReplay(); }}

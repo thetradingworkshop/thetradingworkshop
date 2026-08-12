@@ -289,6 +289,15 @@ service cloud.firestore {
       allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
     }
 
+    // Day View "Review with AI" cache — same shape as ingestion_events:
+    // the server (Admin SDK, /api/day-review/generate) is the only writer,
+    // since it's the one calling the model and paying for the generation;
+    // clients only ever read their own cached reviews.
+    match /session_reviews/{reviewId} {
+      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow write: if isAdmin(); // Only backend/admin should write reviews directly
+    }
+
     // Trade Intents
     match /trade_intents/{intentId} {
       allow read: if isAuthenticated() && (isDocOwner() || isAdmin());
