@@ -34,13 +34,35 @@ const DAYTIME_MODES: { id: DayTimeMode; label: string }[] = [
   { id: 'duration', label: 'Trade Duration' },
 ];
 
+const DAY_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+const MONTH_ORDER = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const DURATION_ORDER = ['0-1m', '1-5m', '5-15m', '15-30m', '30m+'];
+
 // Same hour-of-day label convention as analyticsService.ts's hourlyData,
 // so a hover on this report's "9am" bucket means the same thing it does on
 // the Dashboard's hourly chart.
-function hourLabel(entryTime: string): string {
-  const hour = new Date(entryTime).getHours();
+function hourLabelFromHour(hour: number): string {
   return hour >= 12 ? `${hour === 12 ? 12 : hour - 12}pm` : `${hour}am`;
 }
+function hourLabel(entryTime: string): string {
+  return hourLabelFromHour(new Date(entryTime).getHours());
+}
+const HOUR_ORDER = Array.from({ length: 24 }, (_, h) => hourLabelFromHour(h));
+
+// Finer-grained alternative to hourLabel — a trading day's shape (open
+// range, lunch lull, close ramp) often doesn't show up at hour resolution;
+// 30-minute buckets make that texture visible without going all the way to
+// per-trade granularity.
+function halfHourLabelFromMinutes(hour: number, isSecondHalf: boolean): string {
+  const h12 = hour % 12 === 0 ? 12 : hour % 12;
+  const period = hour >= 12 ? 'pm' : 'am';
+  return `${h12}:${isSecondHalf ? '30' : '00'}${period}`;
+}
+function halfHourLabel(entryTime: string): string {
+  const d = new Date(entryTime);
+  return halfHourLabelFromMinutes(d.getHours(), d.getMinutes() >= 30);
+}
+const HALF_HOUR_ORDER = Array.from({ length: 48 }, (_, i) => halfHourLabelFromMinutes(Math.floor(i / 2), i % 2 === 1));
 
 // Same 5 buckets as analyticsService.ts's holdData histogram.
 function durationBucket(holdTimeSeconds: number): string {
@@ -59,6 +81,7 @@ export default function ReportsScreen() {
   const effectiveRange = getEffectiveRange('trade-reports');
   const [tab, setTab] = useState<ReportTab>('symbol');
   const [dayTimeMode, setDayTimeMode] = useState<DayTimeMode>('days');
+  const [timeInterval, setTimeInterval] = useState<'hour' | 'halfhour'>('hour');
 
   const rangedTrades = useMemo(
     () => filteredTrades.filter(t => isWithinInterval(new Date(t.entryTime), { start: effectiveRange.from, end: effectiveRange.to })),
@@ -174,6 +197,7 @@ export default function ReportsScreen() {
                     return [{ key: label, label }];
                   }}
                   secondaryDimensions={[accountDim, sideDim]}
+                  sortOrder={DAY_ORDER}
                 />
               )}
               {dayTimeMode === 'month' && (
@@ -185,18 +209,40 @@ export default function ReportsScreen() {
                     return [{ key: label, label }];
                   }}
                   secondaryDimensions={[accountDim, sideDim]}
+                  sortOrder={MONTH_ORDER}
                 />
               )}
               {dayTimeMode === 'time' && (
-                <ReportTemplate
-                  trades={rangedTrades}
-                  labelHeader="Time of Day"
-                  primaryKeyFn={(t) => {
-                    const label = hourLabel(t.entryTime);
-                    return [{ key: label, label }];
-                  }}
-                  secondaryDimensions={[dayOfWeekDim, accountDim]}
-                />
+                <div className="space-y-4">
+                  <div className="flex items-center gap-1 w-fit p-1 rounded-xl bg-accent/30 border border-border">
+                    {([
+                      { id: 'hour' as const, label: 'Hourly' },
+                      { id: 'halfhour' as const, label: '30-Minute' },
+                    ]).map(o => (
+                      <button
+                        key={o.id}
+                        onClick={() => setTimeInterval(o.id)}
+                        className={cn(
+                          "px-3 py-1.5 rounded-lg text-xs font-bold transition-colors",
+                          timeInterval === o.id ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent"
+                        )}
+                      >
+                        {o.label}
+                      </button>
+                    ))}
+                  </div>
+                  <ReportTemplate
+                    key={timeInterval}
+                    trades={rangedTrades}
+                    labelHeader="Time of Day"
+                    primaryKeyFn={(t) => {
+                      const label = timeInterval === 'hour' ? hourLabel(t.entryTime) : halfHourLabel(t.entryTime);
+                      return [{ key: label, label }];
+                    }}
+                    secondaryDimensions={[dayOfWeekDim, accountDim]}
+                    sortOrder={timeInterval === 'hour' ? HOUR_ORDER : HALF_HOUR_ORDER}
+                  />
+                </div>
               )}
               {dayTimeMode === 'duration' && (
                 <ReportTemplate
@@ -207,6 +253,7 @@ export default function ReportsScreen() {
                     return [{ key: label, label }];
                   }}
                   secondaryDimensions={[dayOfWeekDim, accountDim]}
+                  sortOrder={DURATION_ORDER}
                 />
               )}
             </div>

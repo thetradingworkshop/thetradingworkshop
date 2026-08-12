@@ -12,27 +12,39 @@ const COLUMN_KEYS = ['trades', 'netPnl', 'winRate', 'profitFactor', 'avgWinner',
 interface ReportTableProps {
   bundles: ReportMetricBundle[];
   labelHeader: string;
+  // When given, defaults the table to reading in this chronological/domain
+  // order (e.g. Monday->Sunday, midnight->11pm) rather than ranked by Net
+  // P&L — sorting by the label column then also follows this order instead
+  // of plain alphabetical, so "Trade Time" reads left-to-right as the day
+  // actually unfolds. Any other column can still be clicked to re-rank.
+  naturalOrder?: string[];
 }
 
 type SortDir = 'asc' | 'desc';
 
-export function ReportTable({ bundles, labelHeader }: ReportTableProps) {
-  const [sortKey, setSortKey] = useState<string>('netPnl');
-  const [sortDir, setSortDir] = useState<SortDir>('desc');
+export function ReportTable({ bundles, labelHeader, naturalOrder }: ReportTableProps) {
+  const [sortKey, setSortKey] = useState<string>(naturalOrder ? 'label' : 'netPnl');
+  const [sortDir, setSortDir] = useState<SortDir>(naturalOrder ? 'asc' : 'desc');
 
   const columns = COLUMN_KEYS.map(k => METRIC_DEFS.find(m => m.key === k)!).filter(Boolean);
+  const naturalIndex = useMemo(() => naturalOrder && new Map(naturalOrder.map((k, i) => [k, i])), [naturalOrder]);
 
   const sorted = useMemo(() => {
     const def = sortKey === 'label' ? null : columns.find(c => c.key === sortKey);
     const rows = [...bundles];
     rows.sort((a, b) => {
-      const av = sortKey === 'label' ? a.label : def!.value(a);
-      const bv = sortKey === 'label' ? b.label : def!.value(b);
-      const cmp = typeof av === 'string' ? av.localeCompare(bv as string) : (av as number) - (bv as number);
+      let cmp: number;
+      if (sortKey === 'label' && naturalIndex) {
+        cmp = (naturalIndex.get(a.key) ?? Infinity) - (naturalIndex.get(b.key) ?? Infinity);
+      } else {
+        const av = sortKey === 'label' ? a.label : def!.value(a);
+        const bv = sortKey === 'label' ? b.label : def!.value(b);
+        cmp = typeof av === 'string' ? av.localeCompare(bv as string) : (av as number) - (bv as number);
+      }
       return sortDir === 'asc' ? cmp : -cmp;
     });
     return rows;
-  }, [bundles, sortKey, sortDir, columns]);
+  }, [bundles, sortKey, sortDir, columns, naturalIndex]);
 
   const onSort = (key: string) => {
     if (sortKey === key) {

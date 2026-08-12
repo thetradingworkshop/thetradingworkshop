@@ -92,9 +92,17 @@ export function computeGroupMetrics(key: string, label: string, trades: Trade[])
 // "Breakout" and "FOMO" belongs in both tag groups) — keyFn returns an
 // array so callers control fan-out; a single-bucket grouping (Symbol, Day
 // of week) just returns a one-element array.
+// `sortOrder`, when given, is the full ordered domain a key can take (e.g.
+// every weekday Monday->Sunday, every hour of the day) — bundles are
+// returned in that order rather than arbitrary first-seen-trade order, so
+// a chart of "performance across the day" actually reads left-to-right as
+// the day unfolds instead of jumbling hours together. Keys not found in
+// sortOrder sort after everything that is (defensive, shouldn't happen for
+// well-formed callers).
 export function groupTradesInto(
   trades: Trade[],
-  keyFn: (t: Trade) => { key: string; label: string }[]
+  keyFn: (t: Trade) => { key: string; label: string }[],
+  sortOrder?: string[]
 ): ReportMetricBundle[] {
   const buckets = new Map<string, { label: string; trades: Trade[] }>();
   for (const t of trades) {
@@ -103,7 +111,12 @@ export function groupTradesInto(
       buckets.get(key)!.trades.push(t);
     }
   }
-  return Array.from(buckets.entries()).map(([key, { label, trades }]) => computeGroupMetrics(key, label, trades));
+  const bundles = Array.from(buckets.entries()).map(([key, { label, trades }]) => computeGroupMetrics(key, label, trades));
+  if (sortOrder) {
+    const orderIndex = new Map(sortOrder.map((k, i) => [k, i]));
+    bundles.sort((a, b) => (orderIndex.get(a.key) ?? Infinity) - (orderIndex.get(b.key) ?? Infinity));
+  }
+  return bundles;
 }
 
 export interface PerformanceSummary {

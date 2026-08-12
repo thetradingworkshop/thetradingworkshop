@@ -28,9 +28,15 @@ interface ReportTemplateProps {
   primaryKeyFn: (t: Trade) => { key: string; label: string }[];
   labelHeader: string;
   secondaryDimensions?: SecondaryDimension[];
+  // The full ordered domain of primary keys (e.g. every weekday, every hour
+  // of the day) — when given, the chart and table read in that natural
+  // order by default instead of arbitrary first-seen-trade order. Not
+  // applied once a secondary "group by" is active (compound keys don't map
+  // onto a single-dimension order); Symbol/Tags reports simply omit this.
+  sortOrder?: string[];
 }
 
-export function ReportTemplate({ trades, primaryKeyFn, labelHeader, secondaryDimensions = [] }: ReportTemplateProps) {
+export function ReportTemplate({ trades, primaryKeyFn, labelHeader, secondaryDimensions = [], sortOrder }: ReportTemplateProps) {
   const [selectedMetrics, setSelectedMetrics] = useState<string[]>(['netPnl']);
   const [chartType, setChartType] = useState<'bar' | 'line'>('bar');
   const [secondaryKey, setSecondaryKey] = useState<string>('none');
@@ -47,7 +53,10 @@ export function ReportTemplate({ trades, primaryKeyFn, labelHeader, secondaryDim
     };
   }, [primaryKeyFn, secondaryDim]);
 
-  const bundles = useMemo(() => groupTradesInto(trades, effectiveKeyFn), [trades, effectiveKeyFn]);
+  const bundles = useMemo(
+    () => groupTradesInto(trades, effectiveKeyFn, secondaryDim ? undefined : sortOrder),
+    [trades, effectiveKeyFn, secondaryDim, sortOrder]
+  );
   const primaryBundles = useMemo(() => groupTradesInto(trades, primaryKeyFn), [trades, primaryKeyFn]);
   const summary = useMemo(() => computePerformanceSummary(primaryBundles), [primaryBundles]);
 
@@ -95,7 +104,11 @@ export function ReportTemplate({ trades, primaryKeyFn, labelHeader, secondaryDim
       <MetricChart bundles={bundles} metricKeys={selectedMetrics} chartType={chartType} />
 
       {/* 3. Summary table (4. Cross Analysis re-buckets the same table via secondaryKey above) */}
-      <ReportTable bundles={bundles} labelHeader={secondaryDim ? `${labelHeader} — ${secondaryDim.label}` : labelHeader} />
+      <ReportTable
+        bundles={bundles}
+        labelHeader={secondaryDim ? `${labelHeader} — ${secondaryDim.label}` : labelHeader}
+        naturalOrder={secondaryDim ? undefined : sortOrder}
+      />
     </div>
   );
 }
