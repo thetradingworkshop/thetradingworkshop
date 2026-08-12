@@ -302,7 +302,24 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
     setSelectedSessionForJournal(null);
   }, [selectedSessionForJournal, isLoading, journals]);
 
-  const openNew = () => setDraft(emptyDraft());
+  // "+New" from the Daily Journal category specifically (not the other
+  // tabs) mirrors exactly what Day View's own "Add note" button prefills —
+  // same title format, same sessionId shape (`${uid}_${date}`) — so a note
+  // started here lands on the same entry Day View's find-or-create match
+  // (`j.sessionId === sessionId && !j.tradeId`) would find, instead of
+  // creating a second, disconnected note for that day.
+  const openNew = () => {
+    if (activeCategory === 'daily' && user) {
+      const today = format(new Date(), 'yyyy-MM-dd');
+      setDraft(emptyDraft({
+        title: `Daily Journal — ${today}`,
+        date: today,
+        sessionId: `${user.uid}_${today}`,
+      }));
+    } else {
+      setDraft(emptyDraft());
+    }
+  };
   const openEdit = () => selectedJournal && setDraft({ ...selectedJournal });
   const closeDraft = () => setDraft(null);
 
