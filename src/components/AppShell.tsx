@@ -16,7 +16,8 @@ import {
   Zap,
   ClipboardCheck,
   Rocket,
-  CalendarDays
+  CalendarDays,
+  PieChart
 } from 'lucide-react';
 import { cn } from '@/src/utils';
 import { Role } from '@/src/types';
@@ -35,6 +36,11 @@ const navItems = [
   { id: 'journal', label: 'Journal', icon: BookOpen, roles: ['Admin', 'Mentor', 'Student'] },
   { id: 'range', label: 'Range Analysis', icon: Target, roles: ['Admin', 'Mentor', 'Student'] },
   { id: 'strategies', label: 'Strategies', icon: Rocket, roles: ['Admin', 'Mentor', 'Student'] },
+  // Distinct id from 'reports' below on purpose — that one is
+  // WeeklyReportsScreen (generated weekly PDF-style reports), an unrelated
+  // existing feature. This is the TradeZella-style analytics drill-downs
+  // (Symbol / Day & Time / Tags).
+  { id: 'trade-reports', label: 'Reports', icon: PieChart, roles: ['Admin', 'Mentor', 'Student'] },
   { id: 'mentor', label: 'Mentor', icon: Users, roles: ['Admin', 'Mentor'] },
   { id: 'reports', label: 'Weekly Reports', icon: FileText, roles: ['Admin', 'Mentor', 'Student'] },
   { id: 'settings', label: 'Settings', icon: Settings, roles: ['Admin', 'Mentor', 'Student'] },
@@ -47,7 +53,7 @@ import { AccountFilterDropdown } from './AccountFilterDropdown';
 import { useTrades } from '../context/TradeContext';
 
 // Filters + Accounts only make sense where trades are actually shown.
-const TRADE_SCOPED_PAGES = ['dashboard', 'trades', 'sessions', 'dayview'];
+const TRADE_SCOPED_PAGES = ['dashboard', 'trades', 'sessions', 'dayview', 'trade-reports'];
 
 export function AppShell({ 
   children, 
