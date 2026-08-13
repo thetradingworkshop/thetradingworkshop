@@ -17,7 +17,10 @@ export default function WeeklyReportsScreen() {
   const [reports, setReports] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const { getEffectiveRange, setPageOverride } = useDateRange();
-  const { trades } = useTrades();
+  // filteredTrades (not the raw, all-accounts/all-symbols `trades`) so the
+  // weekly log respects the header's Filters/Account selection, same as
+  // Dashboard/Trades/Range Analysis — this page used to ignore it.
+  const { filteredTrades: trades } = useTrades();
   const effectiveRange = getEffectiveRange('weekly-reports');
 
   const weekStart = startOfWeek(effectiveRange.from, { weekStartsOn: 1 });

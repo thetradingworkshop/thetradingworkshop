@@ -109,7 +109,11 @@ function draftFromStrategy(s: Strategy): DraftCategory[] {
 
 export default function StrategiesScreen() {
   const { user } = useAuth();
-  const { trades } = useTrades();
+  // filteredTrades (not the raw, all-accounts/all-symbols `trades`) so a
+  // strategy's stats respect the header's Filters/Account selection —
+  // this page used to silently ignore both, mixing every account and
+  // symbol into one number regardless of what the user had selected.
+  const { filteredTrades: trades } = useTrades();
   const [strategies, setStrategies] = useState<Strategy[]>([]);
   const [subTab, setSubTab] = useState<SubTab>('mine');
   const [statusFilter, setStatusFilter] = useState<'active' | 'archived'>('active');

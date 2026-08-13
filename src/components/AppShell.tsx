@@ -53,7 +53,7 @@ import { AccountFilterDropdown } from './AccountFilterDropdown';
 import { useTrades } from '../context/TradeContext';
 
 // Filters + Accounts only make sense where trades are actually shown.
-const TRADE_SCOPED_PAGES = ['dashboard', 'trades', 'sessions', 'dayview', 'trade-reports', 'range'];
+const TRADE_SCOPED_PAGES = ['dashboard', 'trades', 'sessions', 'dayview', 'trade-reports', 'range', 'strategies', 'reports'];
 
 export function AppShell({ 
   children, 
