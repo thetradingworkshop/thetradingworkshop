@@ -1,12 +1,71 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { cn } from '@/src/utils';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { format, subDays, isWithinInterval } from 'date-fns';
 import { db } from '../firebase';
-import { SectionHeader, Scorecard, Card, Badge, Button, Table, TableHeader, TableRow, TableHead, TableCell, Toast } from '../components/Shared';
-import { Users, TrendingUp, TrendingDown, AlertCircle, FileText, ChevronRight, User, MessageSquare, BarChart3, CheckCircle2, Trophy, ArrowUpRight, ArrowDownRight, Target, BrainCircuit, Clock } from 'lucide-react';
+import { SectionHeader, Card, Badge, Button, Table, TableHeader, TableRow, TableHead, TableCell, Toast } from '../components/Shared';
+import { Users, TrendingUp, AlertCircle, FileText, User, MessageSquare, BarChart3, CheckCircle2, Trophy, ArrowUpRight, ArrowDownRight, Target, BrainCircuit } from 'lucide-react';
+import { computeDisciplineScore, computeConsistencyScore } from '../services/analyticsService';
+import { Trade } from '../types';
+
+// This screen used to genuinely query real students, then read
+// `s.discipline`/`s.consistency`/`s.lastSession`/`s.trend` — fields nothing
+// in the codebase ever wrote, so every real student rendered as undefined%
+// and NaN. Fixed by computing each student's stats from their own real
+// trades, using the exact same scoring functions Dashboard uses on the
+// logged-in trader's own data (now exported from analyticsService.ts) —
+// a mentor and their student see the same score for the same data.
+//
+// "Group Pattern Analysis" and "Weekly Coaching Report" below are left as
+// explicit not-yet-available states rather than the fabricated narrative
+// text ("giving back gains during the afternoon session"...) that used to
+// render unconditionally — a real version of either needs an actual
+// cross-student LLM analysis pass, not invented here.
+
+interface StudentRow {
+  id: string;
+  name: string;
+  email?: string;
+  status?: string;
+  discipline: number;
+  consistency: number;
+  lastSession: string;
+  trend: 'up' | 'down' | 'flat';
+  improvementPts: number;
+  totalTrades: number;
+}
+
+function buildStudentRow(base: { id: string; name?: string; email?: string; status?: string }, trades: Trade[]): StudentRow {
+  if (trades.length === 0) {
+    return { id: base.id, name: base.name || base.email || 'Student', email: base.email, status: base.status, discipline: 0, consistency: 0, lastSession: 'No trades yet', trend: 'flat', improvementPts: 0, totalTrades: 0 };
+  }
+  const sorted = [...trades].sort((a, b) => new Date(b.entryTime).getTime() - new Date(a.entryTime).getTime());
+  const lastSession = format(new Date(sorted[0].entryTime), 'MMM d, yyyy');
+
+  const now = new Date();
+  const last7 = trades.filter(t => isWithinInterval(new Date(t.entryTime), { start: subDays(now, 7), end: now }));
+  const prev7 = trades.filter(t => isWithinInterval(new Date(t.entryTime), { start: subDays(now, 14), end: subDays(now, 7) }));
+
+  const discipline = Math.round(computeDisciplineScore(trades));
+  const consistency = Math.round(computeConsistencyScore(trades));
+
+  // Week-over-week movement, only when there's enough recent history to
+  // compare against — with fewer than a handful of trades in either window
+  // the score swings too much to call it a real trend.
+  let trend: StudentRow['trend'] = 'flat';
+  let improvementPts = 0;
+  if (last7.length >= 3 && prev7.length >= 3) {
+    const diff = Math.round(computeDisciplineScore(last7) - computeDisciplineScore(prev7));
+    improvementPts = diff;
+    trend = diff > 0 ? 'up' : diff < 0 ? 'down' : 'flat';
+  }
+
+  return { id: base.id, name: base.name || base.email || 'Student', email: base.email, status: base.status, discipline, consistency, lastSession, trend, improvementPts, totalTrades: trades.length };
+}
 
 export default function MentorDashboardScreen() {
   const [students, setStudents] = useState<any[]>([]);
+  const [studentTrades, setStudentTrades] = useState<Record<string, Trade[]>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
@@ -17,8 +76,12 @@ export default function MentorDashboardScreen() {
 
   useEffect(() => {
     // In a real app, we'd filter by mentorId
+    // AuthContext.tsx writes role as 'Student' (capitalized) — this query
+    // used to look for lowercase 'student' and so never matched a single
+    // real signed-up user, regardless of how many students actually
+    // existed. Confirmed by reading AuthContext.tsx directly.
     const unsubscribe = onSnapshot(
-      query(collection(db, 'users'), where('role', '==', 'student')),
+      query(collection(db, 'users'), where('role', '==', 'Student')),
       (snapshot) => {
         const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         setStudents(docs);
@@ -27,6 +90,46 @@ export default function MentorDashboardScreen() {
     );
     return () => unsubscribe();
   }, []);
+
+  // One trades subscription per assigned student, so their table row and
+  // the leaderboard reflect real, live data instead of a snapshot field
+  // that was never populated. Keyed off the joined id list (not `students`
+  // itself) so a re-render with the same set of students doesn't tear down
+  // and re-subscribe every listener.
+  const studentIds = useMemo(() => students.map(s => s.id).sort().join(','), [students]);
+  useEffect(() => {
+    if (!studentIds) { setStudentTrades({}); return; }
+    const ids = studentIds.split(',');
+    const unsubscribes = ids.map(id =>
+      onSnapshot(query(collection(db, 'trades'), where('userId', '==', id)), (snap) => {
+        const trades = snap.docs.map(d => ({ id: d.id, ...d.data() } as Trade));
+        setStudentTrades(prev => ({ ...prev, [id]: trades }));
+      })
+    );
+    return () => unsubscribes.forEach(fn => fn());
+  }, [studentIds]);
+
+  const studentRows: StudentRow[] = useMemo(
+    () => students.map(s => buildStudentRow(s, studentTrades[s.id] || [])),
+    [students, studentTrades]
+  );
+
+  const activeStudents = studentRows.filter(s => s.totalTrades > 0);
+  const avgDiscipline = activeStudents.length ? Math.round(activeStudents.reduce((s, r) => s + r.discipline, 0) / activeStudents.length) : 0;
+  const avgConsistency = activeStudents.length ? Math.round(activeStudents.reduce((s, r) => s + r.consistency, 0) / activeStudents.length) : 0;
+  const improvingCount = activeStudents.filter(s => s.trend === 'up').length;
+  const strugglingStudents = activeStudents.filter(s => s.discipline < 50);
+  const decliningCount = activeStudents.filter(s => s.trend === 'down').length;
+  // Distinguishes "nobody has a week-over-week trend yet" (Stable — not a
+  // problem, just not enough history) from students actually declining
+  // (Needs Attention) — the first version of this conflated the two,
+  // so a brand-new active student would read as "needs attention" purely
+  // for lacking two weeks of data.
+  const groupProgress = activeStudents.length === 0
+    ? 'Neutral'
+    : (improvingCount === 0 && decliningCount === 0)
+      ? 'Stable'
+      : improvingCount > decliningCount ? 'Improving' : improvingCount < decliningCount ? 'Needs Attention' : 'Mixed';
 
   const getScoreColor = (score: number) => {
     if (score >= 90) return "text-emerald-500";
@@ -42,8 +145,8 @@ export default function MentorDashboardScreen() {
 
   return (
     <div className="space-y-8 pb-20">
-      <SectionHeader 
-        title="Mentor Dashboard" 
+      <SectionHeader
+        title="Mentor Dashboard"
         subtitle="Coaching overview for Group Alpha & Beta"
         rightElement={
           <div className="flex flex-wrap items-center gap-3">
@@ -53,17 +156,17 @@ export default function MentorDashboardScreen() {
         }
       />
 
-      {/* Row 1: Group Insights Summary */}
+      {/* Row 1: Group Insights Summary — real averages across assigned students with real trades */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
         <Card className="border-emerald-500/20 bg-emerald-500/5 hover:bg-emerald-500/10 transition-all duration-300 group">
           <div className="flex items-center justify-between mb-6">
             <div className="w-12 h-12 rounded-2xl bg-emerald-500 shadow-lg shadow-emerald-500/20 flex items-center justify-center transition-transform group-hover:scale-110">
               <CheckCircle2 className="w-6 h-6 text-white" />
             </div>
-            <Badge variant="neutral" className="text-[10px] px-2">--% vs LW</Badge>
+            <Badge variant="neutral" className="text-[10px] px-2">{activeStudents.length} active</Badge>
           </div>
           <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70">Avg Discipline</p>
-          <p className="text-3xl font-bold mt-1 text-foreground tracking-tight">0.0%</p>
+          <p className="text-3xl font-bold mt-1 text-foreground tracking-tight">{avgDiscipline.toFixed(1)}%</p>
         </Card>
 
         <Card className="border-indigo-500/20 bg-indigo-500/5 hover:bg-indigo-500/10 transition-all duration-300 group">
@@ -71,10 +174,10 @@ export default function MentorDashboardScreen() {
             <div className="w-12 h-12 rounded-2xl bg-indigo-500 shadow-lg shadow-indigo-500/20 flex items-center justify-center transition-transform group-hover:scale-110">
               <Target className="w-6 h-6 text-white" />
             </div>
-            <Badge variant="neutral" className="text-[10px] px-2">Stable</Badge>
+            <Badge variant="neutral" className="text-[10px] px-2">{improvingCount} improving</Badge>
           </div>
           <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70">Avg Consistency</p>
-          <p className="text-3xl font-bold mt-1 text-foreground tracking-tight">0.0%</p>
+          <p className="text-3xl font-bold mt-1 text-foreground tracking-tight">{avgConsistency.toFixed(1)}%</p>
         </Card>
 
         <Card className="border-amber-500/20 bg-amber-500/5 hover:bg-amber-500/10 transition-all duration-300 group">
@@ -82,10 +185,12 @@ export default function MentorDashboardScreen() {
             <div className="w-12 h-12 rounded-2xl bg-amber-500 shadow-lg shadow-amber-500/20 flex items-center justify-center transition-transform group-hover:scale-110">
               <AlertCircle className="w-6 h-6 text-white" />
             </div>
-            <Badge variant="neutral" className="text-[10px] px-2">N/A</Badge>
+            <Badge variant="neutral" className="text-[10px] px-2">{strugglingStudents.length} flagged</Badge>
           </div>
           <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70">Common Issue</p>
-          <p className="text-xl font-bold mt-1 truncate text-foreground tracking-tight">No issues detected</p>
+          <p className="text-xl font-bold mt-1 truncate text-foreground tracking-tight">
+            {strugglingStudents.length === 0 ? 'No issues detected' : `${strugglingStudents.length} below 50% discipline`}
+          </p>
         </Card>
 
         <Card className="border-primary/20 bg-primary/5 hover:bg-primary/10 transition-all duration-300 group">
@@ -93,10 +198,10 @@ export default function MentorDashboardScreen() {
             <div className="w-12 h-12 rounded-2xl bg-primary shadow-lg shadow-primary/20 flex items-center justify-center transition-transform group-hover:scale-110">
               <TrendingUp className="w-6 h-6 text-white" />
             </div>
-            <Badge variant="neutral" className="text-[10px] px-2">0 Improving</Badge>
+            <Badge variant="neutral" className="text-[10px] px-2">{improvingCount} Improving</Badge>
           </div>
           <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70">Group Progress</p>
-          <p className="text-3xl font-bold mt-1 text-foreground tracking-tight">Neutral</p>
+          <p className="text-3xl font-bold mt-1 text-foreground tracking-tight">{groupProgress}</p>
         </Card>
       </div>
 
@@ -117,14 +222,14 @@ export default function MentorDashboardScreen() {
                   <TableHead>Student</TableHead>
                   <TableHead className="text-center">Discipline</TableHead>
                   <TableHead className="text-center">Consistency</TableHead>
-                  <TableHead className="text-right">Improvement</TableHead>
+                  <TableHead className="text-right">7-Day Trend</TableHead>
                   <TableHead className="text-right"></TableHead>
                 </TableRow>
               </TableHeader>
               <tbody>
-                {students.length > 0 ? students.map((s) => (
-                  <TableRow 
-                    key={s.id} 
+                {studentRows.length > 0 ? studentRows.map((s) => (
+                  <TableRow
+                    key={s.id}
                     className="group cursor-pointer"
                     onClick={() => handleAction(`View Details for ${s.name}`)}
                   >
@@ -146,43 +251,48 @@ export default function MentorDashboardScreen() {
                       </div>
                     </TableCell>
                     <TableCell className="text-center">
-                      <div className={cn("inline-flex items-center px-3 py-1 rounded-lg border text-[11px] font-bold", getScoreBg(s.discipline), getScoreColor(s.discipline))}>
-                        {s.discipline}%
-                      </div>
+                      {s.totalTrades > 0 ? (
+                        <div className={cn("inline-flex items-center px-3 py-1 rounded-lg border text-[11px] font-bold", getScoreBg(s.discipline), getScoreColor(s.discipline))}>
+                          {s.discipline}%
+                        </div>
+                      ) : <span className="text-xs text-muted-foreground italic">No trades</span>}
                     </TableCell>
                     <TableCell className="text-center">
-                      <div className={cn("inline-flex items-center px-3 py-1 rounded-lg border text-[11px] font-bold", getScoreBg(s.consistency), getScoreColor(s.consistency))}>
-                        {s.consistency}%
-                      </div>
+                      {s.totalTrades > 0 ? (
+                        <div className={cn("inline-flex items-center px-3 py-1 rounded-lg border text-[11px] font-bold", getScoreBg(s.consistency), getScoreColor(s.consistency))}>
+                          {s.consistency}%
+                        </div>
+                      ) : <span className="text-xs text-muted-foreground italic">—</span>}
                     </TableCell>
                     <TableCell className="text-right">
-                      <div className="flex items-center justify-end space-x-2">
-                        {s.trend === 'up' ? (
-                          <ArrowUpRight className="w-4 h-4 text-emerald-500" />
-                        ) : (
-                          <ArrowDownRight className="w-4 h-4 text-rose-500" />
-                        )}
-                        <span className={cn(
-                          "font-bold text-sm",
-                          s.trend === 'up' ? "text-emerald-500" : "text-rose-500"
-                        )}>
-                          {s.improvement}
-                        </span>
-                      </div>
+                      {s.trend === 'flat' ? (
+                        <span className="text-xs text-muted-foreground italic">Not enough data</span>
+                      ) : (
+                        <div className="flex items-center justify-end space-x-2">
+                          {s.trend === 'up' ? (
+                            <ArrowUpRight className="w-4 h-4 text-emerald-500" />
+                          ) : (
+                            <ArrowDownRight className="w-4 h-4 text-rose-500" />
+                          )}
+                          <span className={cn("font-bold text-sm", s.trend === 'up' ? "text-emerald-500" : "text-rose-500")}>
+                            {s.improvementPts > 0 ? '+' : ''}{s.improvementPts} pts
+                          </span>
+                        </div>
+                      )}
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end space-x-2 opacity-0 group-hover:opacity-100 transition-all duration-200">
-                        <Button 
-                          variant="ghost" 
-                          size="icon" 
+                        <Button
+                          variant="ghost"
+                          size="icon"
                           className="h-8 w-8 hover:bg-primary/10 text-primary"
                           onClick={(e) => { e.stopPropagation(); handleAction(`View Stats for ${s.name}`); }}
                         >
                           <BarChart3 className="w-4 h-4" />
                         </Button>
-                        <Button 
-                          variant="ghost" 
-                          size="icon" 
+                        <Button
+                          variant="ghost"
+                          size="icon"
                           className="h-8 w-8 hover:bg-primary/10 text-primary"
                           onClick={(e) => { e.stopPropagation(); handleAction(`Message ${s.name}`); }}
                         >
@@ -203,7 +313,7 @@ export default function MentorDashboardScreen() {
           </Card>
         </div>
 
-        {/* Leaderboard Section */}
+        {/* Leaderboard Section — ranked by real avg(discipline, consistency), students with no trades excluded rather than ranked as 0 */}
         <div className="lg:col-span-4">
           <Card className="h-full border-primary/20 bg-primary/5 shadow-inner">
             <div className="flex items-center justify-between mb-8">
@@ -213,11 +323,11 @@ export default function MentorDashboardScreen() {
               </div>
               <Badge variant="neutral" className="text-[10px] px-2">This Week</Badge>
             </div>
-            
+
             <div className="space-y-4">
-              {students.length > 0 ? students.sort((a, b) => (b.discipline + b.consistency) - (a.discipline + a.consistency)).slice(0, 3).map((s, i) => (
-                <div 
-                  key={s.id} 
+              {activeStudents.length > 0 ? [...activeStudents].sort((a, b) => (b.discipline + b.consistency) - (a.discipline + a.consistency)).slice(0, 3).map((s, i) => (
+                <div
+                  key={s.id}
                   onClick={() => handleAction(`View Profile for ${s.name}`)}
                   className={cn(
                     "p-5 rounded-2xl border transition-all duration-300 hover:translate-x-1 cursor-pointer",
@@ -235,7 +345,7 @@ export default function MentorDashboardScreen() {
                       <span className="text-sm font-bold text-foreground">{s.name}</span>
                     </div>
                     <div className="text-right">
-                      <div className="text-sm font-bold text-primary">{(s.discipline + s.consistency) / 2}%</div>
+                      <div className="text-sm font-bold text-primary">{Math.round((s.discipline + s.consistency) / 2)}%</div>
                       <div className="text-[9px] uppercase font-bold text-muted-foreground/60 tracking-wider">Avg Score</div>
                     </div>
                   </div>
@@ -256,10 +366,10 @@ export default function MentorDashboardScreen() {
                 </div>
               )}
             </div>
-            
-            <Button 
-              variant="outline" 
-              size="sm" 
+
+            <Button
+              variant="outline"
+              size="sm"
               className="w-full mt-8 border-primary/20 hover:bg-primary/10 font-bold text-xs"
               onClick={() => handleAction('View Full Rankings')}
             >
@@ -269,7 +379,7 @@ export default function MentorDashboardScreen() {
         </div>
       </div>
 
-      {/* Row 3: Progress Trends + Issues + Reports */}
+      {/* Row 3: Discipline by Student + Common Issues + Reports */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card>
           <div className="flex items-center justify-between mb-8">
@@ -277,17 +387,16 @@ export default function MentorDashboardScreen() {
               <div className="p-2 bg-emerald-500/10 rounded-lg">
                 <TrendingUp className="w-5 h-5 text-emerald-500" />
               </div>
-              <h3 className="font-bold text-foreground text-sm">Progress Trends</h3>
+              <h3 className="font-bold text-foreground text-sm">Discipline by Student</h3>
             </div>
-            <ArrowUpRight className="w-4 h-4 text-emerald-500" />
           </div>
           <div className="space-y-6">
             <p className="text-xs text-muted-foreground leading-relaxed">
-              {students.length > 0 ? `Analyzing performance trends for ${students.length} students over the last 14 days.` : "No progress data available yet."}
+              {activeStudents.length > 0 ? `Current discipline score for ${activeStudents.length} student${activeStudents.length === 1 ? '' : 's'} with logged trades.` : "No progress data available yet."}
             </p>
             <div className="h-28 bg-muted/20 rounded-2xl flex items-end justify-between p-4 space-x-1.5 border border-border/20">
-              {students.length > 0 ? Array.from({ length: 7 }).map((_, i) => (
-                <div key={i} className="flex-1 bg-emerald-500/40 rounded-t-md transition-all duration-300 hover:bg-emerald-500 hover:scale-y-105" style={{ height: `${20 + Math.random() * 60}%` }} />
+              {activeStudents.length > 0 ? activeStudents.slice(0, 8).map((s) => (
+                <div key={s.id} title={`${s.name}: ${s.discipline}%`} className="flex-1 bg-emerald-500/40 rounded-t-md transition-all duration-300 hover:bg-emerald-500 hover:scale-y-105" style={{ height: `${Math.max(4, s.discipline)}%` }} />
               )) : (
                 <div className="w-full text-center text-[10px] text-muted-foreground/40">No data</div>
               )}
@@ -303,19 +412,19 @@ export default function MentorDashboardScreen() {
               </div>
               <h3 className="font-bold text-foreground text-sm">Common Issues</h3>
             </div>
-            <Badge variant="neutral" className="text-[10px] px-2">0 Alerts</Badge>
+            <Badge variant="neutral" className="text-[10px] px-2">{strugglingStudents.length} Alerts</Badge>
           </div>
           <div className="space-y-4">
-            {students.length > 0 ? (
-              <>
-                <div className="p-4 bg-rose-500/5 border border-rose-500/10 rounded-2xl transition-all hover:bg-rose-500/10 hover:border-rose-500/20 cursor-default">
-                  <div className="flex items-center justify-between mb-2">
-                    <p className="text-xs font-bold text-rose-600">Behavioral Alert</p>
-                    <span className="text-[10px] font-bold text-rose-500/70">Active Monitoring</span>
-                  </div>
-                  <p className="text-[11px] text-muted-foreground leading-relaxed">Review individual student logs for specific behavioral patterns and discipline scores.</p>
+            {strugglingStudents.length > 0 ? (
+              <div className="p-4 bg-rose-500/5 border border-rose-500/10 rounded-2xl transition-all hover:bg-rose-500/10 hover:border-rose-500/20 cursor-default">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs font-bold text-rose-600">Discipline below 50%</p>
+                  <span className="text-[10px] font-bold text-rose-500/70">{strugglingStudents.length} student{strugglingStudents.length === 1 ? '' : 's'}</span>
                 </div>
-              </>
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  {strugglingStudents.map(s => s.name).join(', ')} — review individual logs for the specific rule violations driving this.
+                </p>
+              </div>
             ) : (
               <div className="text-center py-8 text-muted-foreground italic text-xs">
                 No common issues identified.
@@ -334,20 +443,19 @@ export default function MentorDashboardScreen() {
               <h3 className="font-bold text-sm">Weekly Coaching Report</h3>
             </div>
             <p className="text-xs text-white/80 mb-8 leading-relaxed">
-              Automated analysis of all student sessions will be ready once data is available.
+              Automated per-student report generation isn't built yet — this button doesn't send anything.
             </p>
           </div>
-          <Button 
-            className="w-full bg-white text-primary hover:bg-white/90 active:scale-[0.98] border-none font-bold py-6 relative z-10"
-            onClick={() => handleAction('Generate & Send Report')}
-            disabled={students.length === 0}
+          <Button
+            className="w-full bg-white/40 text-white/70 border-none font-bold py-6 relative z-10 cursor-not-allowed"
+            disabled
           >
-            Generate & Send
+            Coming Soon
           </Button>
         </Card>
       </div>
 
-      {/* Row 4: AI Mentor Overview */}
+      {/* Row 4: Group Pattern Analysis — honestly unavailable rather than fabricated narrative */}
       <Card className="bg-indigo-500/5 border-indigo-500/20 relative overflow-hidden group" noPadding>
         <div className="absolute top-0 right-0 p-8 opacity-[0.03] pointer-events-none transition-transform group-hover:scale-110 group-hover:rotate-6 duration-700">
           <BrainCircuit className="w-64 h-64 text-indigo-500" />
@@ -364,31 +472,24 @@ export default function MentorDashboardScreen() {
           </div>
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
             <div className="lg:col-span-8">
-              {students.length > 0 ? (
-                <p className="text-sm leading-relaxed text-muted-foreground/90">
-                  The overall group sentiment is positive. Most students are successfully navigating the morning volatility, but there is a clear pattern of <span className="text-foreground font-bold">"giving back gains"</span> during the afternoon session. 
-                </p>
-              ) : (
-                <p className="text-sm leading-relaxed text-muted-foreground/90 italic">
-                  AI analysis will be available once students are active and sessions are recorded.
-                </p>
-              )}
+              <p className="text-sm leading-relaxed text-muted-foreground/90 italic">
+                Cross-student AI pattern analysis isn't built yet — this section doesn't reflect real group behavior. Individual student discipline/consistency scores above are real.
+              </p>
             </div>
             <div className="lg:col-span-4 p-8 bg-indigo-500/10 rounded-2xl border border-indigo-500/20 flex flex-col justify-between shadow-sm">
               <div>
                 <h4 className="text-[10px] font-bold uppercase tracking-widest text-indigo-600 mb-3">Coaching Focus</h4>
-                <p className="text-lg font-bold leading-tight text-foreground tracking-tight">
-                  {students.length > 0 ? "\"The Art of Walking Away: Preserving Morning Alpha\"" : "No active coaching focus"}
+                <p className="text-sm font-medium leading-tight text-muted-foreground italic">
+                  Not available yet
                 </p>
               </div>
-              <Button 
-                variant="outline" 
-                size="md" 
-                className="w-full mt-8 border-indigo-500/30 text-indigo-600 hover:bg-indigo-500/20 font-bold text-xs"
-                onClick={() => handleAction('Schedule Coaching Session')}
-                disabled={students.length === 0}
+              <Button
+                variant="outline"
+                size="md"
+                className="w-full mt-8 border-indigo-500/30 text-indigo-600/50 font-bold text-xs cursor-not-allowed"
+                disabled
               >
-                Schedule Session
+                Coming Soon
               </Button>
             </div>
           </div>
@@ -397,10 +498,10 @@ export default function MentorDashboardScreen() {
 
       {/* Toast Notification */}
       {toast && (
-        <Toast 
-          message={toast.message} 
-          type={toast.type} 
-          onClose={() => setToast(null)} 
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
         />
       )}
     </div>

@@ -352,7 +352,10 @@ export const buildWeeklySummaries = (
   return weeks;
 };
 
-const computeDisciplineScore = (trades: Trade[]): number => {
+// Exported so MentorDashboardScreen can compute a real per-student score
+// from that student's own trades, instead of reading a field nothing ever
+// writes.
+export const computeDisciplineScore = (trades: Trade[]): number => {
   // Filter valid trades: must have entry/exit times and valid numeric pnl
   const validTrades = trades.filter(t => 
     t.entryTime && 
