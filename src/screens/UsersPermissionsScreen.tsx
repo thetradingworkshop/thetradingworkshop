@@ -6,6 +6,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../context/AuthContext';
+import { generateInviteCode } from '../lib/inviteCode';
 import {
   SectionHeader,
   Card,
@@ -76,6 +77,8 @@ interface UserData {
   status: 'active' | 'inactive';
   mentorId?: string; // uid of the Mentor-role user this Student is assigned to
   groupId?: string; // id of the cohort this user belongs to, if any
+  referredBy?: string; // uid of whoever's invite/referral link created this account, if any
+  referredByName?: string;
   updatedAt: string; // formatted, or 'Unknown'
 }
 
@@ -113,17 +116,6 @@ function inviteStatus(revoked: boolean, expiresAtDate: Date, useCount: number, m
   return 'active';
 }
 
-// Random, URL-safe invite code — the doc ID is the code itself, and the
-// code IS the bearer token (see firestore.rules: any authenticated user
-// can `get` an invite by ID, but not `list` them). 10 chars from a
-// 32-symbol alphabet is ~50 bits of entropy, ample for a token an Admin
-// hands out directly rather than one exposed to brute-force guessing.
-const CODE_ALPHABET = '23456789abcdefghjkmnpqrstuvwxyz'; // no 0/1/i/l/o — avoids visual ambiguity when read aloud/typed
-function generateInviteCode(): string {
-  const bytes = new Uint8Array(10);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes, (b) => CODE_ALPHABET[b % CODE_ALPHABET.length]).join('');
-}
 
 interface AuditLogEntry {
   id: string;
@@ -204,6 +196,8 @@ export default function UsersPermissionsScreen() {
           status: data.status === 'inactive' ? 'inactive' : 'active',
           mentorId: data.mentorId || undefined,
           groupId: data.groupId || undefined,
+          referredBy: data.referredBy || undefined,
+          referredByName: data.referredByName || undefined,
           updatedAt: fmtTimestamp(data.updatedAt),
         };
       });
@@ -928,6 +922,15 @@ export default function UsersPermissionsScreen() {
                 <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Last Updated</label>
                 <p className="text-sm font-medium text-foreground">{selectedUser.updatedAt}</p>
               </section>
+
+              {selectedUser.referredBy && (
+                <section className="space-y-1.5">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Joined Via</label>
+                  <p className="text-sm font-medium text-foreground">
+                    Referred by {nameOf(selectedUser.referredBy) || selectedUser.referredByName || 'a former user'}
+                  </p>
+                </section>
+              )}
 
               <section className="space-y-6">
                 <h3 className="text-sm font-bold flex items-center space-x-2 text-foreground">

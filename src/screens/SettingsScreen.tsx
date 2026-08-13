@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { SectionHeader, Card, Button, Toast } from '../components/Shared';
-import { Bell, Shield, User, Database, Wallet, AlertTriangle } from 'lucide-react';
+import { Bell, Shield, User, Database, Wallet, AlertTriangle, Link2 } from 'lucide-react';
 import { useTrades } from '../context/TradeContext';
 import { useAuth } from '../context/AuthContext';
 import { db } from '../firebase';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { RiskSettings } from '../types';
 import TradingAccountsSettings from './TradingAccountsSettings';
+import ReferralsSettings from './ReferralsSettings';
 
 const EMPTY_RISK_FORM = {
   maxDailyLossUsd: '',
@@ -18,7 +19,7 @@ const EMPTY_RISK_FORM = {
 
 export default function SettingsScreen() {
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
-  const [activeTab, setActiveTab] = useState<'trading-parameters' | 'risk-parameters' | 'accounts'>('trading-parameters');
+  const [activeTab, setActiveTab] = useState<'trading-parameters' | 'risk-parameters' | 'accounts' | 'referrals'>('trading-parameters');
   const { clearTrades } = useTrades();
   const { user } = useAuth();
   const [isClearingTrades, setIsClearingTrades] = useState(false);
@@ -101,6 +102,13 @@ export default function SettingsScreen() {
             <span>Accounts</span>
           </button>
           <button
+            onClick={() => setActiveTab('referrals')}
+            className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-colors ${activeTab === 'referrals' ? 'bg-primary text-primary-foreground font-medium' : 'hover:bg-accent text-muted-foreground'}`}
+          >
+            <Link2 className="w-4 h-4" />
+            <span>Referrals</span>
+          </button>
+          <button
             disabled
             title="Notification settings aren't built yet"
             className="w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-muted-foreground/40 cursor-not-allowed"
@@ -121,6 +129,7 @@ export default function SettingsScreen() {
         {/* Right: Content */}
         <div className="lg:col-span-9 space-y-6">
           {activeTab === 'accounts' && <TradingAccountsSettings />}
+          {activeTab === 'referrals' && <ReferralsSettings />}
 
           {activeTab === 'trading-parameters' && (
           <Card className="p-8">

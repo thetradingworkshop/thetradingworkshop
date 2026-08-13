@@ -292,63 +292,66 @@ async function main() {
   await check('a brand-new user CAN redeem a valid invite (role+mentor+group match exactly)', async () => {
     const u = testEnv.authenticatedContext('invitee-1').firestore();
     await assertSucceeds(setDoc(doc(u, 'users', 'invitee-1'), {
-      role: 'Student', mentorId: MENTOR_UID, groupId: 'group-1', inviteCode: 'valid-invite', name: 'Invitee',
+      role: 'Student', mentorId: MENTOR_UID, groupId: 'group-1', inviteCode: 'valid-invite',
+      referredBy: ADMIN_UID, name: 'Invitee',
     }));
   });
 
   await check('a brand-new user CAN redeem a Mentor-role invite (role other than Student)', async () => {
     const u = testEnv.authenticatedContext('invitee-mentor').firestore();
     await assertSucceeds(setDoc(doc(u, 'users', 'invitee-mentor'), {
-      role: 'Mentor', inviteCode: 'mentor-invite', name: 'New Mentor',
+      role: 'Mentor', inviteCode: 'mentor-invite', referredBy: ADMIN_UID, name: 'New Mentor',
     }));
   });
 
   await check('CANNOT redeem an invite while claiming a different role than it grants', async () => {
     const u = testEnv.authenticatedContext('invitee-2').firestore();
     await assertFails(setDoc(doc(u, 'users', 'invitee-2'), {
-      role: 'Admin', mentorId: MENTOR_UID, groupId: 'group-1', inviteCode: 'valid-invite', name: 'Invitee',
+      role: 'Admin', mentorId: MENTOR_UID, groupId: 'group-1', inviteCode: 'valid-invite',
+      referredBy: ADMIN_UID, name: 'Invitee',
     }));
   });
 
   await check('CANNOT redeem an invite while claiming a different mentorId than it grants', async () => {
     const u = testEnv.authenticatedContext('invitee-3').firestore();
     await assertFails(setDoc(doc(u, 'users', 'invitee-3'), {
-      role: 'Student', mentorId: OTHER_MENTOR_UID, groupId: 'group-1', inviteCode: 'valid-invite', name: 'Invitee',
+      role: 'Student', mentorId: OTHER_MENTOR_UID, groupId: 'group-1', inviteCode: 'valid-invite',
+      referredBy: ADMIN_UID, name: 'Invitee',
     }));
   });
 
   await check('CANNOT redeem an invite while dropping the groupId it grants', async () => {
     const u = testEnv.authenticatedContext('invitee-4').firestore();
     await assertFails(setDoc(doc(u, 'users', 'invitee-4'), {
-      role: 'Student', mentorId: MENTOR_UID, inviteCode: 'valid-invite', name: 'Invitee',
+      role: 'Student', mentorId: MENTOR_UID, inviteCode: 'valid-invite', referredBy: ADMIN_UID, name: 'Invitee',
     }));
   });
 
   await check('CANNOT redeem an expired invite', async () => {
     const u = testEnv.authenticatedContext('invitee-5').firestore();
     await assertFails(setDoc(doc(u, 'users', 'invitee-5'), {
-      role: 'Student', inviteCode: 'expired-invite', name: 'Invitee',
+      role: 'Student', inviteCode: 'expired-invite', referredBy: ADMIN_UID, name: 'Invitee',
     }));
   });
 
   await check('CANNOT redeem a revoked invite', async () => {
     const u = testEnv.authenticatedContext('invitee-6').firestore();
     await assertFails(setDoc(doc(u, 'users', 'invitee-6'), {
-      role: 'Student', inviteCode: 'revoked-invite', name: 'Invitee',
+      role: 'Student', inviteCode: 'revoked-invite', referredBy: ADMIN_UID, name: 'Invitee',
     }));
   });
 
   await check('CANNOT redeem an already-exhausted invite (useCount >= maxUses)', async () => {
     const u = testEnv.authenticatedContext('invitee-7').firestore();
     await assertFails(setDoc(doc(u, 'users', 'invitee-7'), {
-      role: 'Student', inviteCode: 'exhausted-invite', name: 'Invitee',
+      role: 'Student', inviteCode: 'exhausted-invite', referredBy: ADMIN_UID, name: 'Invitee',
     }));
   });
 
   await check('CANNOT redeem a nonexistent invite code', async () => {
     const u = testEnv.authenticatedContext('invitee-8').firestore();
     await assertFails(setDoc(doc(u, 'users', 'invitee-8'), {
-      role: 'Student', inviteCode: 'made-up-code', name: 'Invitee',
+      role: 'Student', inviteCode: 'made-up-code', referredBy: ADMIN_UID, name: 'Invitee',
     }));
   });
 
@@ -418,6 +421,98 @@ async function main() {
 
   await check('Admin CAN create a group', async () => {
     await assertSucceeds(setDoc(doc(admin, 'groups', 'group-2'), { name: 'Admin Cohort', createdBy: ADMIN_UID, createdAt: new Date() }));
+  });
+
+  console.log('\npersonal referral links — self-service invites, hard-capped to Viewer\n');
+
+  const future90 = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
+  const selfInvitePayload = (overrides = {}) => ({
+    code: 'my-ref-code', role: 'Viewer', mentorId: null, groupId: null,
+    label: 'My Referral Link', createdBy: STUDENT_UID, createdByName: 'Student One', createdAt: new Date(),
+    expiresAt: future90, maxUses: 500, useCount: 0, revoked: false,
+    ...overrides,
+  });
+
+  await check('a non-Admin CAN create their own personal referral link (role Viewer)', async () => {
+    await assertSucceeds(setDoc(doc(student, 'invites', 'my-ref-code'), selfInvitePayload()));
+  });
+
+  await check('a non-Admin CANNOT self-create a referral link granting Student (above Viewer)', async () => {
+    await assertFails(setDoc(doc(student, 'invites', 'bad-ref-1'), selfInvitePayload({ code: 'bad-ref-1', role: 'Student' })));
+  });
+
+  await check('a non-Admin CANNOT self-create a referral link granting Admin', async () => {
+    await assertFails(setDoc(doc(student, 'invites', 'bad-ref-2'), selfInvitePayload({ code: 'bad-ref-2', role: 'Admin' })));
+  });
+
+  await check('a non-Admin CANNOT self-create a referral link for someone else (createdBy spoofed)', async () => {
+    await assertFails(setDoc(doc(student, 'invites', 'bad-ref-3'), selfInvitePayload({ code: 'bad-ref-3', createdBy: OTHER_STUDENT_UID })));
+  });
+
+  await check('a non-Admin CANNOT self-create a referral link with a mentorId set', async () => {
+    await assertFails(setDoc(doc(student, 'invites', 'bad-ref-4'), selfInvitePayload({ code: 'bad-ref-4', mentorId: MENTOR_UID })));
+  });
+
+  await check('a non-Admin CANNOT self-create a referral link with a groupId set', async () => {
+    await assertFails(setDoc(doc(student, 'invites', 'bad-ref-5'), selfInvitePayload({ code: 'bad-ref-5', groupId: 'group-1' })));
+  });
+
+  await check('a non-Admin CANNOT self-create a referral link exceeding the maxUses cap', async () => {
+    await assertFails(setDoc(doc(student, 'invites', 'bad-ref-6'), selfInvitePayload({ code: 'bad-ref-6', maxUses: 1001 })));
+  });
+
+  await check('a non-Admin CANNOT self-create a referral link expiring beyond 365 days', async () => {
+    await assertFails(setDoc(doc(student, 'invites', 'bad-ref-7'), selfInvitePayload({
+      code: 'bad-ref-7', expiresAt: new Date(Date.now() + 400 * 24 * 60 * 60 * 1000),
+    })));
+  });
+
+  await check('a non-Admin CANNOT self-create a referral link that starts already partially used', async () => {
+    await assertFails(setDoc(doc(student, 'invites', 'bad-ref-8'), selfInvitePayload({ code: 'bad-ref-8', useCount: 1 })));
+  });
+
+  await check('a brand-new user CAN redeem a personal referral link and gets referredBy/referredByName', async () => {
+    const u = testEnv.authenticatedContext('referred-uid-1').firestore();
+    await assertSucceeds(setDoc(doc(u, 'users', 'referred-uid-1'), {
+      role: 'Viewer', inviteCode: 'my-ref-code', referredBy: STUDENT_UID, referredByName: 'Student One', name: 'Referred Person',
+    }));
+  });
+
+  await check('CANNOT redeem a referral link while claiming a different referredBy than its creator', async () => {
+    const u = testEnv.authenticatedContext('referred-uid-2').firestore();
+    await assertFails(setDoc(doc(u, 'users', 'referred-uid-2'), {
+      role: 'Viewer', inviteCode: 'my-ref-code', referredBy: OTHER_STUDENT_UID, referredByName: 'Someone Else', name: 'Referred Person',
+    }));
+  });
+
+  await check('CANNOT redeem a referral link while dropping referredBy entirely', async () => {
+    const u = testEnv.authenticatedContext('referred-uid-3').firestore();
+    await assertFails(setDoc(doc(u, 'users', 'referred-uid-3'), {
+      role: 'Viewer', inviteCode: 'my-ref-code', name: 'Referred Person',
+    }));
+  });
+
+  await check('a referred user CANNOT later change their own referredBy', async () => {
+    const referred = testEnv.authenticatedContext('referred-uid-1').firestore();
+    await assertFails(updateDoc(doc(referred, 'users', 'referred-uid-1'), { referredBy: OTHER_STUDENT_UID }));
+  });
+
+  await check('a referred user CAN still update unrelated fields (name)', async () => {
+    const referred = testEnv.authenticatedContext('referred-uid-1').firestore();
+    await assertSucceeds(updateDoc(doc(referred, 'users', 'referred-uid-1'), { name: 'Updated Name' }));
+  });
+
+  await check('Admin CAN change a user\'s referredBy', async () => {
+    await assertSucceeds(updateDoc(doc(admin, 'users', 'referred-uid-1'), { referredBy: MENTOR_UID }));
+  });
+
+  await check('the referral link\'s own creator CAN self-revoke it', async () => {
+    await assertSucceeds(updateDoc(doc(student, 'invites', 'my-ref-code'), { revoked: true }));
+  });
+
+  await check('a different user CANNOT revoke someone else\'s referral link', async () => {
+    await setDoc(doc(admin, 'invites', 'other-persons-ref'), selfInvitePayload({ code: 'other-persons-ref' }), { merge: true });
+    await assertFails(updateDoc(doc(otherStudent, 'invites', 'other-persons-ref'), { revoked: true }));
   });
 
   console.log('\nusers/{userId} — role & mentorId self-write protection\n');

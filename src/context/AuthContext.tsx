@@ -76,11 +76,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Brand-new-account-only: if an invite code is waiting in sessionStorage
   // (see capturePendingInviteFromUrl above), look it up and fold its
   // role/mentorId/groupId into the new profile doc instead of the plain
-  // Student default. firestore.rules' users/{userId} create rule is what
-  // actually enforces this is legitimate (isValidInvite + an exact match
-  // against the invite's own fields) — this client-side lookup only
-  // decides what to *try*; a stale/expired/revoked/forged code simply gets
-  // rejected server-side and we fall back to the default below.
+  // Student default — plus referredBy/referredByName, copied from the
+  // invite's own createdBy/createdByName, which is true whether the
+  // invite is an Admin-generated cohort invite or someone's personal
+  // Viewer-only referral link (Settings → Referrals): either way,
+  // whoever made the invite gets referral credit for who joins through
+  // it. This is the entire tracking layer an eventual reward system would
+  // read from — nothing beyond attribution is built yet.
+  // firestore.rules' users/{userId} create rule is what actually enforces
+  // this is legitimate (isValidInvite + an exact match against the
+  // invite's own fields) — this client-side lookup only decides what to
+  // *try*; a stale/expired/revoked/forged code simply gets rejected
+  // server-side and we fall back to the default below.
   //
   // Deliberately read-only: does NOT bump the invite's useCount. Doing that
   // here, before the users/{uid} doc is actually created, raced the two
@@ -99,7 +106,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const expiresAt = invite.expiresAt?.toDate ? invite.expiresAt.toDate() : new Date(invite.expiresAt);
       const isValid = !invite.revoked && expiresAt > new Date() && (invite.useCount ?? 0) < (invite.maxUses ?? 1);
       if (!isValid) return null;
-      const grant: Record<string, any> = { role: invite.role, inviteCode: code };
+      const grant: Record<string, any> = {
+        role: invite.role,
+        inviteCode: code,
+        referredBy: invite.createdBy,
+        referredByName: invite.createdByName ?? null,
+      };
       if (invite.mentorId) grant.mentorId = invite.mentorId;
       if (invite.groupId) grant.groupId = invite.groupId;
       return { code, grant };
