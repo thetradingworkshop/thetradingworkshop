@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, ReactNode, useEffect, useMemo } from 'react';
-import { Trade, ReconstructionStep, BrokerAccount, TradeIntent } from '../types';
+import { Trade, ReconstructionStep, BrokerAccount } from '../types';
 import { db, auth } from '../firebase';
 import { collection, query, where, onSnapshot, orderBy, addDoc, serverTimestamp, writeBatch, doc, deleteDoc, getDocFromServer } from 'firebase/firestore';
 import { useAuth } from './AuthContext';
@@ -112,7 +112,15 @@ interface TradeContextType {
   addTrades: (trades: Trade[], steps?: ReconstructionStep[]) => Promise<void>;
   deleteTrade: (tradeId: string) => Promise<void>;
   deleteTrades: (tradeIds: string[]) => Promise<void>;
-  logTradeIntent: (symbol: string, checklist: TradeIntent['checklist'], isOverride: boolean) => Promise<void>;
+  logTradeIntent: (intent: {
+    symbol: string;
+    direction: 'LONG' | 'SHORT';
+    plannedEntry?: number;
+    plannedExit?: number;
+    stopLoss?: number;
+    strategyId?: string;
+    strategyName?: string;
+  }) => Promise<void>;
   clearTrades: () => Promise<void>;
   isLiveSyncing: boolean;
   selectedTradeForJournal: Trade | null;
@@ -426,22 +434,42 @@ export function TradeProvider({ children }: { children: ReactNode }) {
     await deleteTrades([tradeId]);
   };
 
-  const logTradeIntent = async (symbol: string, checklist: TradeIntent['checklist'], isOverride: boolean) => {
+  const logTradeIntent = async (intent: {
+    symbol: string;
+    direction: 'LONG' | 'SHORT';
+    plannedEntry?: number;
+    plannedExit?: number;
+    stopLoss?: number;
+    strategyId?: string;
+    strategyName?: string;
+  }) => {
     if (!user) return;
     try {
-      const isValidSetup = Object.values(checklist).every(v => v === true);
-      const intentData = {
+      // A "valid" (complete) setup means entry/exit/stop were ALL decided
+      // before entry — a fully risk-defined plan, not just a symbol called
+      // out in advance. Strategy selection isn't part of this: a user with
+      // no strategies configured yet should still be able to log a
+      // complete plan (see LogIntentModal, which hides the field entirely
+      // when they have none).
+      const isValidSetup = intent.plannedEntry != null && intent.plannedExit != null && intent.stopLoss != null;
+      const intentData: Record<string, any> = {
         userId: user.uid,
-        symbol,
-        checklist,
+        symbol: intent.symbol,
+        direction: intent.direction,
         isValidSetup,
-        overrideUsed: isOverride,
+        overrideUsed: !isValidSetup,
         confirmedAt: new Date().toISOString(),
         status: 'pending',
-        timestamp: serverTimestamp()
+        timestamp: serverTimestamp(),
       };
+      if (intent.plannedEntry != null) intentData.plannedEntry = intent.plannedEntry;
+      if (intent.plannedExit != null) intentData.plannedExit = intent.plannedExit;
+      if (intent.stopLoss != null) intentData.stopLoss = intent.stopLoss;
+      if (intent.strategyId) {
+        intentData.strategyId = intent.strategyId;
+        if (intent.strategyName) intentData.strategyName = intent.strategyName;
+      }
       await addDoc(collection(db, 'trade_intents'), intentData);
-      console.log("Trade intent logged successfully");
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, 'trade_intents');
     }

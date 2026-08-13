@@ -34,6 +34,24 @@ function commentPayload(overrides) {
   };
 }
 
+// A trade-intent payload matching isValidTradeIntent(), mirroring what
+// TradeContext.logTradeIntent actually writes.
+function intentPayload(overrides = {}) {
+  return {
+    userId: overrides.userId,
+    symbol: overrides.symbol ?? 'ES',
+    direction: overrides.direction ?? 'LONG',
+    isValidSetup: overrides.isValidSetup ?? true,
+    overrideUsed: overrides.overrideUsed ?? false,
+    confirmedAt: overrides.confirmedAt ?? new Date().toISOString(),
+    status: overrides.status ?? 'pending',
+    ...(overrides.plannedEntry !== undefined ? { plannedEntry: overrides.plannedEntry } : { plannedEntry: 5000 }),
+    ...(overrides.plannedExit !== undefined ? { plannedExit: overrides.plannedExit } : { plannedExit: 5020 }),
+    ...(overrides.stopLoss !== undefined ? { stopLoss: overrides.stopLoss } : { stopLoss: 4990 }),
+    ...(overrides.strategyId ? { strategyId: overrides.strategyId, strategyName: overrides.strategyName ?? 'Test Strategy' } : {}),
+  };
+}
+
 const PROJECT_ID = 'rules-test-' + Date.now();
 
 let passed = 0;
@@ -421,6 +439,56 @@ async function main() {
 
   await check('Admin CAN create a group', async () => {
     await assertSucceeds(setDoc(doc(admin, 'groups', 'group-2'), { name: 'Admin Cohort', createdBy: ADMIN_UID, createdAt: new Date() }));
+  });
+
+  console.log('\ntrade_intents — pre-trade plans (LogIntentModal)\n');
+
+  await check('a user CAN log a complete plan (entry+exit+stop all set)', async () => {
+    await assertSucceeds(setDoc(doc(student, 'trade_intents', 'intent-1'), intentPayload({ userId: STUDENT_UID })));
+  });
+
+  await check('a user CAN log an incomplete plan (override)', async () => {
+    await assertSucceeds(setDoc(doc(student, 'trade_intents', 'intent-2'), intentPayload({
+      userId: STUDENT_UID, isValidSetup: false, overrideUsed: true, plannedEntry: undefined, plannedExit: undefined, stopLoss: undefined,
+    })));
+  });
+
+  await check('a user CAN log a plan with a strategy tagged', async () => {
+    await assertSucceeds(setDoc(doc(student, 'trade_intents', 'intent-3'), intentPayload({
+      userId: STUDENT_UID, strategyId: 'strategy-1', strategyName: 'ORB Breakout',
+    })));
+  });
+
+  await check('a user CANNOT log an intent for someone else', async () => {
+    await assertFails(setDoc(doc(student, 'trade_intents', 'intent-4'), intentPayload({ userId: OTHER_STUDENT_UID })));
+  });
+
+  await check('a user CANNOT log an intent with an invalid direction', async () => {
+    await assertFails(setDoc(doc(student, 'trade_intents', 'intent-5'), intentPayload({ userId: STUDENT_UID, direction: 'SIDEWAYS' })));
+  });
+
+  await check('a Viewer CANNOT log an intent (read-only)', async () => {
+    await assertFails(setDoc(doc(viewer, 'trade_intents', 'intent-6'), intentPayload({ userId: VIEWER_UID })));
+  });
+
+  await check('the owner CAN read their own intent', async () => {
+    await assertSucceeds(getDoc(doc(student, 'trade_intents', 'intent-1')));
+  });
+
+  await check('a different user CANNOT read someone else\'s intent', async () => {
+    await assertFails(getDoc(doc(otherStudent, 'trade_intents', 'intent-1')));
+  });
+
+  await check('Admin CAN read any intent', async () => {
+    await assertSucceeds(getDoc(doc(admin, 'trade_intents', 'intent-1')));
+  });
+
+  await check('the owner CAN update their own intent (e.g. mark matched)', async () => {
+    await assertSucceeds(updateDoc(doc(student, 'trade_intents', 'intent-1'), { status: 'matched', tradeId: 'trade-99' }));
+  });
+
+  await check('a different user CANNOT update someone else\'s intent', async () => {
+    await assertFails(updateDoc(doc(otherStudent, 'trade_intents', 'intent-1'), { status: 'matched' }));
   });
 
   console.log('\npersonal referral links — self-service invites, hard-capped to Viewer\n');

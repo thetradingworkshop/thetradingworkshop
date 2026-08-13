@@ -258,18 +258,9 @@ export interface TradeDiagnostics {
   dataInsight: string;
 }
 
-export interface PreTradeChecklist {
-  displacement: boolean;
-  reversal: boolean;
-  imbalance: boolean;
-  pullback: boolean;
-  confirmedAt: string;
-}
-
 export interface ModelValidation {
   followsModel: boolean;
   violations: string[];
-  checklist?: PreTradeChecklist;
   isManualOverride?: boolean;
   isUnconfirmed?: boolean;
 }
@@ -760,16 +751,31 @@ export interface PositionState {
   maxPositionSize: number;
 }
 
+// Logged *before* the trade exists (see LogIntentModal) — the plan a
+// trader commits to going in, matched to whichever real trade lands on
+// the same symbol within 5 minutes (SessionBuilder.ts). Deliberately
+// carries no rule checklist of its own: strategyId just tags which of the
+// user's own playbooks this was meant to follow, and whether it was
+// actually followed is checked afterward, per-trade, against that
+// strategy's own rules (Trade.strategyChecklist, in the trade's own
+// details view) — not duplicated here.
 export interface TradeIntent {
   id: string;
   userId: string;
   symbol: string;
-  checklist: {
-    displacement: boolean;
-    reversal: boolean;
-    imbalance: boolean;
-    pullback: boolean;
-  };
+  direction: 'LONG' | 'SHORT';
+  // All three optional — a trader can log "I'm about to trade AAPL" with
+  // nothing decided yet. isValidSetup (below) is what actually tracks
+  // whether the plan was fully specified before entry.
+  plannedEntry?: number;
+  plannedExit?: number;
+  stopLoss?: number;
+  strategyId?: string;
+  strategyName?: string; // denormalized snapshot for display, mirrors Trade.strategy
+  // True only when entry/exit/stop were ALL filled in — a fully risk-defined
+  // plan, not just a symbol called out in advance. Strategy selection isn't
+  // part of this: "if user has them added" (LogIntentModal) means a user
+  // with no strategies yet shouldn't be unable to ever log a complete plan.
   isValidSetup: boolean;
   overrideUsed: boolean;
   confirmedAt: string;

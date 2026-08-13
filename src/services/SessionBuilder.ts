@@ -90,10 +90,22 @@ export class SessionBuilder {
         matchingIntent.status = 'matched';
         matchingIntent.tradeId = trade.id;
 
-        // Legacy model validation fields for backward compatibility
-        trade.modelValidation.checklist = matchingIntent.checklist;
         trade.modelValidation.isManualOverride = matchingIntent.overrideUsed;
         if (matchingIntent.overrideUsed) manualOverrideCount++;
+
+        // Carry the planned strategy onto the trade for display, but only
+        // as a fallback — never overwrite a strategy the user already
+        // assigned by hand from the trade's own Details view. This is
+        // session-ephemeral like everything else on this line (nothing
+        // here is written back to the trade's Firestore doc); it fills in
+        // the display until the trade is actually confirmed in Trade
+        // Details, which is also where its rules get checked (see
+        // Trade.strategyChecklist) — this modal only ever assigns which
+        // strategy was planned, never whether it was followed.
+        if (!trade.strategyId && matchingIntent.strategyId) {
+          trade.strategyId = matchingIntent.strategyId;
+          trade.strategy = matchingIntent.strategyName;
+        }
       } else {
         trade.modelValidation.isUnconfirmed = true;
         unconfirmedTradesCount++;

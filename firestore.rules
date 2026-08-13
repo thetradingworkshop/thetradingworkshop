@@ -233,18 +233,26 @@ service cloud.firestore {
              data.categories is list;
     }
 
+    // A logged pre-trade plan (see TradeIntent in types.ts / LogIntentModal)
+    // — checks the fields actually written by TradeContext.logTradeIntent.
+    // Previously validated isManualOverride/matchedTradeId, neither of
+    // which that function ever wrote (it writes overrideUsed/tradeId) —
+    // those checks were always trivially satisfied and never protected
+    // anything; replaced with checks on the real fields below.
     function isValidTradeIntent(data) {
       return data.userId is string &&
              data.symbol is string &&
-             data.checklist is map &&
-             data.checklist.displacement is bool &&
-             data.checklist.reversal is bool &&
-             data.checklist.imbalance is bool &&
-             data.checklist.pullback is bool &&
+             data.direction in ['LONG', 'SHORT'] &&
+             data.isValidSetup is bool &&
+             data.overrideUsed is bool &&
              data.confirmedAt is string &&
              data.status in ['pending', 'matched', 'expired'] &&
-             (!('isManualOverride' in data) || data.isManualOverride is bool) &&
-             (!('matchedTradeId' in data) || data.matchedTradeId is string);
+             (!('plannedEntry' in data) || data.plannedEntry is number) &&
+             (!('plannedExit' in data) || data.plannedExit is number) &&
+             (!('stopLoss' in data) || data.stopLoss is number) &&
+             (!('strategyId' in data) || data.strategyId is string) &&
+             (!('strategyName' in data) || data.strategyName is string) &&
+             (!('tradeId' in data) || data.tradeId is string);
     }
 
     function isValidMentorComment(data) {
