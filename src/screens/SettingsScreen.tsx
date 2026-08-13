@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { SectionHeader, Card, Button, Badge, Toast } from '../components/Shared';
-import { Settings as SettingsIcon, Bell, Shield, User, Database, Globe, Wallet, AlertTriangle } from 'lucide-react';
+import { SectionHeader, Card, Button, Toast } from '../components/Shared';
+import { Bell, Shield, User, Database, Wallet, AlertTriangle } from 'lucide-react';
 import { useTrades } from '../context/TradeContext';
 import { useAuth } from '../context/AuthContext';
 import { db } from '../firebase';
@@ -61,11 +61,6 @@ export default function SettingsScreen() {
     }
   };
 
-  const handleAction = (action: string) => {
-    setToast({ message: `${action} action performed (Simulated)`, type: 'success' });
-    setTimeout(() => setToast(null), 3000);
-  };
-
   return (
     <div className="space-y-6">
       <SectionHeader 
@@ -77,8 +72,9 @@ export default function SettingsScreen() {
         {/* Left: Navigation */}
         <div className="lg:col-span-3 space-y-2">
           <button
-            onClick={() => handleAction('Profile Settings')}
-            className="w-full flex items-center space-x-3 px-4 py-3 rounded-xl hover:bg-accent transition-colors text-muted-foreground"
+            disabled
+            title="Profile settings aren't built yet"
+            className="w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-muted-foreground/40 cursor-not-allowed"
           >
             <User className="w-4 h-4" />
             <span>Profile</span>
@@ -105,15 +101,17 @@ export default function SettingsScreen() {
             <span>Accounts</span>
           </button>
           <button
-            onClick={() => handleAction('Notification Settings')}
-            className="w-full flex items-center space-x-3 px-4 py-3 rounded-xl hover:bg-accent transition-colors text-muted-foreground"
+            disabled
+            title="Notification settings aren't built yet"
+            className="w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-muted-foreground/40 cursor-not-allowed"
           >
             <Bell className="w-4 h-4" />
             <span>Notifications</span>
           </button>
-          <button 
-            onClick={() => handleAction('Security Settings')}
-            className="w-full flex items-center space-x-3 px-4 py-3 rounded-xl hover:bg-accent transition-colors text-muted-foreground"
+          <button
+            disabled
+            title="Security settings aren't built yet"
+            className="w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-muted-foreground/40 cursor-not-allowed"
           >
             <Shield className="w-4 h-4" />
             <span>Security</span>
@@ -126,43 +124,20 @@ export default function SettingsScreen() {
 
           {activeTab === 'trading-parameters' && (
           <Card className="p-8">
-            <h3 className="text-lg font-bold mb-6">Trading Parameters</h3>
-            {/* ... existing fields ... */}
+            <h3 className="text-lg font-bold mb-2">Trading Parameters</h3>
+            <p className="text-xs text-muted-foreground mb-6">
+              These are the fixed thresholds the grading engine currently uses (see <span className="font-mono">SessionBuilder.ts</span>).
+              Making them configurable per-account isn't built yet, so they're shown read-only rather than as inputs that would silently do nothing.
+            </p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-2">
                 <label className="text-xs font-bold uppercase text-muted-foreground">Re-entry Threshold (Seconds)</label>
-                <input type="number" defaultValue={300} className="w-full bg-accent/50 border border-border rounded-xl px-4 py-2 text-sm" />
+                <input type="number" value={300} disabled className="w-full bg-accent/30 border border-border rounded-xl px-4 py-2 text-sm text-muted-foreground cursor-not-allowed" />
               </div>
               <div className="space-y-2">
                 <label className="text-xs font-bold uppercase text-muted-foreground">Fast Loser Threshold (Seconds)</label>
-                <input type="number" defaultValue={60} className="w-full bg-accent/50 border border-border rounded-xl px-4 py-2 text-sm" />
+                <input type="number" value={60} disabled className="w-full bg-accent/30 border border-border rounded-xl px-4 py-2 text-sm text-muted-foreground cursor-not-allowed" />
               </div>
-              <div className="space-y-2">
-                <label className="text-xs font-bold uppercase text-muted-foreground">Max Trades Per Day</label>
-                <input type="number" defaultValue={15} className="w-full bg-accent/50 border border-border rounded-xl px-4 py-2 text-sm" />
-              </div>
-              <div className="space-y-2">
-                <label className="text-xs font-bold uppercase text-muted-foreground">Baseline Position Size</label>
-                <input type="number" defaultValue={1} className="w-full bg-accent/50 border border-border rounded-xl px-4 py-2 text-sm" />
-              </div>
-            </div>
-
-            <div className="mt-8 pt-8 border-t border-border">
-              <h4 className="text-sm font-bold mb-4">Weak Time Windows</h4>
-              <div className="space-y-3">
-                <div className="flex items-center justify-between p-4 bg-accent/30 rounded-2xl">
-                  <div className="flex items-center space-x-3">
-                    <Badge variant="warning">Lunch Hour</Badge>
-                    <span className="text-sm">12:00 PM - 1:30 PM EST</span>
-                  </div>
-                  <Button variant="ghost" className="text-rose-500" onClick={() => handleAction('Remove Time Window')}>Remove</Button>
-                </div>
-                <Button variant="outline" className="w-full border-dashed" onClick={() => handleAction('Add Time Window')}>Add Time Window</Button>
-              </div>
-            </div>
-
-            <div className="mt-8 pt-8 border-t border-border flex justify-end">
-              <Button variant="primary" onClick={() => handleAction('Save Changes')}>Save Changes</Button>
             </div>
           </Card>
           )}

@@ -3,8 +3,8 @@ import { cn } from '@/src/utils';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { format, subDays, isWithinInterval } from 'date-fns';
 import { db } from '../firebase';
-import { SectionHeader, Card, Badge, Button, Table, TableHeader, TableRow, TableHead, TableCell, Toast } from '../components/Shared';
-import { Users, TrendingUp, AlertCircle, FileText, User, MessageSquare, BarChart3, CheckCircle2, Trophy, ArrowUpRight, ArrowDownRight, Target, BrainCircuit } from 'lucide-react';
+import { SectionHeader, Card, Badge, Button, Table, TableHeader, TableRow, TableHead, TableCell } from '../components/Shared';
+import { Users, TrendingUp, AlertCircle, FileText, User, CheckCircle2, Trophy, ArrowUpRight, ArrowDownRight, Target, BrainCircuit } from 'lucide-react';
 import { computeDisciplineScore, computeConsistencyScore } from '../services/analyticsService';
 import { Trade } from '../types';
 
@@ -67,11 +67,22 @@ export default function MentorDashboardScreen() {
   const [students, setStudents] = useState<any[]>([]);
   const [studentTrades, setStudentTrades] = useState<Record<string, Trade[]>>({});
   const [isLoading, setIsLoading] = useState(true);
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
-  const handleAction = (action: string) => {
-    setToast({ message: `${action} action performed (Simulated)`, type: 'success' });
-    setTimeout(() => setToast(null), 3000);
+  // Real CSV export of the (real) student performance table — everything
+  // else on this row of buttons routes to features that aren't built yet
+  // (see the disabled buttons below), but this one had real data sitting
+  // right there, so it's wired up for real instead of just disabled.
+  const exportStudentsCsv = () => {
+    const header = ['Student', 'Email', 'Discipline', 'Consistency', 'Total Trades', '7-Day Trend'];
+    const rows = studentRows.map(s => [s.name, s.email || '', s.discipline, s.consistency, s.totalTrades, s.trend]);
+    const csv = [header, ...rows].map(r => r.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `student-performance-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   useEffect(() => {
@@ -150,8 +161,8 @@ export default function MentorDashboardScreen() {
         subtitle="Coaching overview for Group Alpha & Beta"
         rightElement={
           <div className="flex flex-wrap items-center gap-3">
-            <Button variant="outline" size="sm" onClick={() => handleAction('Filter Group')}>Filter Group</Button>
-            <Button variant="primary" size="sm" onClick={() => handleAction('Weekly Report')}>Weekly Report</Button>
+            <Button variant="outline" size="sm" disabled title="Multi-group filtering isn't built yet">Filter Group</Button>
+            <Button variant="primary" size="sm" disabled title="Automated weekly reports aren't built yet — see the Weekly Coaching Report card below">Weekly Report</Button>
           </div>
         }
       />
@@ -214,7 +225,7 @@ export default function MentorDashboardScreen() {
                 <h3 className="text-lg font-bold tracking-tight">Student Performance</h3>
                 <p className="text-xs text-muted-foreground mt-1">Real-time tracking of assigned traders</p>
               </div>
-              <Button variant="outline" size="sm" className="font-bold" onClick={() => handleAction('Export CSV')}>Export CSV</Button>
+              <Button variant="outline" size="sm" className="font-bold" onClick={exportStudentsCsv} disabled={studentRows.length === 0}>Export CSV</Button>
             </div>
             <Table>
               <TableHeader>
@@ -223,15 +234,13 @@ export default function MentorDashboardScreen() {
                   <TableHead className="text-center">Discipline</TableHead>
                   <TableHead className="text-center">Consistency</TableHead>
                   <TableHead className="text-right">7-Day Trend</TableHead>
-                  <TableHead className="text-right"></TableHead>
                 </TableRow>
               </TableHeader>
               <tbody>
                 {studentRows.length > 0 ? studentRows.map((s) => (
                   <TableRow
                     key={s.id}
-                    className="group cursor-pointer"
-                    onClick={() => handleAction(`View Details for ${s.name}`)}
+                    className="group"
                   >
                     <TableCell>
                       <div className="flex items-center space-x-4">
@@ -280,30 +289,10 @@ export default function MentorDashboardScreen() {
                         </div>
                       )}
                     </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex items-center justify-end space-x-2 opacity-0 group-hover:opacity-100 transition-all duration-200">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 hover:bg-primary/10 text-primary"
-                          onClick={(e) => { e.stopPropagation(); handleAction(`View Stats for ${s.name}`); }}
-                        >
-                          <BarChart3 className="w-4 h-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 hover:bg-primary/10 text-primary"
-                          onClick={(e) => { e.stopPropagation(); handleAction(`Message ${s.name}`); }}
-                        >
-                          <MessageSquare className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
                   </TableRow>
                 )) : (
                   <TableRow>
-                    <TableCell colSpan={5} className="text-center py-12 text-muted-foreground italic">
+                    <TableCell colSpan={4} className="text-center py-12 text-muted-foreground italic">
                       No students assigned to your groups.
                     </TableCell>
                   </TableRow>
@@ -328,10 +317,9 @@ export default function MentorDashboardScreen() {
               {activeStudents.length > 0 ? [...activeStudents].sort((a, b) => (b.discipline + b.consistency) - (a.discipline + a.consistency)).slice(0, 3).map((s, i) => (
                 <div
                   key={s.id}
-                  onClick={() => handleAction(`View Profile for ${s.name}`)}
                   className={cn(
-                    "p-5 rounded-2xl border transition-all duration-300 hover:translate-x-1 cursor-pointer",
-                    i === 0 ? "bg-amber-500/10 border-amber-500/30 shadow-lg shadow-amber-500/5" : "bg-card border-border/60 hover:border-primary/30"
+                    "p-5 rounded-2xl border transition-all duration-300",
+                    i === 0 ? "bg-amber-500/10 border-amber-500/30 shadow-lg shadow-amber-500/5" : "bg-card border-border/60"
                   )}
                 >
                   <div className="flex items-center justify-between mb-4">
@@ -370,8 +358,9 @@ export default function MentorDashboardScreen() {
             <Button
               variant="outline"
               size="sm"
-              className="w-full mt-8 border-primary/20 hover:bg-primary/10 font-bold text-xs"
-              onClick={() => handleAction('View Full Rankings')}
+              className="w-full mt-8 border-primary/20 font-bold text-xs"
+              disabled
+              title="A full rankings view isn't built yet — this shows the top 3"
             >
               View Full Rankings
             </Button>
@@ -495,15 +484,6 @@ export default function MentorDashboardScreen() {
           </div>
         </div>
       </Card>
-
-      {/* Toast Notification */}
-      {toast && (
-        <Toast
-          message={toast.message}
-          type={toast.type}
-          onClose={() => setToast(null)}
-        />
-      )}
     </div>
   );
 }

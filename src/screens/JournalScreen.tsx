@@ -6,6 +6,7 @@ import { collection, query, where, onSnapshot, orderBy, addDoc, updateDoc, delet
 import { db } from '../firebase';
 import { useTrades } from '../context/TradeContext';
 import { useAuth } from '../context/AuthContext';
+import { useDateRange } from '../context/DateContext';
 import { JournalEntry, Trade } from '../types';
 import { RichTextEditor, isContentEmpty, stripHtml } from '../components/RichTextEditor';
 import { DictationTextarea } from '../components/DictationTextarea';
@@ -141,6 +142,7 @@ function getRecapStatsForDisplay(journal: JournalDraft, trades: Trade[]): NonNul
 
 export default function JournalScreen({ setActivePage }: { setActivePage: (page: string) => void }) {
   const { user } = useAuth();
+  const { setPageOverride } = useDateRange();
   const {
     selectedTradeForJournal, setSelectedTradeForJournal,
     selectedSessionForJournal, setSelectedSessionForJournal,
@@ -433,11 +435,6 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
       setPendingDeleteId(null);
       setTimeout(() => setToast(null), 3000);
     }
-  };
-
-  const handleAction = (action: string) => {
-    setToast({ message: `${action} action performed (Simulated)`, type: 'success' });
-    setTimeout(() => setToast(null), 3000);
   };
 
   if (isPublicPreview && selectedJournal) {
@@ -915,19 +912,24 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
               <div className="mt-12 pt-8 border-t border-border grid grid-cols-1 md:grid-cols-2 gap-8">
                 <section>
                   <h4 className="text-xs font-bold uppercase text-muted-foreground mb-4">Linked Session</h4>
-                  {selectedJournal.linkedSession ? (
+                  {selectedJournal.sessionId ? (
                     <div className="p-4 bg-accent/30 rounded-2xl flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-bold">{selectedJournal.linkedSession.date} Session</p>
-                        <p className={cn("text-xs", selectedJournal.linkedSession.pnl >= 0 ? "text-emerald-500" : "text-rose-500")}>
-                          {selectedJournal.linkedSession.pnl >= 0 ? '+' : ''}${selectedJournal.linkedSession.pnl.toLocaleString()} Net P&L
-                        </p>
-                      </div>
-                      <Button variant="ghost" icon={ExternalLink} onClick={() => handleAction('View Linked Session')} />
-                    </div>
-                  ) : selectedJournal.sessionId ? (
-                    <div className="p-4 bg-accent/30 rounded-2xl">
                       <p className="text-sm font-bold font-mono">{selectedJournal.sessionId}</p>
+                      <Button
+                        variant="ghost"
+                        icon={ExternalLink}
+                        onClick={() => {
+                          // sessionId is shaped `${uid}_${yyyy-MM-dd}` (see
+                          // openNew() above and DayView/SessionDetail) — pull
+                          // the date back out to point the Sessions page at it.
+                          const dateStr = user ? selectedJournal.sessionId.slice(user.uid.length + 1) : null;
+                          const date = dateStr ? new Date(`${dateStr}T00:00:00`) : null;
+                          if (date && !isNaN(date.getTime())) {
+                            setPageOverride('sessions', { from: date, to: date, label: format(date, 'MMM d, yyyy') });
+                          }
+                          setActivePage('sessions');
+                        }}
+                      />
                     </div>
                   ) : (
                     <p className="text-xs text-muted-foreground italic">No session linked.</p>
@@ -963,25 +965,32 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
                 </div>
 
                 <div className="space-y-4">
+                  {/* Real public link sharing isn't built — the app has no
+                      unauthenticated route, so a generated link would just
+                      hit the login wall. "Preview Public Page" below is
+                      real (it renders the same read-only layout locally);
+                      the rest is disabled rather than faking a working
+                      link, view count, and copy/revoke flow. */}
                   <div className="p-4 bg-accent/30 rounded-2xl space-y-3">
                     <div className="flex items-center justify-between text-xs">
                       <span className="text-muted-foreground">Share Link</span>
-                      <span className="text-emerald-500 font-bold">{selectedJournal.access || 0} views</span>
+                      <span className="text-xs text-muted-foreground italic">Not available yet</span>
                     </div>
                     <div className="flex items-center space-x-2">
                       <input
                         readOnly
-                        value={selectedJournal.shareUrl || "No share URL generated"}
-                        className="flex-1 bg-background border border-border rounded-lg px-3 py-1.5 text-xs font-mono"
+                        disabled
+                        value="Public sharing isn't built yet"
+                        className="flex-1 bg-background border border-border rounded-lg px-3 py-1.5 text-xs font-mono text-muted-foreground cursor-not-allowed"
                       />
-                      <Button variant="outline" className="h-auto py-1.5 text-xs" onClick={() => handleAction('Link Copied')}>Copy</Button>
+                      <Button variant="outline" className="h-auto py-1.5 text-xs" disabled>Copy</Button>
                     </div>
                   </div>
                   <div className="flex flex-col gap-3">
                     <Button variant="primary" className="w-full" icon={ExternalLink} onClick={() => setIsPublicPreview(true)}>Preview Public Page</Button>
                     <div className="flex gap-3">
-                      <Button variant="outline" className="flex-1" icon={LinkIcon} onClick={() => handleAction('New Link Created')}>New Link</Button>
-                      <Button variant="outline" className="flex-1 text-rose-500 hover:text-rose-500" onClick={() => handleAction('Access Revoked')}>Revoke</Button>
+                      <Button variant="outline" className="flex-1" icon={LinkIcon} disabled title="Public sharing isn't built yet">New Link</Button>
+                      <Button variant="outline" className="flex-1 text-rose-500" disabled title="Public sharing isn't built yet">Revoke</Button>
                     </div>
                   </div>
                 </div>
@@ -1006,7 +1015,7 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
                       No mentor comments yet.
                     </div>
                   )}
-                  <Button variant="ghost" className="w-full text-xs" onClick={() => handleAction('Add Comment')}>Add Mentor Comment</Button>
+                  <Button variant="ghost" className="w-full text-xs" disabled title="Mentor commenting isn't built yet">Add Mentor Comment</Button>
                 </div>
               </Card>
             </div>

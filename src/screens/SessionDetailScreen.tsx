@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { SectionHeader, Scorecard, Card, Badge, Button, Table, TableHeader, TableRow, TableHead, TableCell, Toast, Input } from '../components/Shared';
 import { EquityCurveChart, PnlByTradeChart, HourlyPerformanceChart, BiasVsOutcome } from '../components/Charts';
-import { BrainCircuit, MessageSquare, BookOpen, ChevronDown, TrendingUp, ShieldCheck, Target, AlertCircle, Zap, Clock, BarChart3, Lightbulb, CheckCircle2, ChevronRight, Loader2, Save, ShieldAlert, AlertTriangle, Info } from 'lucide-react';
+import { BrainCircuit, MessageSquare, BookOpen, TrendingUp, ShieldCheck, Target, AlertCircle, Zap, Clock, Lightbulb, CheckCircle2, ChevronRight, Loader2, Save, ShieldAlert, AlertTriangle, Info } from 'lucide-react';
 
 import { useDateRange } from '../context/DateContext';
 import { useTrades } from '../context/TradeContext';
@@ -171,11 +171,6 @@ export default function SessionDetailScreen() {
 
   const { stats, behaviorMetrics } = dashboardModel;
 
-  const handleAction = (action: string) => {
-    setToast({ message: `${action} action performed (Simulated)`, type: 'success' });
-    setTimeout(() => setToast(null), 3000);
-  };
-
   const hasData = filteredTrades.length > 0;
 
   const fetchMentorFeedback = useCallback(async (isManual = false) => {
@@ -243,8 +238,8 @@ export default function SessionDetailScreen() {
         }
         rightElement={
           <div className="flex flex-wrap items-center gap-3">
-            <Button variant="outline" onClick={() => handleAction('Export PDF')}>Export PDF</Button>
-            <Button variant="primary" onClick={() => handleAction('Share Session')}>Share Session</Button>
+            <Button variant="outline" disabled title="PDF export isn't built yet">Export PDF</Button>
+            <Button variant="primary" disabled title="Session sharing isn't built yet">Share Session</Button>
           </div>
         }
       />
@@ -689,10 +684,9 @@ export default function SessionDetailScreen() {
           <div className="space-y-3">
             {filteredTrades.some(t => t.fills.length > 2) ? (
               filteredTrades.filter(t => t.fills.length > 2).map(t => (
-                <div 
+                <div
                   key={t.id}
-                  onClick={() => handleAction('View Scaled Trade Details')}
-                  className="flex items-center justify-between p-4 bg-muted/30 rounded-xl border border-border/40 transition-colors hover:bg-muted/50 cursor-pointer"
+                  className="flex items-center justify-between p-4 bg-muted/30 rounded-xl border border-border/40"
                 >
                   <span className="text-sm font-bold text-foreground">{t.id} ({t.symbol})</span>
                   <Badge variant="positive">{t.fills.length} Fills</Badge>
@@ -809,23 +803,11 @@ export default function SessionDetailScreen() {
         </Card>
       </div>
 
-      {/* Row 10: Raw Reconstruction */}
-      <Card noPadding className="border-border/60">
-        <button 
-          onClick={() => handleAction('View Raw Reconstruction')}
-          className="w-full p-6 flex items-center justify-between hover:bg-muted/20 transition-all duration-200 group"
-        >
-          <div className="flex items-center space-x-3">
-            <div className="p-2 bg-muted/50 rounded-lg group-hover:bg-primary/10 transition-colors">
-              <BarChart3 className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors" />
-            </div>
-            <span className="text-sm font-bold text-foreground">Raw Order Reconstruction</span>
-          </div>
-          <ChevronDown className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-all" />
-        </button>
-      </Card>
+      {/* The "Raw Order Reconstruction" accordion that used to live here was
+          purely decorative — it never expanded into anything, and the real
+          trade-by-trade data it implied is already shown in full below. */}
 
-      <TradePerformanceLog 
+      <TradePerformanceLog
         trades={filteredTrades} 
         title="Session Trade Logs"
         subtitle="Performance audit for this specific session"

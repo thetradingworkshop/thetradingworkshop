@@ -95,14 +95,15 @@ export function Badge({ children, variant = 'neutral', className, onClick }: {
   );
 }
 
-export function Button({ children, onClick, variant = 'primary', className, icon: Icon, disabled, size = 'md' }: { 
-  children?: React.ReactNode; 
-  onClick?: (e: React.MouseEvent) => void; 
+export function Button({ children, onClick, variant = 'primary', className, icon: Icon, disabled, size = 'md', title }: {
+  children?: React.ReactNode;
+  onClick?: (e: React.MouseEvent) => void;
   variant?: 'primary' | 'secondary' | 'outline' | 'ghost' | 'destructive';
   className?: string;
   icon?: any;
   disabled?: boolean;
   size?: 'sm' | 'md' | 'lg' | 'icon';
+  title?: string;
 }) {
   const variants = {
     primary: "bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm active:scale-[0.98]",
@@ -120,9 +121,10 @@ export function Button({ children, onClick, variant = 'primary', className, icon
   };
   
   return (
-    <button 
+    <button
       onClick={onClick}
       disabled={disabled}
+      title={title}
       className={cn(
         "inline-flex items-center justify-center shrink-0 whitespace-nowrap font-semibold transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50",
         variants[variant],

@@ -73,10 +73,6 @@ export function AppShell({
   const { filters, setFilters, filterOptions, accountOptions, accountFilter, setAccountFilter } = useTrades();
   const showTradeControls = TRADE_SCOPED_PAGES.includes(activePage);
 
-  const handleAction = (action: string) => {
-    setToast({ message: `${action} action performed (Simulated)`, type: 'success' });
-    setTimeout(() => setToast(null), 3000);
-  };
 
   const filteredNav = navItems.filter(item => item.roles.includes(userRole));
 
@@ -172,16 +168,21 @@ export function AppShell({
               {theme === 'dark' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
             </button>
  
-            <button 
-              onClick={() => handleAction('Notifications')}
-              className="w-10 h-10 rounded-xl border border-border flex items-center justify-center hover:bg-accent transition-colors relative"
+            {/* No real notification system exists yet — disabled rather
+                than faking a click response, and the unread dot (which
+                used to show unconditionally) is gone since there's no
+                real unread count behind it. */}
+            <button
+              disabled
+              title="Notifications aren't built yet"
+              className="w-10 h-10 rounded-xl border border-border flex items-center justify-center text-muted-foreground/40 cursor-not-allowed"
             >
               <Bell className="w-5 h-5" />
-              <span className="absolute top-2 right-2 w-2 h-2 bg-rose-500 rounded-full border-2 border-card"></span>
             </button>
- 
-            <button 
-              onClick={() => handleAction('User Profile')}
+
+            <button
+              onClick={() => setActivePage('settings')}
+              title="Account settings"
               className="w-10 h-10 rounded-xl border border-border flex items-center justify-center hover:bg-accent transition-colors"
             >
               <User className="w-5 h-5" />

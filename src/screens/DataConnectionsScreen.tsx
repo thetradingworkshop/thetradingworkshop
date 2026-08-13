@@ -60,10 +60,11 @@ export default function DataConnectionsScreen() {
   const [newAccountName, setNewAccountName] = useState('');
   const [isCreatingAccount, setIsCreatingAccount] = useState(false);
 
-  const handleAction = (action: string) => {
-    setToast({ message: `${action} action performed (Simulated)`, type: 'success' });
-    setTimeout(() => setToast(null), 3000);
+  const scrollToIngestionEvents = () => {
+    document.getElementById('ingestion-events')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
+
+  const [expandedErrorId, setExpandedErrorId] = useState<string | null>(null);
 
   useEffect(() => {
     // Check for new connection in URL
@@ -365,7 +366,11 @@ export default function DataConnectionsScreen() {
     if (connection.brokerName === 'tradovate') {
       handleConnectTradovate();
     } else {
-      handleAction(`Reconnect for ${connection.brokerName}`);
+      // Only Tradovate CSV import is actually wired up today — live API
+      // sync for every other broker is not built, so say that honestly
+      // instead of pretending the reconnect succeeded.
+      setToast({ message: `${connection.brokerName} isn't supported yet — only Tradovate CSV import is currently available.`, type: 'error' });
+      setTimeout(() => setToast(null), 4000);
     }
   };
 
@@ -399,8 +404,7 @@ export default function DataConnectionsScreen() {
           onDelete={() => tradovateConnection && handleDeleteConnection(tradovateConnection.id)}
           isUploading={uploadingConnId === tradovateConnection?.id}
           fileInputRef={fileInputRef}
-          onHistory={() => handleAction('View History')}
-          onApiAccess={() => handleAction('API Access Configuration')}
+          onHistory={scrollToIngestionEvents}
         />
 
         {/* Other Connections */}
@@ -425,19 +429,13 @@ export default function DataConnectionsScreen() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Recent Events */}
-        <div className="lg:col-span-2 space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
-              <History className="w-5 h-5 text-muted-foreground" />
-              Recent Ingestion Events
-            </h2>
-            <button 
-              onClick={() => handleAction('View All Ingestion Events')}
-              className="text-sm text-indigo-600 font-medium hover:underline"
-            >
-              View All
-            </button>
-          </div>
+        <div id="ingestion-events" className="lg:col-span-2 space-y-4 scroll-mt-6">
+          <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
+            <History className="w-5 h-5 text-muted-foreground" />
+            Recent Ingestion Events
+          </h2>
+          {/* Showing the 10 most recent — there's no full-history view built
+              yet, so we don't dangle a "View All" link that goes nowhere. */}
           <div className="bg-card rounded-2xl border border-border shadow-sm overflow-hidden">
             <table className="w-full text-left text-sm">
               <thead className="bg-muted border-bottom border-border">
@@ -497,12 +495,12 @@ export default function DataConnectionsScreen() {
                   <span className="text-xs font-bold text-red-700 uppercase tracking-wider">{error.errorType}</span>
                   <span className="text-[10px] text-red-400">{new Date(error.createdAt).toLocaleString()}</span>
                 </div>
-                <p className="text-sm text-red-800 line-clamp-2">{error.errorMessage}</p>
-                <button 
-                  onClick={() => handleAction('View Error Details')}
+                <p className={cn("text-sm text-red-800", expandedErrorId !== error.id && "line-clamp-2")}>{error.errorMessage}</p>
+                <button
+                  onClick={() => setExpandedErrorId(expandedErrorId === error.id ? null : error.id)}
                   className="text-sm font-semibold text-red-600 hover:underline text-left"
                 >
-                  View Details
+                  {expandedErrorId === error.id ? 'Show Less' : 'View Details'}
                 </button>
               </div>
             ))}
@@ -690,17 +688,15 @@ function TradovateConnectionCard({
   onDelete, 
   isUploading,
   fileInputRef,
-  onHistory,
-  onApiAccess
-}: { 
-  connection?: BrokerConnection, 
+  onHistory
+}: {
+  connection?: BrokerConnection,
   onSetManual: () => void,
   onUpload: (e: React.ChangeEvent<HTMLInputElement>) => void,
   onDelete: () => void,
   isUploading: boolean,
   fileInputRef: React.RefObject<HTMLInputElement>,
-  onHistory: () => void,
-  onApiAccess: () => void
+  onHistory: () => void
 }) {
   const isManual = connection?.syncMode === 'manual_csv';
   const isApi = connection?.syncMode === 'api_live';
