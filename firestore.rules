@@ -260,6 +260,14 @@ service cloud.firestore {
       allow read, write: if isAdmin();
     }
 
+    // Tradovate OAuth state → verified-uid binding (see server.ts's
+    // /api/auth/tradovate/url and /callback). Written and read only by the
+    // server via the Admin SDK, which bypasses these rules entirely — this
+    // exists purely so a client can never read or forge one directly.
+    match /oauth_states/{stateId} {
+      allow read, write: if false;
+    }
+
     // Position State
     match /position_state/{stateId} {
       allow read, write: if isAdmin();

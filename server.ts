@@ -18,11 +18,18 @@ import { getFirestore } from "firebase-admin/firestore";
 
 // Local dev/testing only — never touches production. Opt in with
 // USE_FIREBASE_EMULATOR=true (set by `npm run dev:emulated`), which points
-// the Admin SDK at the Firebase Local Emulator Suite's Firestore instance
-// instead of the real project, so local testing never reads/writes real data.
+// the Admin SDK at the Firebase Local Emulator Suite's Firestore *and* Auth
+// instances instead of the real project, so local testing never reads/
+// writes real data. The Auth emulator host is required for
+// admin.auth().verifyIdToken() (see requireAuth below) to accept tokens
+// issued by the local Auth emulator — without it the Admin SDK verifies
+// against real Google servers regardless of the Firestore setting, so every
+// local request would fail auth even signed in correctly against the
+// emulator.
 if (process.env.USE_FIREBASE_EMULATOR === "true") {
   process.env.FIRESTORE_EMULATOR_HOST = "127.0.0.1:8085";
-  console.warn("[server] Connected to LOCAL FIRESTORE EMULATOR — not production.");
+  process.env.FIREBASE_AUTH_EMULATOR_HOST = "127.0.0.1:9099";
+  console.warn("[server] Connected to LOCAL FIRESTORE + AUTH EMULATORS — not production.");
 }
 
 // Initialize Firebase Admin
@@ -88,6 +95,46 @@ const DAY_REVIEW_SCHEMA = {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Verifies the caller's real Firebase ID token (Authorization: Bearer
+// <token>) and attaches the verified uid to req.uid. Every route below that
+// touches or costs money against a specific user's data now requires this,
+// instead of trusting a client-supplied `x-user-id` header or `userId` body
+// field — those were never actually checked against who was signed in, so
+// any request could act as any user (upload trade data into their account,
+// trigger a session recalculation, generate an AI review on their behalf,
+// run up the Anthropic bill). verifyIdToken() is the real check: it
+// cryptographically validates the token against Firebase, the same way the
+// client SDK's own requests are authenticated.
+async function requireAuth(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith("Bearer ")) {
+    return res.status(401).json({ error: "Unauthorized: missing bearer token" });
+  }
+  try {
+    const decoded = await admin.auth().verifyIdToken(authHeader.slice("Bearer ".length));
+    (req as any).uid = decoded.uid;
+    next();
+  } catch (error) {
+    return res.status(401).json({ error: "Unauthorized: invalid or expired token" });
+  }
+}
+
+async function isAdminUid(uid: string): Promise<boolean> {
+  const doc = await db.collection("users").doc(uid).get();
+  return doc.exists && (doc.data() as any).role === "Admin";
+}
+
+// Broker-connection-scoped routes (sync, upload) act on a connectionId the
+// client supplies — requireAuth alone only proves *who* is asking, not that
+// they're allowed to touch *this* connection. This is the second half of
+// that check: the connection's own owner, or an Admin.
+async function assertOwnsConnection(uid: string, connectionId: string): Promise<boolean> {
+  const doc = await db.collection("broker_connections").doc(connectionId).get();
+  if (!doc.exists) return false;
+  if ((doc.data() as any).userId === uid) return true;
+  return isAdminUid(uid);
+}
+
 async function startServer() {
   const app = express();
   const PORT = 3000;
@@ -101,14 +148,25 @@ async function startServer() {
 
   // --- Tradovate OAuth ---
 
-  app.get("/api/auth/tradovate/url", async (req, res) => {
+  app.get("/api/auth/tradovate/url", requireAuth, async (req, res) => {
     if (!tradovate.isConfigured()) {
-      return res.status(403).json({ 
+      return res.status(403).json({
         error: "Tradovate OAuth is disabled. Please use manual CSV upload.",
-        isConfigured: false 
+        isConfigured: false
       });
     }
     const state = uuidv4();
+    // Tradovate's redirect back to /api/auth/tradovate/callback is a plain
+    // top-level browser navigation — it can't carry an Authorization header,
+    // so the callback used to fall back on trusting a client-supplied
+    // x-user-id header instead, with nothing tying it to who actually
+    // started this flow. Binding the verified uid to this one-time state
+    // value here (server-side, right after verifying the token above) lets
+    // the callback recover the real user without needing a header at all.
+    await db.collection("oauth_states").doc(state).set({
+      userId: (req as any).uid,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
     const url = tradovate.getAuthorizationUrl(state);
     res.json({ url });
   });
@@ -119,8 +177,24 @@ async function startServer() {
     }
     const { code, state } = req.query;
 
-    if (!code) {
-      return res.status(400).send("Missing authorization code");
+    if (!code || !state) {
+      return res.status(400).send("Missing authorization code or state");
+    }
+
+    // Recover the real, verified user this flow was started for — see the
+    // comment on /api/auth/tradovate/url above. One-time use (deleted right
+    // away) and time-boxed, so a leaked/logged state value in a browser
+    // history or proxy log is only ever useful for a few minutes.
+    const stateRef = db.collection("oauth_states").doc(state as string);
+    const stateDoc = await stateRef.get();
+    if (!stateDoc.exists) {
+      return res.status(400).send("Invalid or expired authorization state");
+    }
+    const { userId, createdAt } = stateDoc.data() as { userId: string; createdAt?: admin.firestore.Timestamp };
+    await stateRef.delete();
+    const stateAgeMs = createdAt ? Date.now() - createdAt.toMillis() : Infinity;
+    if (stateAgeMs > 15 * 60 * 1000) {
+      return res.status(400).send("Authorization state expired — please reconnect.");
     }
 
     try {
@@ -128,9 +202,6 @@ async function startServer() {
       const userInfo = await tradovate.getMe(tokenData.access_token);
       const accountsData = await tradovate.getAccounts(tokenData.access_token);
 
-      const userId = req.headers["x-user-id"] as string;
-      if (!userId) return res.status(401).json({ error: "Unauthorized: Missing user ID" });
-      
       const connectionId = uuidv4();
       const expiresAt = new Date();
       expiresAt.setSeconds(expiresAt.getSeconds() + tokenData.expires_in);
@@ -175,8 +246,11 @@ async function startServer() {
     }
   });
 
-  app.post("/api/connections/:connectionId/sync", async (req, res) => {
+  app.post("/api/connections/:connectionId/sync", requireAuth, async (req, res) => {
     const { connectionId } = req.params;
+    if (!(await assertOwnsConnection((req as any).uid, connectionId))) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
     try {
       await syncConnection(connectionId);
       res.json({ status: "sync_started" });
@@ -185,10 +259,9 @@ async function startServer() {
     }
   });
 
-  app.post("/api/connections/manual/tradovate", async (req, res) => {
-    const userId = req.headers["x-user-id"] as string;
-    if (!userId) return res.status(401).json({ error: "Unauthorized" });
-    
+  app.post("/api/connections/manual/tradovate", requireAuth, async (req, res) => {
+    const userId = (req as any).uid;
+
     const connectionId = uuidv4();
     const connection = {
       id: connectionId,
@@ -212,13 +285,16 @@ async function startServer() {
     }
   });
 
-  app.post("/api/connections/:connectionId/upload", async (req, res) => {
+  app.post("/api/connections/:connectionId/upload", requireAuth, async (req, res) => {
     const { connectionId } = req.params;
     const { csvText } = req.body;
-    const userId = req.headers["x-user-id"] as string;
+    const userId = (req as any).uid;
 
-    if (!csvText || !userId) {
-      return res.status(400).json({ error: "Missing CSV text or user ID" });
+    if (!csvText) {
+      return res.status(400).json({ error: "Missing CSV text" });
+    }
+    if (!(await assertOwnsConnection(userId, connectionId))) {
+      return res.status(403).json({ error: "Forbidden" });
     }
 
     try {
@@ -287,7 +363,12 @@ async function startServer() {
 
   // --- AI Mentor ---
 
-  app.post("/api/mentor/enhance", async (req, res) => {
+  // No specific resource ownership to check here (it just rewrites whatever
+  // insight/trades the client sends, doesn't read or write anyone's stored
+  // data by id) — but it's a real Anthropic API call and therefore a real
+  // cost, so still gated to signed-in users rather than left open to
+  // anonymous cost-abuse.
+  app.post("/api/mentor/enhance", requireAuth, async (req, res) => {
     const { insight, trades, stats } = req.body as {
       insight: {
         sessionSummary: string;
@@ -370,9 +451,8 @@ async function startServer() {
   // (Admin-SDK-only writes, see firestore.rules) keyed by `${userId}_${sessionDate}`
   // so opening the same day's review twice doesn't re-call the model; pass
   // forceRegenerate to bypass the cache and overwrite it.
-  app.post("/api/day-review/generate", async (req, res) => {
-    const { userId, sessionDate, dayLabel, trades, journalNote, strategyNotes, forceRegenerate } = req.body as {
-      userId: string;
+  app.post("/api/day-review/generate", requireAuth, async (req, res) => {
+    const { sessionDate, dayLabel, trades, journalNote, strategyNotes, forceRegenerate } = req.body as {
       sessionDate: string;
       dayLabel: string;
       trades: { symbol: string; direction: string; isWinner: boolean; pnlCurrency: number; entryTime: string; exitTime: string }[];
@@ -380,9 +460,14 @@ async function startServer() {
       strategyNotes?: string[];
       forceRegenerate?: boolean;
     };
+    // Always the verified caller, never a client-supplied value — this
+    // writes into session_reviews/{userId}_{sessionDate}, so trusting a
+    // client-sent userId here used to let anyone overwrite (or read, via
+    // the cache-hit path) anyone else's cached review.
+    const userId = (req as any).uid;
 
-    if (!userId || !sessionDate || !Array.isArray(trades) || trades.length === 0) {
-      return res.status(400).json({ error: "userId, sessionDate, and a non-empty trades array are required" });
+    if (!sessionDate || !Array.isArray(trades) || trades.length === 0) {
+      return res.status(400).json({ error: "sessionDate and a non-empty trades array are required" });
     }
 
     const reviewId = `${userId}_${sessionDate}`;
@@ -625,10 +710,11 @@ async function startServer() {
     }
   });
 
-  app.post("/api/sessions/recalculate", async (req, res) => {
-    const { userId, sessionDate } = req.body;
-    if (!userId || !sessionDate) {
-      return res.status(400).json({ error: "userId and sessionDate are required" });
+  app.post("/api/sessions/recalculate", requireAuth, async (req, res) => {
+    const { sessionDate } = req.body;
+    const userId = (req as any).uid;
+    if (!sessionDate) {
+      return res.status(400).json({ error: "sessionDate is required" });
     }
 
     try {

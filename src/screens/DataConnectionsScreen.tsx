@@ -40,6 +40,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '@/src/utils';
 import { Toast } from '../components/Shared';
 import { useAuth } from '../context/AuthContext';
+import { authFetch } from '../lib/authFetch';
 
 export default function DataConnectionsScreen() {
   const { user } = useAuth();
@@ -158,9 +159,8 @@ export default function DataConnectionsScreen() {
   const handleSetManualSyncMode = async () => {
     if (!user) return;
     try {
-      const response = await fetch('/api/connections/manual/tradovate', { 
+      const response = await authFetch('/api/connections/manual/tradovate', {
         method: 'POST',
-        headers: { 'x-user-id': user.uid }
       });
       const { connectionId } = await response.json();
       // Connection will be picked up by onSnapshot
@@ -231,12 +231,9 @@ export default function DataConnectionsScreen() {
     reader.onload = async (event) => {
       const csvText = event.target?.result as string;
       try {
-        const response = await fetch(`/api/connections/${connectionId}/upload`, {
+        const response = await authFetch(`/api/connections/${connectionId}/upload`, {
           method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json',
-            'x-user-id': user.uid
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ csvText })
         });
         const result = await response.json();
@@ -270,9 +267,7 @@ export default function DataConnectionsScreen() {
     if (!user) return;
     setIsConnecting(true);
     try {
-      const response = await fetch('/api/auth/tradovate/url', {
-        headers: { 'x-user-id': user.uid }
-      });
+      const response = await authFetch('/api/auth/tradovate/url');
       const { url } = await response.json();
       window.location.href = url;
     } catch (error) {
@@ -293,9 +288,8 @@ export default function DataConnectionsScreen() {
       await Promise.all(batch);
       
       // Trigger initial sync
-      await fetch(`/api/connections/${newConnectionId}/sync`, { 
+      await authFetch(`/api/connections/${newConnectionId}/sync`, {
         method: 'POST',
-        headers: { 'x-user-id': user.uid }
       });
       
       setShowNewConnectionModal(false);
@@ -315,9 +309,8 @@ export default function DataConnectionsScreen() {
   const handleManualSync = async (connectionId: string) => {
     if (!user) return;
     try {
-      await fetch(`/api/connections/${connectionId}/sync`, { 
+      await authFetch(`/api/connections/${connectionId}/sync`, {
         method: 'POST',
-        headers: { 'x-user-id': user.uid }
       });
     } catch (error) {
       console.error('Manual sync failed:', error);

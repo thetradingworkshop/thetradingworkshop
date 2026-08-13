@@ -1,5 +1,6 @@
 import { AIProvider, StructuredInsight } from "./mentorService";
 import { Trade, TradeStats } from "../types";
+import { authFetch } from "../lib/authFetch";
 
 export class AnthropicProvider implements AIProvider {
   private static cooldownUntil: number = 0;
@@ -16,7 +17,7 @@ export class AnthropicProvider implements AIProvider {
     }
 
     try {
-      const response = await fetch("/api/mentor/enhance", {
+      const response = await authFetch("/api/mentor/enhance", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ insight, trades: trades.slice(0, 10), stats }),

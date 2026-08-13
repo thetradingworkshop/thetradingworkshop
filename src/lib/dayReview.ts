@@ -1,5 +1,6 @@
 import { collection, query, where, onSnapshot, doc, getDoc, getDocs, addDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
+import { authFetch } from './authFetch';
 import { DayReview } from '../types';
 
 // Day View Phase 4 — "Review with AI". Generation itself happens server-side
@@ -51,17 +52,24 @@ export async function generateDayReview(payload: {
   strategyNotes?: string[];
   forceRegenerate?: boolean;
 }): Promise<DayReview> {
-  const res = await fetch('/api/day-review/generate', {
+  // userId isn't sent — the server now derives it from the caller's real ID
+  // token (see server.ts's requireAuth) rather than trusting whatever this
+  // payload claims, which used to let anyone generate or overwrite anyone
+  // else's cached review. Kept as a param here only to build the client-side
+  // id below, which must match what the server independently computes from
+  // its own verified uid.
+  const { userId, ...body } = payload;
+  const res = await authFetch('/api/day-review/generate', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(body),
   });
   if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || `Failed to generate review (${res.status})`);
+    const errBody = await res.json().catch(() => ({}));
+    throw new Error(errBody.error || `Failed to generate review (${res.status})`);
   }
   const data = await res.json();
-  return { id: `${payload.userId}_${payload.sessionDate}`, ...data };
+  return { id: `${userId}_${payload.sessionDate}`, ...data };
 }
 
 // Appends the generated review into that day's Daily Journal note — "meant
