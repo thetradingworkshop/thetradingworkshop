@@ -29,7 +29,9 @@ import {
   Settings,
   BookOpen,
   Loader2,
-  Wallet
+  Wallet,
+  Rocket,
+  Upload
 } from 'lucide-react';
 import { useTrades } from '../context/TradeContext';
 import { useDateRange } from '../context/DateContext';
@@ -42,9 +44,13 @@ import { buildDashboardModel, buildSessionMetrics } from '../services/analyticsS
 import { RuleBasedMentorService, RuleBasedInsight } from '../services/RuleBasedMentorService';
 import { RuleBasedMentor } from '../components/RuleBasedMentor';
 
-export default function DashboardScreen() {
+export default function DashboardScreen({ setActivePage }: { setActivePage?: (page: string) => void }) {
   const { user } = useAuth();
-  const { filteredTrades: trades, isLiveSyncing, isLoading, error: syncError } = useTrades();
+  // `trades` here is the globally-filtered set (used throughout this screen);
+  // `allTrades` is the account's real, unfiltered trade list — used only to
+  // detect a genuinely brand-new account (as opposed to an active account
+  // whose current filters/date range happen to exclude every trade).
+  const { trades: allTrades, filteredTrades: trades, isLiveSyncing, isLoading, error: syncError } = useTrades();
   const { getEffectiveRange } = useDateRange();
   const dateRange = getEffectiveRange('dashboard');
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
@@ -344,6 +350,41 @@ export default function DashboardScreen() {
           type={toast.type}
           onClose={() => setToast(null)}
         />
+      )}
+
+      {/* ONBOARDING NUDGE — shown only for genuinely brand-new accounts
+          (zero trades ever, regardless of filters/date range). Everything
+          below this point renders as an honest all-zeros dashboard once
+          real trades exist, so new users need a clear first step instead
+          of silently staring at a wall of $0.00. */}
+      {allTrades.length === 0 && (
+        <Card className="p-8 border-2 border-indigo-500/20 bg-gradient-to-br from-indigo-500/[0.06] to-transparent">
+          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+            <div className="flex items-start gap-4">
+              <div className="p-3 bg-indigo-500/10 rounded-2xl shrink-0">
+                <Rocket className="w-6 h-6 text-indigo-500" />
+              </div>
+              <div>
+                <h3 className="text-lg font-black tracking-tight text-foreground">Let's get your first trades in</h3>
+                <p className="text-sm text-muted-foreground mt-1 max-w-md">
+                  This dashboard fills in automatically once you have real trade data. Connect a broker,
+                  import a trade file, or log a trade by hand to see your actual performance here.
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-3 shrink-0">
+              <Button variant="primary" icon={Zap} onClick={() => setActivePage?.('connections')}>
+                Connect Broker
+              </Button>
+              <Button variant="outline" icon={Upload} onClick={() => setActivePage?.('import')}>
+                Import Orders
+              </Button>
+              <Button variant="outline" icon={BookOpen} onClick={() => setActivePage?.('trades')}>
+                Add Trade Manually
+              </Button>
+            </div>
+          </div>
+        </Card>
       )}
 
       {/* Real Profitability — actual cash spent (evals/resets/subscriptions)

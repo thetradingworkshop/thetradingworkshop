@@ -68,7 +68,7 @@ function AppContent() {
   const renderScreen = () => {
     switch (activePage) {
       case 'dashboard':
-        return <DashboardScreen />;
+        return <DashboardScreen setActivePage={setActivePage} />;
       case 'import':
         return <ImportOrdersScreen setActivePage={setActivePage} />;
       case 'connections':
