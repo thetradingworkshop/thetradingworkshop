@@ -21,6 +21,7 @@ export default function SettingsScreen() {
   const [activeTab, setActiveTab] = useState<'trading-parameters' | 'risk-parameters' | 'accounts'>('trading-parameters');
   const { clearTrades } = useTrades();
   const { user } = useAuth();
+  const [isClearingTrades, setIsClearingTrades] = useState(false);
 
   const [riskForm, setRiskForm] = useState(EMPTY_RISK_FORM);
   const [isLoadingRisk, setIsLoadingRisk] = useState(true);
@@ -248,15 +249,22 @@ export default function SettingsScreen() {
               <Button
                 variant="ghost"
                 className="bg-rose-500 text-white hover:bg-rose-600"
-                onClick={() => {
-                  if (window.confirm("Are you absolutely sure you want to delete ALL your trade data? This cannot be undone.")) {
-                    clearTrades();
-                    setToast({ message: 'All trades cleared successfully.', type: 'success' });
+                disabled={isClearingTrades}
+                onClick={async () => {
+                  if (!window.confirm("Are you absolutely sure you want to delete ALL your trade data? This cannot be undone.")) return;
+                  setIsClearingTrades(true);
+                  try {
+                    await clearTrades();
+                    setToast({ message: 'All trades permanently deleted.', type: 'success' });
+                  } catch (err: any) {
+                    setToast({ message: `Failed to delete trades: ${err.message}`, type: 'error' });
+                  } finally {
+                    setIsClearingTrades(false);
                     setTimeout(() => setToast(null), 3000);
                   }
                 }}
               >
-                Clear All Trades
+                {isClearingTrades ? 'Deleting…' : 'Clear All Trades'}
               </Button>
             </div>
           </Card>

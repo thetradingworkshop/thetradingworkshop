@@ -113,7 +113,7 @@ interface TradeContextType {
   deleteTrade: (tradeId: string) => Promise<void>;
   deleteTrades: (tradeIds: string[]) => Promise<void>;
   logTradeIntent: (symbol: string, checklist: TradeIntent['checklist'], isOverride: boolean) => Promise<void>;
-  clearTrades: () => void;
+  clearTrades: () => Promise<void>;
   isLiveSyncing: boolean;
   selectedTradeForJournal: Trade | null;
   setSelectedTradeForJournal: (trade: Trade | null) => void;
@@ -447,8 +447,15 @@ export function TradeProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const clearTrades = () => {
-    setTradesState([]);
+  // Used to only reset local state — the "Clear All Trades" Danger Zone
+  // button in SettingsScreen.tsx claimed permanent deletion, showed a
+  // success toast, but never issued a single Firestore delete. Since the
+  // main trades listener (below) stays subscribed, the "cleared" trades
+  // would simply repopulate on the next snapshot. Now delegates to the
+  // same real batched deleteTrades() the trade table's own bulk-delete
+  // uses, so this button actually does what it says.
+  const clearTrades = async () => {
+    await deleteTrades(trades.map(t => t.id));
   };
 
   return (
