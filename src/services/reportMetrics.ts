@@ -182,3 +182,57 @@ export const METRIC_CATEGORY_LABELS: Record<MetricCategory, string> = {
   activity: 'Activity',
   consistency: 'Consistency',
 };
+
+// Shared day/time grouping domain — originally local to ReportsScreen.tsx,
+// pulled up here once RangeAnalysisScreen needed the exact same weekday/hour
+// buckets and ordering, so both screens report identical numbers for "which
+// day/hour" instead of two subtly different implementations drifting apart.
+
+export const DAY_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+export const MONTH_ORDER = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+export const DURATION_ORDER = ['0-1m', '1-5m', '5-15m', '15-30m', '30m+'];
+
+// Same hour-of-day label convention as analyticsService.ts's hourlyData, so
+// a "9am" bucket means the same thing everywhere it appears in the app.
+export function hourLabelFromHour(hour: number): string {
+  return hour >= 12 ? `${hour === 12 ? 12 : hour - 12}pm` : `${hour}am`;
+}
+export function hourLabel(entryTime: string): string {
+  return hourLabelFromHour(new Date(entryTime).getHours());
+}
+export const HOUR_ORDER = Array.from({ length: 24 }, (_, h) => hourLabelFromHour(h));
+
+// Finer-grained alternative to hourLabel — a trading day's shape (open
+// range, lunch lull, close ramp) often doesn't show up at hour resolution.
+export function halfHourLabelFromMinutes(hour: number, isSecondHalf: boolean): string {
+  const h12 = hour % 12 === 0 ? 12 : hour % 12;
+  const period = hour >= 12 ? 'pm' : 'am';
+  return `${h12}:${isSecondHalf ? '30' : '00'}${period}`;
+}
+export function halfHourLabel(entryTime: string): string {
+  const d = new Date(entryTime);
+  return halfHourLabelFromMinutes(d.getHours(), d.getMinutes() >= 30);
+}
+export const HALF_HOUR_ORDER = Array.from({ length: 48 }, (_, i) => halfHourLabelFromMinutes(Math.floor(i / 2), i % 2 === 1));
+
+// Same 5 buckets as analyticsService.ts's holdData histogram.
+export function durationBucket(holdTimeSeconds: number): string {
+  const mins = (holdTimeSeconds || 0) / 60;
+  if (mins <= 1) return '0-1m';
+  if (mins <= 5) return '1-5m';
+  if (mins <= 15) return '5-15m';
+  if (mins <= 30) return '15-30m';
+  return '30m+';
+}
+
+// Local-day key (not UTC-date-string slicing) — same fix applied repeatedly
+// elsewhere in the app (DayViewScreen, SessionDetailScreen): parsing a
+// date-only string is UTC-midnight and drifts a day in any timezone behind
+// UTC, so this always derives the key from a real Date's local getters.
+export function localDayKey(entryTime: string): string {
+  const d = new Date(entryTime);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}

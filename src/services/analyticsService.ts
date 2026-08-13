@@ -416,7 +416,10 @@ const computeRiskScore = (trades: Trade[]): number => {
   return Math.min(100, Math.round(ratio * 50));
 };
 
-const computeConsistencyScore = (trades: Trade[]): number => {
+// Exported (unlike its sibling score functions) so RangeAnalysisScreen can
+// reuse the exact same formula Dashboard uses, instead of computing its own
+// version that could silently drift out of sync.
+export const computeConsistencyScore = (trades: Trade[]): number => {
   if (trades.length === 0) return 0;
   const winners = trades.filter(t => t.isWinner);
   const winRate = (winners.length / trades.length);

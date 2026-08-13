@@ -9,6 +9,10 @@ import { useAuth } from '../context/AuthContext';
 import { useTrades } from '../context/TradeContext';
 import { useDateRange } from '../context/DateContext';
 import { ReportTemplate, SecondaryDimension } from '../components/reports/ReportTemplate';
+import {
+  DAY_ORDER, MONTH_ORDER, DURATION_ORDER, HOUR_ORDER, HALF_HOUR_ORDER,
+  hourLabel, halfHourLabel, durationBucket,
+} from '../services/reportMetrics';
 import { Trade, TagCategory } from '../types';
 
 // TradeZella-style "Reports" drill-downs: Symbol, Day & Time, Tags. All
@@ -18,6 +22,8 @@ import { Trade, TagCategory } from '../types';
 // already covers that ground); Playbook is intentionally not duplicated
 // here either (StrategiesScreen already computes richer per-strategy
 // stats, including Follow Rate, than a generic drill-down would show).
+// The day/time grouping domain (weekday/month/hour order + label
+// functions) lives in reportMetrics.ts, shared with RangeAnalysisScreen.
 
 type ReportTab = 'symbol' | 'daytime' | 'tags';
 const TABS: { id: ReportTab; label: string }[] = [
@@ -33,46 +39,6 @@ const DAYTIME_MODES: { id: DayTimeMode; label: string }[] = [
   { id: 'time', label: 'Trade Time' },
   { id: 'duration', label: 'Trade Duration' },
 ];
-
-const DAY_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-const MONTH_ORDER = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-const DURATION_ORDER = ['0-1m', '1-5m', '5-15m', '15-30m', '30m+'];
-
-// Same hour-of-day label convention as analyticsService.ts's hourlyData,
-// so a hover on this report's "9am" bucket means the same thing it does on
-// the Dashboard's hourly chart.
-function hourLabelFromHour(hour: number): string {
-  return hour >= 12 ? `${hour === 12 ? 12 : hour - 12}pm` : `${hour}am`;
-}
-function hourLabel(entryTime: string): string {
-  return hourLabelFromHour(new Date(entryTime).getHours());
-}
-const HOUR_ORDER = Array.from({ length: 24 }, (_, h) => hourLabelFromHour(h));
-
-// Finer-grained alternative to hourLabel — a trading day's shape (open
-// range, lunch lull, close ramp) often doesn't show up at hour resolution;
-// 30-minute buckets make that texture visible without going all the way to
-// per-trade granularity.
-function halfHourLabelFromMinutes(hour: number, isSecondHalf: boolean): string {
-  const h12 = hour % 12 === 0 ? 12 : hour % 12;
-  const period = hour >= 12 ? 'pm' : 'am';
-  return `${h12}:${isSecondHalf ? '30' : '00'}${period}`;
-}
-function halfHourLabel(entryTime: string): string {
-  const d = new Date(entryTime);
-  return halfHourLabelFromMinutes(d.getHours(), d.getMinutes() >= 30);
-}
-const HALF_HOUR_ORDER = Array.from({ length: 48 }, (_, i) => halfHourLabelFromMinutes(Math.floor(i / 2), i % 2 === 1));
-
-// Same 5 buckets as analyticsService.ts's holdData histogram.
-function durationBucket(holdTimeSeconds: number): string {
-  const mins = (holdTimeSeconds || 0) / 60;
-  if (mins <= 1) return '0-1m';
-  if (mins <= 5) return '1-5m';
-  if (mins <= 15) return '5-15m';
-  if (mins <= 30) return '15-30m';
-  return '30m+';
-}
 
 export default function ReportsScreen() {
   const { user } = useAuth();
