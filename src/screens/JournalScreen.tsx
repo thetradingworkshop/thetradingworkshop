@@ -442,27 +442,27 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
 
   if (isPublicPreview && selectedJournal) {
     return (
-      <div className="fixed inset-0 z-50 bg-slate-50 overflow-y-auto p-4 md:p-12">
+      <div className="fixed inset-0 z-50 bg-muted overflow-y-auto p-4 md:p-12">
         <div className="max-w-4xl mx-auto space-y-12">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3">
               <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-200">
                 <Zap className="w-6 h-6 text-white" />
               </div>
-              <span className="text-xl font-black tracking-tighter text-slate-900 uppercase">Trading Workshop OS</span>
+              <span className="text-xl font-black tracking-tighter text-foreground uppercase">Trading Workshop OS</span>
             </div>
             <Button variant="outline" icon={X} onClick={() => setIsPublicPreview(false)}>Close Preview</Button>
           </div>
 
           <div className="space-y-8">
             <div className="space-y-4">
-              <h1 className="text-5xl font-black tracking-tight text-slate-900 leading-tight">{selectedJournal.title}</h1>
-              <div className="flex items-center space-x-4 text-sm font-bold text-slate-400 uppercase tracking-widest">
+              <h1 className="text-5xl font-black tracking-tight text-foreground leading-tight">{selectedJournal.title}</h1>
+              <div className="flex items-center space-x-4 text-sm font-bold text-muted-foreground uppercase tracking-widest">
                 <div className="flex items-center">
                   <Calendar className="w-4 h-4 mr-2" />
                   {selectedJournal.date}
                 </div>
-                <div className="w-1.5 h-1.5 rounded-full bg-slate-200" />
+                <div className="w-1.5 h-1.5 rounded-full bg-muted" />
                 <div className="flex items-center">
                   <BookOpen className="w-4 h-4 mr-2" />
                   Trade Analysis
@@ -471,40 +471,40 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="p-6 rounded-3xl bg-white border border-slate-100 shadow-sm">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Session PnL</p>
+              <div className="p-6 rounded-3xl bg-card border border-border shadow-sm">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">Session PnL</p>
                 <p className={cn("text-2xl font-black", (selectedJournal.pnl || 0) >= 0 ? "text-emerald-500" : "text-rose-500")}>
                   {(selectedJournal.pnl || 0) >= 0 ? '+' : ''}${Math.abs(selectedJournal.pnl || 0).toLocaleString()}
                 </p>
               </div>
-              <div className="p-6 rounded-3xl bg-white border border-slate-100 shadow-sm">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Trades Analyzed</p>
-                <p className="text-2xl font-black text-slate-900">{selectedJournal.tradesCount || 0}</p>
+              <div className="p-6 rounded-3xl bg-card border border-border shadow-sm">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">Trades Analyzed</p>
+                <p className="text-2xl font-black text-foreground">{selectedJournal.tradesCount || 0}</p>
               </div>
-              <div className="p-6 rounded-3xl bg-white border border-slate-100 shadow-sm">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Execution Grade</p>
+              <div className="p-6 rounded-3xl bg-card border border-border shadow-sm">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">Execution Grade</p>
                 <p className="text-2xl font-black text-indigo-600">{selectedJournal.grade || 'N/A'}</p>
               </div>
             </div>
 
-            <div className="p-10 rounded-[40px] bg-white border border-slate-100 shadow-xl shadow-slate-200/50 space-y-8">
+            <div className="p-10 rounded-[40px] bg-card border border-border shadow-xl space-y-8">
               <div className="max-w-none">
                 {selectedJournal.content ? (
                   <div
-                    className="rich-content text-lg leading-relaxed text-slate-900 font-medium"
+                    className="rich-content text-lg leading-relaxed text-foreground font-medium"
                     dangerouslySetInnerHTML={{ __html: selectedJournal.content }}
                   />
                 ) : (
-                  <p className="text-lg leading-relaxed text-slate-900 font-medium">No content provided.</p>
+                  <p className="text-lg leading-relaxed text-foreground font-medium">No content provided.</p>
                 )}
               </div>
 
               {selectedJournal.linkedTrades && selectedJournal.linkedTrades.length > 0 && (
-                <div className="pt-10 border-t border-slate-100">
-                  <h4 className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-6">Key Trades from this Session</h4>
+                <div className="pt-10 border-t border-border">
+                  <h4 className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-6">Key Trades from this Session</h4>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {selectedJournal.linkedTrades.map((t: any, idx: number) => (
-                      <div key={idx} className="p-4 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-between">
+                      <div key={idx} className="p-4 rounded-2xl bg-muted border border-border flex items-center justify-between">
                         <div className="flex items-center space-x-4">
                           <div className={cn(
                             "w-10 h-10 rounded-xl flex items-center justify-center",
@@ -513,7 +513,7 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
                             {t.pnl >= 0 ? <TrendingUp className="w-5 h-5 text-emerald-600" /> : <TrendingDown className="w-5 h-5 text-rose-600" />}
                           </div>
                           <div>
-                            <p className="text-sm font-bold text-slate-900">{t.symbol} {t.direction} @ {t.price}</p>
+                            <p className="text-sm font-bold text-foreground">{t.symbol} {t.direction} @ {t.price}</p>
                             <p className={cn("text-[10px] font-bold uppercase tracking-widest", t.pnl >= 0 ? "text-emerald-600" : "text-rose-600")}>
                               {t.pnl >= 0 ? '+' : ''}${Math.abs(t.pnl).toLocaleString()}
                             </p>
@@ -528,35 +528,35 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="p-8 rounded-[40px] bg-white border border-slate-100 shadow-sm space-y-4">
+              <div className="p-8 rounded-[40px] bg-card border border-border shadow-sm space-y-4">
                 <div className="flex items-center space-x-3 mb-2">
                   <BrainCircuit className="w-5 h-5 text-indigo-500" />
-                  <h4 className="text-xs font-bold uppercase tracking-widest text-slate-400">Behavioral Insights</h4>
+                  <h4 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Behavioral Insights</h4>
                 </div>
                 <ul className="space-y-3">
                   {selectedJournal.insights && selectedJournal.insights.length > 0 ? selectedJournal.insights.map((insight: string, idx: number) => (
-                    <li key={idx} className="flex items-center text-sm font-bold text-slate-700">
+                    <li key={idx} className="flex items-center text-sm font-bold text-foreground">
                       <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 mr-3" />
                       {insight}
                     </li>
                   )) : (
-                    <li className="text-sm text-slate-400 italic">No insights recorded</li>
+                    <li className="text-sm text-muted-foreground italic">No insights recorded</li>
                   )}
                 </ul>
               </div>
-              <div className="p-8 rounded-[40px] bg-white border border-slate-100 shadow-sm space-y-4">
+              <div className="p-8 rounded-[40px] bg-card border border-border shadow-sm space-y-4">
                 <div className="flex items-center space-x-3 mb-2">
                   <Zap className="w-5 h-5 text-emerald-500" />
-                  <h4 className="text-xs font-bold uppercase tracking-widest text-slate-400">Action Summary</h4>
+                  <h4 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Action Summary</h4>
                 </div>
                 <ul className="space-y-3">
                   {selectedJournal.actions && selectedJournal.actions.length > 0 ? selectedJournal.actions.map((action: string, idx: number) => (
-                    <li key={idx} className="flex items-center text-sm font-bold text-slate-700">
+                    <li key={idx} className="flex items-center text-sm font-bold text-foreground">
                       <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-3" />
                       {action}
                     </li>
                   )) : (
-                    <li className="text-sm text-slate-400 italic">No actions recorded</li>
+                    <li className="text-sm text-muted-foreground italic">No actions recorded</li>
                   )}
                 </ul>
               </div>
@@ -588,7 +588,7 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
           </div>
 
           <div className="text-center py-12">
-            <p className="text-sm font-bold text-slate-400 uppercase tracking-widest">Shared via Trading Workshop OS</p>
+            <p className="text-sm font-bold text-muted-foreground uppercase tracking-widest">Shared via Trading Workshop OS</p>
           </div>
         </div>
       </div>
@@ -866,12 +866,12 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
 
               <div className="space-y-8">
                 {selectedJournal.noteType !== 'session_recap' && !linkedTrade && (
-                <div className="p-6 rounded-3xl bg-slate-50 border border-slate-100 space-y-6">
+                <div className="p-6 rounded-3xl bg-muted border border-border space-y-6">
                   <div className="space-y-2">
-                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Did you follow your plan?</label>
+                    <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Did you follow your plan?</label>
                     <div className="flex items-center space-x-2">
                       {selectedJournal.followedPlan === undefined ? (
-                        <span className="text-sm font-bold text-slate-400">Not specified</span>
+                        <span className="text-sm font-bold text-muted-foreground">Not specified</span>
                       ) : (
                         <>
                           <div className={cn("w-2 h-2 rounded-full", selectedJournal.followedPlan ? "bg-emerald-500" : "bg-rose-500")} />
@@ -883,8 +883,8 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
                     </div>
                   </div>
                   <div className="space-y-2">
-                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">What would you change?</label>
-                    <p className="text-sm font-medium text-slate-900 leading-relaxed">
+                    <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">What would you change?</label>
+                    <p className="text-sm font-medium text-foreground leading-relaxed">
                       {selectedJournal.improvements || "No improvements noted."}
                     </p>
                   </div>

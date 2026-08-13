@@ -196,7 +196,7 @@ export default function MentorDashboardScreen() {
         <Card className="border-primary/20 bg-primary/5 hover:bg-primary/10 transition-all duration-300 group">
           <div className="flex items-center justify-between mb-6">
             <div className="w-12 h-12 rounded-2xl bg-primary shadow-lg shadow-primary/20 flex items-center justify-center transition-transform group-hover:scale-110">
-              <TrendingUp className="w-6 h-6 text-white" />
+              <TrendingUp className="w-6 h-6 text-primary-foreground" />
             </div>
             <Badge variant="neutral" className="text-[10px] px-2">{improvingCount} Improving</Badge>
           </div>
@@ -433,21 +433,21 @@ export default function MentorDashboardScreen() {
           </div>
         </Card>
 
-        <Card className="bg-primary text-white border-none shadow-xl shadow-primary/20 flex flex-col justify-between group overflow-hidden relative">
-          <div className="absolute -top-10 -right-10 w-32 h-32 bg-white/10 rounded-full blur-3xl transition-transform group-hover:scale-150" />
+        <Card className="bg-primary text-primary-foreground border-none shadow-xl shadow-primary/20 flex flex-col justify-between group overflow-hidden relative">
+          <div className="absolute -top-10 -right-10 w-32 h-32 bg-primary-foreground/10 rounded-full blur-3xl transition-transform group-hover:scale-150" />
           <div className="relative z-10">
             <div className="flex items-center space-x-3 mb-8">
-              <div className="p-2 bg-white/10 rounded-lg">
-                <FileText className="w-5 h-5 text-white" />
+              <div className="p-2 bg-primary-foreground/10 rounded-lg">
+                <FileText className="w-5 h-5 text-primary-foreground" />
               </div>
               <h3 className="font-bold text-sm">Weekly Coaching Report</h3>
             </div>
-            <p className="text-xs text-white/80 mb-8 leading-relaxed">
+            <p className="text-xs text-primary-foreground/80 mb-8 leading-relaxed">
               Automated per-student report generation isn't built yet — this button doesn't send anything.
             </p>
           </div>
           <Button
-            className="w-full bg-white/40 text-white/70 border-none font-bold py-6 relative z-10 cursor-not-allowed"
+            className="w-full bg-primary-foreground/40 text-primary-foreground/70 border-none font-bold py-6 relative z-10 cursor-not-allowed"
             disabled
           >
             Coming Soon

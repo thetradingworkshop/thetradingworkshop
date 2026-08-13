@@ -374,8 +374,8 @@ export default function DataConnectionsScreen() {
       {/* Header */}
       <div className="flex justify-between items-end">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-slate-900">Data Connections</h1>
-          <p className="text-slate-500 mt-1">Manage your broker integrations and manual data imports.</p>
+          <h1 className="text-3xl font-bold tracking-tight text-foreground">Data Connections</h1>
+          <p className="text-muted-foreground mt-1">Manage your broker integrations and manual data imports.</p>
         </div>
         <button 
           onClick={() => {
@@ -415,7 +415,7 @@ export default function DataConnectionsScreen() {
           />
         ))}
         {connections.length === 0 && !isLoading && (
-          <div className="col-span-full py-12 border-2 border-dashed border-slate-200 rounded-2xl flex flex-col items-center justify-center text-slate-400">
+          <div className="col-span-full py-12 border-2 border-dashed border-border rounded-2xl flex flex-col items-center justify-center text-muted-foreground">
             <Zap className="w-12 h-12 mb-4 opacity-20" />
             <p className="font-medium">No active connections</p>
             <p className="text-sm">Connect a broker to start importing your trade data.</p>
@@ -427,8 +427,8 @@ export default function DataConnectionsScreen() {
         {/* Recent Events */}
         <div className="lg:col-span-2 space-y-4">
           <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
-              <History className="w-5 h-5 text-slate-400" />
+            <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
+              <History className="w-5 h-5 text-muted-foreground" />
               Recent Ingestion Events
             </h2>
             <button 
@@ -438,31 +438,31 @@ export default function DataConnectionsScreen() {
               View All
             </button>
           </div>
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="bg-card rounded-2xl border border-border shadow-sm overflow-hidden">
             <table className="w-full text-left text-sm">
-              <thead className="bg-slate-50 border-bottom border-slate-200">
+              <thead className="bg-muted border-bottom border-border">
                 <tr>
-                  <th className="px-4 py-3 font-semibold text-slate-700">Time</th>
-                  <th className="px-4 py-3 font-semibold text-slate-700">Event</th>
-                  <th className="px-4 py-3 font-semibold text-slate-700">Symbol</th>
-                  <th className="px-4 py-3 font-semibold text-slate-700">Status</th>
+                  <th className="px-4 py-3 font-semibold text-foreground">Time</th>
+                  <th className="px-4 py-3 font-semibold text-foreground">Event</th>
+                  <th className="px-4 py-3 font-semibold text-foreground">Symbol</th>
+                  <th className="px-4 py-3 font-semibold text-foreground">Status</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-border">
                 {events.map((event) => (
-                  <tr key={event.id} className="hover:bg-slate-50 transition-colors">
-                    <td className="px-4 py-3 text-slate-500 whitespace-nowrap">
+                  <tr key={event.id} className="hover:bg-muted transition-colors">
+                    <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">
                       {new Date(event.eventTimestamp).toLocaleTimeString()}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex flex-col">
-                        <span className="font-medium text-slate-900 capitalize">
+                        <span className="font-medium text-foreground capitalize">
                           {(event.eventType || event.type || 'event').replace('_', ' ')}
                         </span>
-                        <span className="text-xs text-slate-400">ID: {event.externalEventId || event.orderId}</span>
+                        <span className="text-xs text-muted-foreground">ID: {event.externalEventId || event.orderId}</span>
                       </div>
                     </td>
-                    <td className="px-4 py-3 font-mono text-slate-600">{event.symbol}</td>
+                    <td className="px-4 py-3 font-mono text-muted-foreground">{event.symbol}</td>
                     <td className="px-4 py-3">
                       <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
                         event.processingStatus === 'processed' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'
@@ -474,7 +474,7 @@ export default function DataConnectionsScreen() {
                 ))}
                 {events.length === 0 && (
                   <tr>
-                    <td colSpan={4} className="px-4 py-8 text-center text-slate-400">
+                    <td colSpan={4} className="px-4 py-8 text-center text-muted-foreground">
                       No recent events
                     </td>
                   </tr>
@@ -486,7 +486,7 @@ export default function DataConnectionsScreen() {
 
         {/* Error Log */}
         <div className="space-y-4">
-          <h2 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
+          <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
             <AlertCircle className="w-5 h-5 text-red-500" />
             Ingestion Errors
           </h2>
@@ -507,7 +507,7 @@ export default function DataConnectionsScreen() {
               </div>
             ))}
             {errors.length === 0 && (
-              <div className="p-8 border border-slate-200 rounded-xl text-center text-slate-400">
+              <div className="p-8 border border-border rounded-xl text-center text-muted-foreground">
                 <CheckCircle2 className="w-8 h-8 mx-auto mb-2 opacity-20 text-emerald-500" />
                 <p className="text-sm">No errors detected</p>
               </div>
@@ -524,37 +524,37 @@ export default function DataConnectionsScreen() {
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden"
+              className="bg-card rounded-3xl shadow-2xl w-full max-w-md overflow-hidden"
             >
               {setupStep === 'select' && (
                 <div className="p-8 space-y-6">
                   <div className="flex justify-between items-center">
-                    <h2 className="text-2xl font-bold text-slate-900">New Account</h2>
-                    <button onClick={() => setShowNewConnectionModal(false)} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
-                      <X className="w-5 h-5 text-slate-400" />
+                    <h2 className="text-2xl font-bold text-foreground">New Account</h2>
+                    <button onClick={() => setShowNewConnectionModal(false)} className="p-2 hover:bg-muted rounded-full transition-colors">
+                      <X className="w-5 h-5 text-muted-foreground" />
                     </button>
                   </div>
-                  <p className="text-slate-500">Pick a broker and name this account, so you can keep imports from different accounts separate and filter them later.</p>
+                  <p className="text-muted-foreground">Pick a broker and name this account, so you can keep imports from different accounts separate and filter them later.</p>
 
                   <div className="space-y-2">
-                    <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Broker</label>
+                    <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Broker</label>
                     <select
                       value={newAccountBroker}
                       onChange={(e) => setNewAccountBroker(e.target.value as Broker)}
-                      className="w-full p-3 border border-slate-200 rounded-xl text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+                      className="w-full p-3 border border-border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-card"
                     >
                       {BROKERS.map(b => <option key={b} value={b}>{b}</option>)}
                     </select>
                   </div>
 
                   <div className="space-y-2">
-                    <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Account Name</label>
+                    <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Account Name</label>
                     <input
                       type="text"
                       value={newAccountName}
                       onChange={(e) => setNewAccountName(e.target.value)}
                       placeholder="e.g. Topstep 50k Eval #1"
-                      className="w-full p-3 border border-slate-200 rounded-xl text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      className="w-full p-3 border border-border rounded-xl text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-indigo-500"
                     />
                   </div>
 
@@ -571,9 +571,9 @@ export default function DataConnectionsScreen() {
               {setupStep === 'tradovate_info' && (
                 <div className="p-8 space-y-6">
                   <div className="flex justify-between items-center">
-                    <h2 className="text-2xl font-bold text-slate-900">Connect Tradovate</h2>
-                    <button onClick={() => setSetupStep('select')} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
-                      <X className="w-5 h-5 text-slate-400" />
+                    <h2 className="text-2xl font-bold text-foreground">Connect Tradovate</h2>
+                    <button onClick={() => setSetupStep('select')} className="p-2 hover:bg-muted rounded-full transition-colors">
+                      <X className="w-5 h-5 text-muted-foreground" />
                     </button>
                   </div>
                   
@@ -592,7 +592,7 @@ export default function DataConnectionsScreen() {
                     </ul>
                   </div>
 
-                  <p className="text-sm text-slate-500">
+                  <p className="text-sm text-muted-foreground">
                     You will be redirected to Tradovate to authorize this connection securely via OAuth.
                   </p>
 
@@ -616,28 +616,28 @@ export default function DataConnectionsScreen() {
               {setupStep === 'account_selection' && (
                 <div className="p-8 space-y-6">
                   <div className="flex justify-between items-center">
-                    <h2 className="text-2xl font-bold text-slate-900">Select Accounts</h2>
-                    <button onClick={() => setShowNewConnectionModal(false)} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
-                      <X className="w-5 h-5 text-slate-400" />
+                    <h2 className="text-2xl font-bold text-foreground">Select Accounts</h2>
+                    <button onClick={() => setShowNewConnectionModal(false)} className="p-2 hover:bg-muted rounded-full transition-colors">
+                      <X className="w-5 h-5 text-muted-foreground" />
                     </button>
                   </div>
                   
-                  <p className="text-slate-500 text-sm">Choose which accounts you want to sync with your workspace.</p>
+                  <p className="text-muted-foreground text-sm">Choose which accounts you want to sync with your workspace.</p>
 
                   <div className="max-h-[300px] overflow-y-auto space-y-2 pr-2">
                     {availableAccounts.map(acc => (
-                      <label key={acc.id} className="flex items-center gap-3 p-4 border border-slate-100 rounded-xl hover:bg-slate-50 cursor-pointer transition-colors">
+                      <label key={acc.id} className="flex items-center gap-3 p-4 border border-border rounded-xl hover:bg-muted cursor-pointer transition-colors">
                         <input 
                           type="checkbox" 
                           checked={acc.selectedForSync}
                           onChange={() => toggleAccountSync(acc.id)}
-                          className="w-5 h-5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                          className="w-5 h-5 rounded border-border text-indigo-600 focus:ring-indigo-500"
                         />
                         <div className="flex-1">
-                          <p className="font-bold text-slate-900">{acc.displayName}</p>
-                          <p className="text-xs text-slate-400">ID: {acc.externalAccountId}</p>
+                          <p className="font-bold text-foreground">{acc.displayName}</p>
+                          <p className="text-xs text-muted-foreground">ID: {acc.externalAccountId}</p>
                         </div>
-                        <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-[10px] font-bold uppercase">
+                        <span className="px-2 py-0.5 bg-muted text-muted-foreground rounded text-[10px] font-bold uppercase">
                           Live
                         </span>
                       </label>
@@ -707,22 +707,22 @@ function TradovateConnectionCard({
   const isNotConfigured = !connection;
 
   return (
-    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+    <div className="bg-card rounded-2xl border border-border shadow-sm overflow-hidden flex flex-col">
       <div className="p-6 flex-1 space-y-4">
         <div className="flex justify-between items-start">
           <div className="flex items-center gap-3">
             <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-              isNotConfigured ? 'bg-slate-100 text-slate-400' : 'bg-indigo-100 text-indigo-600'
+              isNotConfigured ? 'bg-muted text-muted-foreground' : 'bg-indigo-100 text-indigo-600'
             }`}>
               <Zap className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="font-bold text-slate-900">Tradovate</h3>
+              <h3 className="font-bold text-foreground">Tradovate</h3>
               <div className="flex items-center gap-2">
                 <span className={`w-2 h-2 rounded-full ${
                   isNotConfigured ? 'bg-emerald-500' : isManual ? 'bg-emerald-500' : 'bg-emerald-500'
                 }`} />
-                <span className="text-xs font-medium text-slate-500">
+                <span className="text-xs font-medium text-muted-foreground">
                   {isNotConfigured ? 'Manual Import Ready' : isManual ? 'Manual Import Active' : 'Manual Import Active'}
                 </span>
               </div>
@@ -731,7 +731,7 @@ function TradovateConnectionCard({
           {connection && (
             <button 
               onClick={onDelete}
-              className="p-2 hover:bg-red-50 rounded-lg text-slate-400 hover:text-red-500 transition-colors"
+              className="p-2 hover:bg-red-50 rounded-lg text-muted-foreground hover:text-red-500 transition-colors"
               title="Disconnect"
             >
               <Trash2 className="w-4 h-4" />
@@ -739,7 +739,7 @@ function TradovateConnectionCard({
           )}
         </div>
 
-        <p className="text-sm text-slate-500 leading-relaxed">
+        <p className="text-sm text-muted-foreground leading-relaxed">
           {isNotConfigured 
             ? "Import your Tradovate trade history via CSV. API sync is currently disabled."
             : isManual 
@@ -750,20 +750,20 @@ function TradovateConnectionCard({
         {connection && (
           <div className="pt-2 space-y-2">
             <div className="flex justify-between text-xs">
-              <span className="text-slate-400">Last Import</span>
-              <span className="font-bold text-slate-700">
+              <span className="text-muted-foreground">Last Import</span>
+              <span className="font-bold text-foreground">
                 {connection.lastImportAt ? new Date(connection.lastImportAt).toLocaleString() : 'Never'}
               </span>
             </div>
             <div className="flex justify-between text-xs">
-              <span className="text-slate-400">Import Count</span>
-              <span className="font-bold text-slate-700">{connection.importCount || 0}</span>
+              <span className="text-muted-foreground">Import Count</span>
+              <span className="font-bold text-foreground">{connection.importCount || 0}</span>
             </div>
           </div>
         )}
       </div>
 
-      <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 space-y-2">
+      <div className="px-6 py-4 bg-muted border-t border-border space-y-2">
         {isNotConfigured ? (
           <button 
             onClick={onSetManual}
@@ -777,7 +777,7 @@ function TradovateConnectionCard({
             <button 
               onClick={() => fileInputRef.current?.click()}
               disabled={isUploading}
-              className="w-full flex items-center justify-center gap-2 py-2.5 bg-white border border-slate-200 text-slate-700 rounded-xl text-sm font-bold hover:bg-slate-50 transition-colors"
+              className="w-full flex items-center justify-center gap-2 py-2.5 bg-card border border-border text-foreground rounded-xl text-sm font-bold hover:bg-muted transition-colors"
             >
               {isUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
               Upload Tradovate File
@@ -792,14 +792,14 @@ function TradovateConnectionCard({
             <div className="grid grid-cols-2 gap-2">
               <button 
                 onClick={onHistory}
-                className="flex items-center justify-center gap-2 py-2 bg-white border border-slate-200 text-slate-600 rounded-xl text-[11px] font-bold hover:bg-slate-50 transition-colors"
+                className="flex items-center justify-center gap-2 py-2 bg-card border border-border text-muted-foreground rounded-xl text-[11px] font-bold hover:bg-muted transition-colors"
               >
                 <History className="w-3.5 h-3.5" />
                 History
               </button>
               <button 
                 disabled
-                className="flex items-center justify-center gap-2 py-2 bg-slate-50 border border-slate-100 text-slate-400 rounded-xl text-[11px] font-bold cursor-not-allowed"
+                className="flex items-center justify-center gap-2 py-2 bg-muted border border-border text-muted-foreground rounded-xl text-[11px] font-bold cursor-not-allowed"
               >
                 <Zap className="w-3.5 h-3.5" />
                 Live Sync (Soon)
@@ -823,22 +823,22 @@ function ConnectionCard({ connection, onManage, onSync, onToggleStatus, onDelete
   const isError = connection.status === 'error' || connection.status === 'requires_reconnect';
 
   return (
-    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+    <div className="bg-card rounded-2xl border border-border shadow-sm overflow-hidden flex flex-col">
       <div className="p-6 flex-1 space-y-4">
         <div className="flex justify-between items-start">
           <div className="flex items-center gap-3">
             <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-              isPaused ? 'bg-slate-100 text-slate-400' : 'bg-indigo-100 text-indigo-600'
+              isPaused ? 'bg-muted text-muted-foreground' : 'bg-indigo-100 text-indigo-600'
             }`}>
               <Zap className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="font-bold text-slate-900 capitalize">{connection.brokerName}</h3>
+              <h3 className="font-bold text-foreground capitalize">{connection.brokerName}</h3>
               <div className="flex items-center gap-2">
                 <span className={`w-2 h-2 rounded-full ${
                   isPaused ? 'bg-slate-300' : isError ? 'bg-red-500' : 'bg-emerald-500'
                 }`} />
-                <span className="text-xs font-medium text-slate-500 capitalize">{connection.status.replace(/_/g, ' ')}</span>
+                <span className="text-xs font-medium text-muted-foreground capitalize">{connection.status.replace(/_/g, ' ')}</span>
               </div>
             </div>
           </div>
@@ -846,14 +846,14 @@ function ConnectionCard({ connection, onManage, onSync, onToggleStatus, onDelete
             <button 
               onClick={onSync}
               disabled={isPaused}
-              className="p-2 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-indigo-600 transition-colors disabled:opacity-30"
+              className="p-2 hover:bg-muted rounded-lg text-muted-foreground hover:text-indigo-600 transition-colors disabled:opacity-30"
               title="Manual Sync"
             >
               <RefreshCw className="w-4 h-4" />
             </button>
             <button 
               onClick={onManage}
-              className="p-2 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-slate-600 transition-colors"
+              className="p-2 hover:bg-muted rounded-lg text-muted-foreground hover:text-foreground transition-colors"
               title="Settings"
             >
               <MoreVertical className="w-4 h-4" />
@@ -863,29 +863,29 @@ function ConnectionCard({ connection, onManage, onSync, onToggleStatus, onDelete
 
         <div className="space-y-2">
           <div className="flex justify-between text-xs">
-            <span className="text-slate-400">Linked Accounts</span>
-            <span className="font-bold text-slate-700">{connection.accounts?.length || 0}</span>
+            <span className="text-muted-foreground">Linked Accounts</span>
+            <span className="font-bold text-foreground">{connection.accounts?.length || 0}</span>
           </div>
           <div className="flex justify-between text-xs">
-            <span className="text-slate-400">Last Import</span>
-            <span className="font-bold text-slate-700">
+            <span className="text-muted-foreground">Last Import</span>
+            <span className="font-bold text-foreground">
               {connection.lastSyncAt ? new Date(connection.lastSyncAt).toLocaleTimeString() : 'Never'}
             </span>
           </div>
           <div className="flex justify-between text-xs">
-            <span className="text-slate-400">Mode</span>
-            <span className="font-bold text-slate-700">Manual CSV</span>
+            <span className="text-muted-foreground">Mode</span>
+            <span className="font-bold text-foreground">Manual CSV</span>
           </div>
         </div>
       </div>
 
-      <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex gap-2">
+      <div className="px-6 py-4 bg-muted border-t border-border flex gap-2">
         <button 
           onClick={onToggleStatus}
           className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-bold transition-colors ${
             isPaused 
               ? 'bg-indigo-600 text-white hover:bg-indigo-700' 
-              : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
+              : 'bg-card border border-border text-muted-foreground hover:bg-muted'
           }`}
         >
           {isPaused ? <Play className="w-3.5 h-3.5" /> : <Pause className="w-3.5 h-3.5" />}
@@ -893,7 +893,7 @@ function ConnectionCard({ connection, onManage, onSync, onToggleStatus, onDelete
         </button>
         <button 
           onClick={onDelete}
-          className="px-3 py-2 bg-white border border-slate-200 text-red-500 rounded-lg hover:bg-red-50 transition-colors"
+          className="px-3 py-2 bg-card border border-border text-red-500 rounded-lg hover:bg-red-50 transition-colors"
         >
           <Trash2 className="w-4 h-4" />
         </button>
@@ -995,30 +995,30 @@ function ManageConnectionModal({ connection, onClose, onSync, onUpdate, onClearL
         initial={{ opacity: 0, scale: 0.95, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: 20 }}
-        className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]"
+        className="bg-card rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]"
       >
-        <div className="p-6 border-b border-slate-100 flex justify-between items-center">
+        <div className="p-6 border-b border-border flex justify-between items-center">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-indigo-100 rounded-xl flex items-center justify-center text-indigo-600">
               <Zap className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-xl font-bold text-slate-900 capitalize">{connection.brokerName} Connection</h2>
-              <p className="text-xs text-slate-400">ID: {connection.id}</p>
+              <h2 className="text-xl font-bold text-foreground capitalize">{connection.brokerName} Connection</h2>
+              <p className="text-xs text-muted-foreground">ID: {connection.id}</p>
             </div>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
-            <X className="w-5 h-5 text-slate-400" />
+          <button onClick={onClose} className="p-2 hover:bg-muted rounded-full transition-colors">
+            <X className="w-5 h-5 text-muted-foreground" />
           </button>
         </div>
 
-        <div className="flex border-b border-slate-100">
+        <div className="flex border-b border-border">
           {(['settings', 'accounts', 'logs'] as const).map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
               className={`px-6 py-3 text-sm font-bold capitalize transition-colors relative ${
-                activeTab === tab ? 'text-indigo-600' : 'text-slate-400 hover:text-slate-600'
+                activeTab === tab ? 'text-indigo-600' : 'text-muted-foreground hover:text-foreground'
               }`}
             >
               {tab}
@@ -1033,31 +1033,31 @@ function ManageConnectionModal({ connection, onClose, onSync, onUpdate, onClearL
           {activeTab === 'settings' && (
             <div className="space-y-6">
               <div className="grid grid-cols-2 gap-4">
-                <div className="p-4 bg-slate-50 rounded-2xl space-y-1">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Status</span>
-                  <p className="font-bold text-slate-900 capitalize">{connection.status}</p>
+                <div className="p-4 bg-muted rounded-2xl space-y-1">
+                  <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Status</span>
+                  <p className="font-bold text-foreground capitalize">{connection.status}</p>
                 </div>
-                <div className="p-4 bg-slate-50 rounded-2xl space-y-1">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Environment</span>
-                  <p className="font-bold text-slate-900 capitalize">{connection.environment}</p>
+                <div className="p-4 bg-muted rounded-2xl space-y-1">
+                  <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Environment</span>
+                  <p className="font-bold text-foreground capitalize">{connection.environment}</p>
                 </div>
               </div>
 
               <div className="space-y-4">
-                <h3 className="font-bold text-slate-900">Connection Details</h3>
+                <h3 className="font-bold text-foreground">Connection Details</h3>
                 <div className="space-y-3">
                   <div className="flex flex-col gap-1.5">
-                    <label className="text-xs font-bold text-slate-400 uppercase">Auth Type</label>
-                    <div className="flex items-center gap-2 p-3 bg-slate-50 rounded-xl border border-slate-100">
-                      <Key className="w-4 h-4 text-slate-400" />
-                      <span className="text-sm font-medium text-slate-700">{connection.authType}</span>
+                    <label className="text-xs font-bold text-muted-foreground uppercase">Auth Type</label>
+                    <div className="flex items-center gap-2 p-3 bg-muted rounded-xl border border-border">
+                      <Key className="w-4 h-4 text-muted-foreground" />
+                      <span className="text-sm font-medium text-foreground">{connection.authType}</span>
                     </div>
                   </div>
                   <div className="flex flex-col gap-1.5">
-                    <label className="text-xs font-bold text-slate-400 uppercase">External User ID</label>
-                    <div className="flex items-center gap-2 p-3 bg-slate-50 rounded-xl border border-slate-100">
-                      <Globe className="w-4 h-4 text-slate-400" />
-                      <span className="text-sm font-medium text-slate-700">{connection.externalUserId || 'Not available'}</span>
+                    <label className="text-xs font-bold text-muted-foreground uppercase">External User ID</label>
+                    <div className="flex items-center gap-2 p-3 bg-muted rounded-xl border border-border">
+                      <Globe className="w-4 h-4 text-muted-foreground" />
+                      <span className="text-sm font-medium text-foreground">{connection.externalUserId || 'Not available'}</span>
                     </div>
                   </div>
                 </div>
@@ -1083,14 +1083,14 @@ function ManageConnectionModal({ connection, onClose, onSync, onUpdate, onClearL
 
           {activeTab === 'accounts' && (
             <div className="space-y-4">
-              <h3 className="font-bold text-slate-900">Linked Accounts</h3>
+              <h3 className="font-bold text-foreground">Linked Accounts</h3>
               <div className="flex gap-2">
                 <input
                   type="text"
                   value={newAccountName}
                   onChange={(e) => setNewAccountName(e.target.value)}
                   placeholder="New account name..."
-                  className="flex-1 p-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="flex-1 p-2.5 border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
                 <button
                   onClick={handleAddAccount}
@@ -1103,30 +1103,30 @@ function ManageConnectionModal({ connection, onClose, onSync, onUpdate, onClearL
               </div>
               <div className="space-y-2">
                 {localAccounts.map(acc => (
-                  <div key={acc.id} className="flex items-center justify-between p-4 border border-slate-100 rounded-2xl hover:bg-slate-50 transition-colors">
+                  <div key={acc.id} className="flex items-center justify-between p-4 border border-border rounded-2xl hover:bg-muted transition-colors">
                     <div className="flex items-center gap-3">
                       <div
                         onClick={() => toggleAccountSync(acc.id)}
                         className={`w-8 h-8 rounded-lg flex items-center justify-center cursor-pointer transition-colors ${
-                          acc.selectedForSync ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-400'
+                          acc.selectedForSync ? 'bg-emerald-100 text-emerald-600' : 'bg-muted text-muted-foreground'
                         }`}
                       >
                         <CheckCircle2 className="w-4 h-4" />
                       </div>
                       <div>
-                        <p className="font-bold text-slate-900">{acc.displayName}</p>
-                        <p className="text-xs text-slate-400">ID: {acc.externalAccountId}</p>
+                        <p className="font-bold text-foreground">{acc.displayName}</p>
+                        <p className="text-xs text-muted-foreground">ID: {acc.externalAccountId}</p>
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
                       <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                        acc.selectedForSync ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'
+                        acc.selectedForSync ? 'bg-emerald-50 text-emerald-700' : 'bg-muted text-muted-foreground'
                       }`}>
                         {acc.selectedForSync ? 'Syncing' : 'Inactive'}
                       </span>
                       <button
                         onClick={() => handleDeleteAccount(acc.id)}
-                        className="p-2 hover:bg-red-50 rounded-lg text-slate-400 hover:text-red-500 transition-colors"
+                        className="p-2 hover:bg-red-50 rounded-lg text-muted-foreground hover:text-red-500 transition-colors"
                         title="Delete account"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -1136,7 +1136,7 @@ function ManageConnectionModal({ connection, onClose, onSync, onUpdate, onClearL
                 ))}
               </div>
               {localAccounts.length === 0 && (
-                <div className="text-center py-8 text-slate-400 italic text-sm">
+                <div className="text-center py-8 text-muted-foreground italic text-sm">
                   No accounts found for this connection.
                 </div>
               )}
@@ -1146,7 +1146,7 @@ function ManageConnectionModal({ connection, onClose, onSync, onUpdate, onClearL
           {activeTab === 'logs' && (
             <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <h3 className="font-bold text-slate-900">Recent Sync Logs</h3>
+                <h3 className="font-bold text-foreground">Recent Sync Logs</h3>
                 <button 
                   onClick={onClearLogs}
                   className="text-xs text-indigo-600 font-bold hover:underline"
@@ -1156,18 +1156,18 @@ function ManageConnectionModal({ connection, onClose, onSync, onUpdate, onClearL
               </div>
               <div className="space-y-2">
                 {connection.logs && connection.logs.length > 0 ? (
-                  <div className="p-3 bg-slate-50 rounded-xl font-mono text-[10px] text-slate-500 space-y-1">
+                  <div className="p-3 bg-muted rounded-xl font-mono text-[10px] text-muted-foreground space-y-1">
                     {connection.logs.map((log, i) => (
                       <p key={i} className={cn(
                         log.level === 'SUCCESS' ? 'text-emerald-500' : 
-                        log.level === 'ERROR' ? 'text-rose-500' : 'text-slate-400'
+                        log.level === 'ERROR' ? 'text-rose-500' : 'text-muted-foreground'
                       )}>
                         [{new Date(log.timestamp).toLocaleString()}] {log.level}: {log.message}
                       </p>
                     ))}
                   </div>
                 ) : (
-                  <div className="p-8 border border-slate-200 rounded-xl text-center text-slate-400">
+                  <div className="p-8 border border-border rounded-xl text-center text-muted-foreground">
                     <p className="text-sm">No logs available for this connection</p>
                   </div>
                 )}
@@ -1176,15 +1176,15 @@ function ManageConnectionModal({ connection, onClose, onSync, onUpdate, onClearL
           )}
         </div>
 
-        <div className="p-6 bg-slate-50 border-t border-slate-100 flex justify-between items-center gap-3">
-          <button onClick={onClose} className="px-6 py-2 text-sm font-bold text-slate-600 hover:text-slate-900 transition-colors">
+        <div className="p-6 bg-muted border-t border-border flex justify-between items-center gap-3">
+          <button onClick={onClose} className="px-6 py-2 text-sm font-bold text-muted-foreground hover:text-foreground transition-colors">
             Close
           </button>
           <div className="flex gap-3">
             <button 
               onClick={handleSaveChanges}
               disabled={isSaving}
-              className="px-6 py-2 bg-white border border-slate-200 text-slate-700 rounded-xl text-sm font-bold hover:bg-slate-50 transition-colors"
+              className="px-6 py-2 bg-card border border-border text-foreground rounded-xl text-sm font-bold hover:bg-muted transition-colors"
             >
               {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Save Changes'}
             </button>

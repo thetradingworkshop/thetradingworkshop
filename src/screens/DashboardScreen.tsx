@@ -298,7 +298,7 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
   return (
     <div className="max-w-[1600px] mx-auto space-y-12 pb-12">
       {/* 1. SESSION SUMMARY STRIP (TOP) */}
-      <div className="bg-white border border-border rounded-3xl p-4 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4">
+      <div className="bg-card border border-border rounded-3xl p-4 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4">
         <div className="flex items-center space-x-8 px-4">
           <div className="text-center">
             <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-0.5">Net PnL</p>
@@ -308,11 +308,11 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
           </div>
           <div className="text-center">
             <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-0.5">Win Rate</p>
-            <p className="text-sm font-black text-slate-900">{(stats?.winRate !== undefined && !isNaN(stats.winRate)) ? stats.winRate.toFixed(1) : '0.0'}%</p>
+            <p className="text-sm font-black text-foreground">{(stats?.winRate !== undefined && !isNaN(stats.winRate)) ? stats.winRate.toFixed(1) : '0.0'}%</p>
           </div>
           <div className="text-center">
             <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-0.5">Trades</p>
-            <p className="text-sm font-black text-slate-900">{stats?.totalTrades || '0'}</p>
+            <p className="text-sm font-black text-foreground">{stats?.totalTrades || '0'}</p>
           </div>
           <div className="text-center">
             <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-0.5">Discipline</p>
@@ -323,7 +323,7 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
         <div className="flex-1 flex items-center justify-center md:justify-end px-4 border-t md:border-t-0 md:border-l border-border pt-4 md:pt-0">
           <div className="flex items-center space-x-2">
             <Badge variant="neutral" className="bg-indigo-50 text-indigo-600 border-indigo-100 font-bold text-[10px]">SESSION VERDICT</Badge>
-            <p className="text-xs font-medium text-slate-600 italic">
+            <p className="text-xs font-medium text-muted-foreground italic">
               "{behaviorMetrics.sessionVerdict}"
             </p>
           </div>
@@ -499,41 +499,41 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
         <div className="space-y-8">
           <div className="grid grid-cols-2 gap-8">
             <div className="space-y-4">
-              <h4 className="text-xs font-black uppercase tracking-widest text-slate-400">Display Options</h4>
+              <h4 className="text-xs font-black uppercase tracking-widest text-muted-foreground">Display Options</h4>
               <div className="space-y-3">
-                <label className="flex items-center justify-between p-3 bg-slate-50 rounded-xl cursor-pointer hover:bg-slate-100 transition-colors">
-                  <span className="text-sm font-bold text-slate-700">Show Weekends</span>
+                <label className="flex items-center justify-between p-3 bg-muted/60 rounded-xl cursor-pointer hover:bg-muted transition-colors">
+                  <span className="text-sm font-bold text-foreground">Show Weekends</span>
                   <input 
                     type="checkbox" 
                     checked={calendarSettings.showWeekends} 
                     onChange={(e) => setCalendarSettings({...calendarSettings, showWeekends: e.target.checked})}
-                    className="w-5 h-5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                    className="w-5 h-5 rounded border-border text-indigo-600 focus:ring-indigo-500"
                   />
                 </label>
-                <label className="flex items-center justify-between p-3 bg-slate-50 rounded-xl cursor-pointer hover:bg-slate-100 transition-colors">
-                  <span className="text-sm font-bold text-slate-700">Show Weekly Panel</span>
+                <label className="flex items-center justify-between p-3 bg-muted/60 rounded-xl cursor-pointer hover:bg-muted transition-colors">
+                  <span className="text-sm font-bold text-foreground">Show Weekly Panel</span>
                   <input 
                     type="checkbox" 
                     checked={calendarSettings.showWeeklyPanel} 
                     onChange={(e) => setCalendarSettings({...calendarSettings, showWeeklyPanel: e.target.checked})}
-                    className="w-5 h-5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                    className="w-5 h-5 rounded border-border text-indigo-600 focus:ring-indigo-500"
                   />
                 </label>
-                <label className="flex items-center justify-between p-3 bg-slate-50 rounded-xl cursor-pointer hover:bg-slate-100 transition-colors">
-                  <span className="text-sm font-bold text-slate-700">Highlight Best Day</span>
+                <label className="flex items-center justify-between p-3 bg-muted/60 rounded-xl cursor-pointer hover:bg-muted transition-colors">
+                  <span className="text-sm font-bold text-foreground">Highlight Best Day</span>
                   <input 
                     type="checkbox" 
                     checked={calendarSettings.highlightBestDay} 
                     onChange={(e) => setCalendarSettings({...calendarSettings, highlightBestDay: e.target.checked})}
-                    className="w-5 h-5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                    className="w-5 h-5 rounded border-border text-indigo-600 focus:ring-indigo-500"
                   />
                 </label>
               </div>
             </div>
 
             <div className="space-y-4">
-              <h4 className="text-xs font-black uppercase tracking-widest text-slate-400">Heatmap Intensity</h4>
-              <div className="flex bg-slate-100 p-1 rounded-2xl">
+              <h4 className="text-xs font-black uppercase tracking-widest text-muted-foreground">Heatmap Intensity</h4>
+              <div className="flex bg-muted p-1 rounded-2xl">
                 {(['low', 'medium', 'high'] as const).map((level) => (
                   <button
                     key={level}
@@ -541,49 +541,49 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
                     className={cn(
                       "flex-1 py-2 text-xs font-black uppercase tracking-widest rounded-xl transition-all",
                       calendarSettings.colorIntensity === level 
-                        ? "bg-white text-indigo-600 shadow-sm" 
-                        : "text-slate-400 hover:text-slate-600"
+                        ? "bg-card text-indigo-600 shadow-sm" 
+                        : "text-muted-foreground hover:text-foreground"
                     )}
                   >
                     {level}
                   </button>
                 ))}
               </div>
-              <p className="text-[10px] text-slate-400 font-medium leading-relaxed">
+              <p className="text-[10px] text-muted-foreground font-medium leading-relaxed">
                 Adjust the sensitivity of the PnL heatmap colors. Higher intensity makes small PnL values more visible.
               </p>
             </div>
           </div>
 
           <div className="space-y-4">
-            <h4 className="text-xs font-black uppercase tracking-widest text-slate-400">Share & Export Config</h4>
+            <h4 className="text-xs font-black uppercase tracking-widest text-muted-foreground">Share & Export Config</h4>
             <div className="grid grid-cols-3 gap-4">
-              <label className="flex flex-col items-center gap-2 p-4 bg-slate-50 rounded-2xl cursor-pointer hover:bg-slate-100 transition-all">
+              <label className="flex flex-col items-center gap-2 p-4 bg-muted/60 rounded-2xl cursor-pointer hover:bg-muted transition-all">
                 <input 
                   type="checkbox" 
                   checked={calendarSettings.shareIncludeWeekly} 
                   onChange={(e) => setCalendarSettings({...calendarSettings, shareIncludeWeekly: e.target.checked})}
-                  className="w-5 h-5 rounded border-slate-300 text-indigo-600"
+                  className="w-5 h-5 rounded border-border text-indigo-600"
                 />
-                <span className="text-[10px] font-bold uppercase tracking-widest text-slate-600">Weekly Panel</span>
+                <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Weekly Panel</span>
               </label>
-              <label className="flex flex-col items-center gap-2 p-4 bg-slate-50 rounded-2xl cursor-pointer hover:bg-slate-100 transition-all">
+              <label className="flex flex-col items-center gap-2 p-4 bg-muted/60 rounded-2xl cursor-pointer hover:bg-muted transition-all">
                 <input 
                   type="checkbox" 
                   checked={calendarSettings.shareIncludeStats} 
                   onChange={(e) => setCalendarSettings({...calendarSettings, shareIncludeStats: e.target.checked})}
-                  className="w-5 h-5 rounded border-slate-300 text-indigo-600"
+                  className="w-5 h-5 rounded border-border text-indigo-600"
                 />
-                <span className="text-[10px] font-bold uppercase tracking-widest text-slate-600">Monthly Stats</span>
+                <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Monthly Stats</span>
               </label>
-              <label className="flex flex-col items-center gap-2 p-4 bg-slate-50 rounded-2xl cursor-pointer hover:bg-slate-100 transition-all">
+              <label className="flex flex-col items-center gap-2 p-4 bg-muted/60 rounded-2xl cursor-pointer hover:bg-muted transition-all">
                 <input 
                   type="checkbox" 
                   checked={calendarSettings.shareIncludeHighlights} 
                   onChange={(e) => setCalendarSettings({...calendarSettings, shareIncludeHighlights: e.target.checked})}
-                  className="w-5 h-5 rounded border-slate-300 text-indigo-600"
+                  className="w-5 h-5 rounded border-border text-indigo-600"
                 />
-                <span className="text-[10px] font-bold uppercase tracking-widest text-slate-600">Highlights</span>
+                <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Highlights</span>
               </label>
             </div>
           </div>
@@ -591,20 +591,20 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
       </Modal>
 
       {/* CALENDAR PERFORMANCE MODULE */}
-      <Card className="p-0 overflow-hidden border-border/50 shadow-xl bg-white">
+      <Card className="p-0 overflow-hidden border-border/50 shadow-xl bg-card">
         {/* HEADER BAR */}
-        <div className="p-4 border-b border-border/50 bg-white flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="p-4 border-b border-border/50 bg-card flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center space-x-4">
             <div className="flex items-center space-x-2">
-              <Button variant="ghost" size="sm" onClick={prevMonth} className="h-8 w-8 p-0 hover:bg-slate-100"><ChevronLeft className="w-4 h-4" /></Button>
-              <h3 className="text-lg font-bold text-slate-900 min-w-[120px] text-center">{monthYearLabel}</h3>
-              <Button variant="ghost" size="sm" onClick={nextMonth} className="h-8 w-8 p-0 hover:bg-slate-100"><ChevronRight className="w-4 h-4" /></Button>
+              <Button variant="ghost" size="sm" onClick={prevMonth} className="h-8 w-8 p-0 hover:bg-muted"><ChevronLeft className="w-4 h-4" /></Button>
+              <h3 className="text-lg font-bold text-foreground min-w-[120px] text-center">{monthYearLabel}</h3>
+              <Button variant="ghost" size="sm" onClick={nextMonth} className="h-8 w-8 p-0 hover:bg-muted"><ChevronRight className="w-4 h-4" /></Button>
             </div>
             <Button 
               variant="outline" 
               size="sm" 
               onClick={resetMonth} 
-              className="px-4 h-9 text-xs font-medium rounded-xl border-slate-200 hover:bg-slate-50"
+              className="px-4 h-9 text-xs font-medium rounded-xl border-border hover:bg-muted"
             >
               This month
             </Button>
@@ -612,7 +612,7 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
 
           <div className="flex items-center gap-6">
             <div className="flex items-center gap-4">
-              <span className="text-sm font-bold text-slate-900">Monthly stats:</span>
+              <span className="text-sm font-bold text-foreground">Monthly stats:</span>
               <div className="flex items-center gap-2">
                 <Badge variant="neutral" className={cn(
                   "bg-emerald-50 text-emerald-600 border-none text-xs font-bold h-7 px-3",
@@ -620,17 +620,17 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
                 )}>
                   {rangeStats.totalPnL >= 0 ? '+' : '-'}${Math.abs(rangeStats.totalPnL).toLocaleString()}
                 </Badge>
-                <Badge variant="neutral" className="bg-slate-100 text-slate-600 border-none text-xs font-bold h-7 px-3">
+                <Badge variant="neutral" className="bg-muted text-muted-foreground border-none text-xs font-bold h-7 px-3">
                   {rangeStats.tradingDays} days
                 </Badge>
               </div>
             </div>
 
-            <div className="flex items-center gap-1 border-l border-slate-200 pl-4">
+            <div className="flex items-center gap-1 border-l border-border pl-4">
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-8 w-8 p-0 text-slate-400 hover:text-indigo-600"
+                className="h-8 w-8 p-0 text-muted-foreground hover:text-indigo-600"
                 onClick={() => setIsSettingsOpen(!isSettingsOpen)}
               >
                 <Settings className="w-4 h-4" />
@@ -639,7 +639,7 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
           </div>
         </div>
 
-        <div className="bg-white border border-border rounded-3xl overflow-hidden shadow-sm">
+        <div className="bg-card border border-border rounded-3xl overflow-hidden shadow-sm">
           <div className={cn(
             "grid gap-3 p-6",
             calendarSettings.showWeeklyPanel 
@@ -648,14 +648,14 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
           )}>
             {/* Headers */}
             {(calendarSettings.showWeekends ? ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] : ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']).map(day => (
-              <div key={day} className="bg-slate-50/50 border border-slate-100 rounded-lg py-2 text-center">
-                <span className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">{day}</span>
+              <div key={day} className="bg-muted/50 border border-border rounded-lg py-2 text-center">
+                <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">{day}</span>
               </div>
             ))}
             {calendarSettings.showWeeklyPanel && (
               <div className="flex items-center justify-between px-2">
-                <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Weekly</h4>
-                <Badge variant="neutral" className="bg-slate-200/50 text-slate-500 border-none text-[8px]">
+                <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Weekly</h4>
+                <Badge variant="neutral" className="bg-muted/50 text-muted-foreground border-none text-[8px]">
                   {weeklySummaries.length}
                 </Badge>
               </div>
@@ -689,7 +689,7 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
                       }}
                       className={cn(
                         "group relative aspect-square rounded-xl border transition-all duration-300 cursor-pointer overflow-hidden",
-                        d.isEmpty ? "bg-slate-50/30 border-slate-100" : "bg-white border-slate-200 hover:border-indigo-300 hover:shadow-lg hover:-translate-y-0.5",
+                        d.isEmpty ? "bg-muted/30 border-border" : "bg-card border-border hover:border-indigo-300 hover:shadow-lg hover:-translate-y-0.5",
                         isSelected && "border-indigo-500 ring-2 ring-indigo-500/20 z-10",
                         isBestDay && "ring-1 ring-emerald-500 ring-offset-1",
                         isWorstDay && "ring-1 ring-rose-500 ring-offset-1"
@@ -707,7 +707,7 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
                           <div className="flex justify-between items-start">
                             <span className={cn(
                               "text-[10px] font-black tracking-tighter",
-                              d.pnl !== 0 ? "text-slate-900/40" : "text-slate-400"
+                              d.pnl !== 0 ? "text-foreground/40" : "text-muted-foreground"
                             )}>
                               {d.day}
                             </span>
@@ -728,7 +728,7 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
                           <div className="flex-1 flex flex-col items-center justify-center">
                             <p className={cn(
                               "text-sm font-black tracking-tight",
-                              d.pnl > 0 ? "text-emerald-700" : d.pnl < 0 ? "text-rose-700" : "text-slate-400"
+                              d.pnl > 0 ? "text-emerald-700" : d.pnl < 0 ? "text-rose-700" : "text-muted-foreground"
                             )}>
                               {d.pnl > 0 ? '+' : d.pnl < 0 ? '-' : ''}${Math.abs(d.pnl).toLocaleString()}
                             </p>
@@ -736,8 +736,8 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
 
                           <div className="flex items-center justify-between mt-auto pt-1 border-t border-black/5">
                             <div className="flex items-center gap-1">
-                              <BookOpen className="w-2 h-2 text-slate-500/60" />
-                              <span className="text-[8px] font-bold text-slate-600/70">{d.trades}</span>
+                              <BookOpen className="w-2 h-2 text-muted-foreground/60" />
+                              <span className="text-[8px] font-bold text-muted-foreground/70">{d.trades}</span>
                             </div>
                             <span className={cn(
                               "text-[8px] font-black",
@@ -772,8 +772,8 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
                               );
                             }}
                             className={cn(
-                              "group h-full p-3 bg-slate-50/50 border border-slate-200 rounded-xl transition-all duration-300 cursor-pointer hover:border-indigo-400 hover:shadow-lg relative overflow-hidden flex flex-col justify-between",
-                              isSelected && "bg-white border-indigo-500 ring-2 ring-indigo-500/10 shadow-xl z-10",
+                              "group h-full p-3 bg-muted/50 border border-border rounded-xl transition-all duration-300 cursor-pointer hover:border-indigo-400 hover:shadow-lg relative overflow-hidden flex flex-col justify-between",
+                              isSelected && "bg-card border-indigo-500 ring-2 ring-indigo-500/10 shadow-xl z-10",
                               isBestWeek && "border-emerald-200 bg-emerald-50/20"
                             )}
                           >
@@ -796,7 +796,7 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
                             </div>
 
                             <div className="space-y-1.5">
-                              <div className="flex items-center justify-between text-[8px] font-bold text-slate-400">
+                              <div className="flex items-center justify-between text-[8px] font-bold text-muted-foreground">
                                 <span>Win Rate</span>
                                 <span className={cn(
                                   week.winRate >= 60 ? "text-emerald-500" : "text-amber-500"
@@ -805,16 +805,16 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
                               <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-1">
                                   <div className="w-1 h-1 rounded-full bg-indigo-400" />
-                                  <span className="text-[8px] font-bold text-slate-500">{week.activeDays} Days</span>
+                                  <span className="text-[8px] font-bold text-muted-foreground">{week.activeDays} Days</span>
                                 </div>
-                                <ChevronRight className="w-2.5 h-2.5 text-slate-300 group-hover:text-indigo-500 transition-colors" />
+                                <ChevronRight className="w-2.5 h-2.5 text-muted-foreground group-hover:text-indigo-500 transition-colors" />
                               </div>
                             </div>
                           </div>
                         );
                       })()
                     ) : (
-                      <div className="h-full border border-dashed border-slate-100 rounded-xl" />
+                      <div className="h-full border border-dashed border-border rounded-xl" />
                     )}
                   </div>
                 )}
@@ -824,7 +824,7 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
 
           {/* AI Insight Footer - Full Width if panel is open */}
           {calendarSettings.showWeeklyPanel && (
-            <div className="border-t border-border/50 bg-slate-50/30 p-4">
+            <div className="border-t border-border/50 bg-muted/30 p-4">
               <div className="max-w-md mx-auto p-3 bg-indigo-600 rounded-xl text-white shadow-lg shadow-indigo-600/20 relative overflow-hidden group">
                 <div className="absolute -right-2 -bottom-2 opacity-10 group-hover:scale-110 transition-transform duration-500">
                   <BrainCircuit className="w-12 h-12" />
@@ -876,7 +876,7 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
           <Card className="p-0 overflow-hidden border-border/50 shadow-xl">
             <Table>
               <TableHeader>
-                <TableRow className="bg-slate-50/50">
+                <TableRow className="bg-muted/50">
                   <TableHead>Time</TableHead>
                   <TableHead>Symbol</TableHead>
                   <TableHead>Side</TableHead>
@@ -889,12 +889,12 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
               </TableHeader>
               <tbody>
                 {filteredTrades.map((trade) => (
-                  <TableRow key={trade.id} className="hover:bg-slate-50/80 transition-colors">
-                    <TableCell className="font-bold text-slate-600">
+                  <TableRow key={trade.id} className="hover:bg-muted/80 transition-colors">
+                    <TableCell className="font-bold text-muted-foreground">
                       {new Date(trade.entryTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </TableCell>
                     <TableCell>
-                      <Badge variant="neutral" className="bg-slate-100 text-slate-900 border-slate-200">
+                      <Badge variant="neutral" className="bg-muted text-foreground border-border">
                         {trade.symbol}
                       </Badge>
                     </TableCell>
@@ -906,8 +906,8 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
                         {trade.direction}
                       </span>
                     </TableCell>
-                    <TableCell className="font-mono text-xs font-bold text-slate-500">{trade.avgEntryPrice.toFixed(2)}</TableCell>
-                    <TableCell className="font-mono text-xs font-bold text-slate-500">{trade.avgExitPrice.toFixed(2)}</TableCell>
+                    <TableCell className="font-mono text-xs font-bold text-muted-foreground">{trade.avgEntryPrice.toFixed(2)}</TableCell>
+                    <TableCell className="font-mono text-xs font-bold text-muted-foreground">{trade.avgExitPrice.toFixed(2)}</TableCell>
                     <TableCell>
                       <span className={cn(
                         "font-black",
@@ -922,7 +922,7 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
                       </Badge>
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-slate-400 hover:text-indigo-600">
+                      <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-muted-foreground hover:text-indigo-600">
                         <ChevronRight className="w-4 h-4" />
                       </Button>
                     </TableCell>
@@ -972,7 +972,7 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
               <h4 className="text-sm font-bold uppercase tracking-wider text-rose-600">Loss Patterns</h4>
             </div>
             <div className="space-y-3">
-              <p className="text-2xl font-black text-slate-900">{behaviorMetrics.lossPatterns.percentage}%</p>
+              <p className="text-2xl font-black text-foreground">{behaviorMetrics.lossPatterns.percentage}%</p>
               <ul className="space-y-2">
                 {behaviorMetrics.lossPatterns.details.map((detail, idx) => (
                   <li key={idx} className="text-xs text-muted-foreground flex items-start">
@@ -990,7 +990,7 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
               <h4 className="text-sm font-bold uppercase tracking-wider text-emerald-600">Peak Window</h4>
             </div>
             <div className="space-y-3">
-              <p className="text-2xl font-black text-slate-900">{behaviorMetrics.peakWindow.time}</p>
+              <p className="text-2xl font-black text-foreground">{behaviorMetrics.peakWindow.time}</p>
               <ul className="space-y-2">
                 {behaviorMetrics.peakWindow.details.map((detail, idx) => (
                   <li key={idx} className="text-xs text-muted-foreground flex items-start">
@@ -1008,7 +1008,7 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
               <h4 className="text-sm font-bold uppercase tracking-wider text-amber-600">Re-entry Impact</h4>
             </div>
             <div className="space-y-3">
-              <p className="text-2xl font-black text-slate-900">{behaviorMetrics.reEntryImpact.value}%</p>
+              <p className="text-2xl font-black text-foreground">{behaviorMetrics.reEntryImpact.value}%</p>
               <ul className="space-y-2">
                 {behaviorMetrics.reEntryImpact.details.map((detail, idx) => (
                   <li key={idx} className="text-xs text-muted-foreground flex items-start">
@@ -1026,7 +1026,7 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
               <h4 className="text-sm font-bold uppercase tracking-wider text-indigo-600">Key Patterns</h4>
             </div>
             <div className="space-y-3">
-              <p className="text-2xl font-black text-slate-900">{behaviorMetrics.keyPatterns.title}</p>
+              <p className="text-2xl font-black text-foreground">{behaviorMetrics.keyPatterns.title}</p>
               <ul className="space-y-2">
                 {behaviorMetrics.keyPatterns.details.map((detail, idx) => (
                   <li key={idx} className="text-xs text-muted-foreground flex items-start">
