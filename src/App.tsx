@@ -24,16 +24,20 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 
 function AppContent() {
   const [activePage, setActivePage] = useState('dashboard');
-  const [userRole, setUserRole] = useState<'Admin' | 'Mentor' | 'Student' | 'Viewer'>('Admin');
-  const { user, loading, login, loginAsTestUser } = useAuth();
+  const { user, role, roleLoading, loading, login, loginAsTestUser } = useAuth();
 
-  if (loading) {
+  if (loading || (user && roleLoading)) {
     return (
       <div className="h-screen w-screen flex items-center justify-center bg-slate-950">
         <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
       </div>
     );
   }
+
+  // Real role from users/{uid}.role (see AuthContext.tsx) — falls back to
+  // the least-privileged role only in the edge case where a signed-in
+  // account genuinely has no Firestore profile doc, never to Admin.
+  const userRole = role || 'Student';
 
   if (!user) {
     return (

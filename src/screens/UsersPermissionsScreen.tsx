@@ -44,10 +44,12 @@ import {
 // couldn't see or manage a single real registered user.
 //
 // Rebuilt on the real `users` collection. What's genuinely persisted:
-// role, status (active/inactive), and delete of the Firestore profile
-// doc — plus a real audit_logs collection recording who did what. What's
-// deliberately NOT claimed as real: per-user granular permission
-// overrides, mentor/group assignment, and creating brand-new accounts —
+// role, status (active/inactive), mentor assignment (mentorId — the actual
+// access-control mechanism firestore.rules' isAssignedMentor() checks, not
+// a cosmetic label), and delete of the Firestore profile doc — plus a real
+// audit_logs collection recording who did what. What's deliberately NOT
+// claimed as real: per-user granular permission overrides beyond role and
+// mentor assignment, group assignment, and creating brand-new accounts —
 // none of those have a real backing field or server-side flow anywhere
 // in the app, so rather than fake them, this screen says so.
 
@@ -66,6 +68,7 @@ interface UserData {
   email: string;
   role: Role;
   status: 'active' | 'inactive';
+  mentorId?: string; // uid of the Mentor-role user this Student is assigned to
   updatedAt: string; // formatted, or 'Unknown'
 }
 
@@ -134,6 +137,7 @@ export default function UsersPermissionsScreen() {
           email: data.email || '',
           role: (data.role as Role) || 'Student',
           status: data.status === 'inactive' ? 'inactive' : 'active',
+          mentorId: data.mentorId || undefined,
           updatedAt: fmtTimestamp(data.updatedAt),
         };
       });
@@ -169,6 +173,8 @@ export default function UsersPermissionsScreen() {
       u.email.toLowerCase().includes(searchQuery.toLowerCase())
     );
   }, [users, searchQuery]);
+
+  const mentors = useMemo(() => users.filter(u => u.role === 'Mentor'), [users]);
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
@@ -208,6 +214,23 @@ export default function UsersPermissionsScreen() {
       showToast(`${user.name} is now ${newStatus}`);
     } catch (err: any) {
       showToast(`Failed to update status: ${err.message}`, 'error');
+    }
+  };
+
+  // The real scoping mechanism behind Mentor Dashboard's per-mentor roster
+  // and firestore.rules' isAssignedMentor() — a Student's mentorId here is
+  // the only thing that lets a Mentor account read that student's trades
+  // and journals at all (see firestore.rules), so this is a real access
+  // grant, not a cosmetic label.
+  const handleMentorAssign = async (user: UserData, mentorId: string) => {
+    try {
+      await updateDoc(doc(db, 'users', user.id), { mentorId: mentorId || null, updatedAt: serverTimestamp() });
+      const mentorName = mentorId ? (users.find(u => u.id === mentorId)?.name || mentorId) : 'Unassigned';
+      await logAudit('Mentor Assigned', `${user.name} → ${mentorName}`, true);
+      setSelectedUser(prev => (prev && prev.id === user.id ? { ...prev, mentorId: mentorId || undefined } : prev));
+      showToast(`${user.name} assigned to ${mentorName}`);
+    } catch (err: any) {
+      showToast(`Failed to assign mentor: ${err.message}`, 'error');
     }
   };
 
@@ -542,6 +565,32 @@ export default function UsersPermissionsScreen() {
                   </div>
                 </div>
               </section>
+
+              {selectedUser.role === 'Student' && (
+                <section className="space-y-3">
+                  <h3 className="text-sm font-bold flex items-center space-x-2 text-foreground">
+                    <UserCheck className="w-4 h-4 text-primary" />
+                    <span>Mentor Assignment</span>
+                  </h3>
+                  <p className="text-[11px] text-muted-foreground">
+                    This is what actually grants access — the assigned mentor is the only Mentor-role account
+                    that can read this student's trades and journal notes (see Mentor Dashboard).
+                  </p>
+                  <select
+                    className="w-full bg-accent/20 border border-border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/20 outline-none transition-all cursor-pointer hover:bg-accent/30"
+                    value={selectedUser.mentorId || ''}
+                    onChange={(e) => handleMentorAssign(selectedUser, e.target.value)}
+                  >
+                    <option value="">Unassigned</option>
+                    {mentors.map(m => (
+                      <option key={m.id} value={m.id}>{m.name}</option>
+                    ))}
+                  </select>
+                  {mentors.length === 0 && (
+                    <p className="text-[11px] text-amber-500 italic">No Mentor-role accounts exist yet — set a user's role to Mentor above first.</p>
+                  )}
+                </section>
+              )}
 
               <section className="space-y-4">
                 <h3 className="text-sm font-bold flex items-center space-x-2 text-foreground">

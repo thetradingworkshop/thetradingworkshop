@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/src/utils';
 import { Role } from '@/src/types';
+import { useAuth } from '../context/AuthContext';
 import { useTheme } from './ThemeProvider';
 import { Sun, Moon, Bell, User } from 'lucide-react';
 import { Toast, Button } from './Shared';
@@ -71,8 +72,13 @@ export function AppShell({
   const [toast, setToast] = React.useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [isLogIntentOpen, setIsLogIntentOpen] = React.useState(false);
   const { filters, setFilters, filterOptions, accountOptions, accountFilter, setAccountFilter } = useTrades();
+  const { user, logout } = useAuth();
   const showTradeControls = TRADE_SCOPED_PAGES.includes(activePage);
 
+  // This used to be a hardcoded "Jean Paul" regardless of who was actually
+  // signed in — real name/initials from the authenticated Firebase user.
+  const displayName = user?.displayName || user?.email || 'User';
+  const initials = displayName.split(/\s+/).filter(Boolean).map(p => p[0]).join('').slice(0, 2).toUpperCase() || '?';
 
   const filteredNav = navItems.filter(item => item.roles.includes(userRole));
 
@@ -113,14 +119,23 @@ export function AppShell({
             "flex items-center p-2 rounded-2xl bg-accent/50",
             !isSidebarOpen && "justify-center"
           )}>
-            <div className="w-10 h-10 rounded-xl bg-zinc-800 flex items-center justify-center text-white font-bold">
-              JP
+            <div className="w-10 h-10 shrink-0 rounded-xl bg-zinc-800 flex items-center justify-center text-white font-bold">
+              {initials}
             </div>
             {isSidebarOpen && (
-              <div className="ml-3 overflow-hidden">
-                <p className="text-sm font-bold truncate">Jean Paul</p>
-                <p className="text-xs text-muted-foreground truncate">{userRole}</p>
-              </div>
+              <>
+                <div className="ml-3 overflow-hidden flex-1">
+                  <p className="text-sm font-bold truncate">{displayName}</p>
+                  <p className="text-xs text-muted-foreground truncate">{userRole}</p>
+                </div>
+                <button
+                  onClick={logout}
+                  title="Sign out"
+                  className="shrink-0 w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-rose-500 transition-colors"
+                >
+                  <LogOut className="w-4 h-4" />
+                </button>
+              </>
             )}
           </div>
         </div>

@@ -7,6 +7,7 @@ import { SectionHeader, Card, Badge, Button, Modal, Table, TableHeader, TableRow
 import { stripHtml } from '../components/RichTextEditor';
 import { Users, TrendingUp, AlertCircle, FileText, User, CheckCircle2, Trophy, ArrowUpRight, ArrowDownRight, Target, BrainCircuit, ChevronRight, BarChart3, BookOpen, Loader2 } from 'lucide-react';
 import { computeDisciplineScore, computeConsistencyScore } from '../services/analyticsService';
+import { useAuth } from '../context/AuthContext';
 import { Trade, JournalEntry } from '../types';
 
 // This screen used to genuinely query real students, then read
@@ -36,12 +37,20 @@ interface StudentRow {
   totalTrades: number;
 }
 
+// A trade with a malformed/missing entryTime used to throw inside format()
+// and crash this whole screen for every student, not just the one row —
+// one bad record shouldn't take down the mentor's entire view.
+function fmtTradeDate(entryTime: string): string {
+  const d = new Date(entryTime);
+  return isNaN(d.getTime()) ? 'Unknown date' : format(d, 'MMM d, yyyy');
+}
+
 function buildStudentRow(base: { id: string; name?: string; email?: string; status?: string }, trades: Trade[]): StudentRow {
   if (trades.length === 0) {
     return { id: base.id, name: base.name || base.email || 'Student', email: base.email, status: base.status, discipline: 0, consistency: 0, lastSession: 'No trades yet', trend: 'flat', improvementPts: 0, totalTrades: 0 };
   }
   const sorted = [...trades].sort((a, b) => new Date(b.entryTime).getTime() - new Date(a.entryTime).getTime());
-  const lastSession = format(new Date(sorted[0].entryTime), 'MMM d, yyyy');
+  const lastSession = fmtTradeDate(sorted[0].entryTime);
 
   const now = new Date();
   const last7 = trades.filter(t => isWithinInterval(new Date(t.entryTime), { start: subDays(now, 7), end: now }));
@@ -65,6 +74,7 @@ function buildStudentRow(base: { id: string; name?: string; email?: string; stat
 }
 
 export default function MentorDashboardScreen() {
+  const { user, role } = useAuth();
   const [students, setStudents] = useState<any[]>([]);
   const [studentTrades, setStudentTrades] = useState<Record<string, Trade[]>>({});
   const [isLoading, setIsLoading] = useState(true);
@@ -90,10 +100,11 @@ export default function MentorDashboardScreen() {
         setNotesLoading(false);
       },
       (error) => {
-        // journals' Firestore rule only grants read to the note's own owner
-        // or an Admin — there's no Mentor-specific rule yet, so a signed-in
-        // Mentor (as opposed to this app's Admin test account) will
-        // legitimately hit this today. Say so rather than hang or crash.
+        // journals' Firestore rule grants read to the note's owner, an
+        // Admin, or the student's assigned mentor (isAssignedMentor(), see
+        // firestore.rules) — this fires if the student shown here somehow
+        // isn't actually assigned to the signed-in mentor. Say so rather
+        // than hang or crash.
         console.error('Failed to load student notes:', error);
         setNotesError("Couldn't load this student's notes — you may not have permission yet.");
         setNotesLoading(false);
@@ -120,13 +131,23 @@ export default function MentorDashboardScreen() {
   };
 
   useEffect(() => {
-    // In a real app, we'd filter by mentorId
+    if (!user) return;
     // AuthContext.tsx writes role as 'Student' (capitalized) — this query
     // used to look for lowercase 'student' and so never matched a single
     // real signed-up user, regardless of how many students actually
     // existed. Confirmed by reading AuthContext.tsx directly.
+    //
+    // Admins get the full student roster (matches isAdmin()'s blanket read
+    // access in firestore.rules — global oversight). A real Mentor account
+    // only sees students actually assigned to them via mentorId (Users &
+    // Permissions' "Mentor Assignment"), matching firestore.rules'
+    // isAssignedMentor() scoping exactly — this query and those rules are
+    // meant to agree, not just the query being more permissive UI-side.
+    const studentsQuery = role === 'Admin'
+      ? query(collection(db, 'users'), where('role', '==', 'Student'))
+      : query(collection(db, 'users'), where('role', '==', 'Student'), where('mentorId', '==', user.uid));
     const unsubscribe = onSnapshot(
-      query(collection(db, 'users'), where('role', '==', 'Student')),
+      studentsQuery,
       (snapshot) => {
         const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         setStudents(docs);
@@ -134,7 +155,7 @@ export default function MentorDashboardScreen() {
       }
     );
     return () => unsubscribe();
-  }, []);
+  }, [user?.uid, role]);
 
   // One trades subscription per assigned student, so their table row and
   // the leaderboard reflect real, live data instead of a snapshot field
@@ -591,7 +612,7 @@ export default function MentorDashboardScreen() {
                       {selectedStudentTrades.slice(0, 25).map(t => (
                         <TableRow key={t.id}>
                           <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
-                            {format(new Date(t.entryTime), 'MMM d, yyyy')}
+                            {fmtTradeDate(t.entryTime)}
                           </TableCell>
                           <TableCell className="font-bold text-sm">{t.symbol}</TableCell>
                           <TableCell>

@@ -88,10 +88,28 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      return isAuthenticated() && 
-        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+      return isAuthenticated() &&
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'Admin' ||
          (request.auth.token.email == "jeanpaultru@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function isMentor() {
+      return isAuthenticated() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'Mentor';
+    }
+
+    // True when `ownerId` (the userId field on the document being read) is a
+    // student who was actually assigned to the requesting mentor — assigned
+    // via users/{studentId}.mentorId, set only by an Admin from Users &
+    // Permissions (see the users/{userId} update rule below). A mentor
+    // cannot read a student's data just by being a Mentor; the assignment
+    // has to point at them specifically.
+    function isAssignedMentor(ownerId) {
+      return isMentor() &&
+        exists(/databases/$(database)/documents/users/$(ownerId)) &&
+        get(/databases/$(database)/documents/users/$(ownerId)).data.get('mentorId', null) == request.auth.uid;
     }
 
     function isValidDiagnostics(data) {
@@ -206,7 +224,11 @@ service cloud.firestore {
 
     // Trades
     match /trades/{tradeId} {
-      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      // Mentors get read-only access to their assigned students' trades —
+      // this is a coaching view, not a management one, so update/delete
+      // stay owner-or-Admin only (a mentor can't edit or delete a
+      // student's trade record).
+      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin() || isAssignedMentor(resource.data.userId));
       allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid && isValidTrade(request.resource.data);
       allow update: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin()) && isValidTrade(request.resource.data);
       allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
@@ -308,7 +330,8 @@ service cloud.firestore {
 
     // Journals
     match /journals/{journalId} {
-      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      // Same read-only mentor access as trades — see isAssignedMentor().
+      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin() || isAssignedMentor(resource.data.userId));
       allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
       allow update: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
       allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
@@ -325,9 +348,29 @@ service cloud.firestore {
     }
 
     // Users
+    // Fields (see AuthContext.tsx / UsersPermissionsScreen.tsx):
+    //   - role: string (Admin/Mentor/Student/Viewer) — Admin-assigned only
+    //   - mentorId: string, optional — the Mentor-role uid this Student is
+    //     assigned to; Admin-assigned only, from Users & Permissions
+    //   - status, name, email, updatedAt
     match /users/{userId} {
       allow read: if isAuthenticated();
-      allow write: if isAdmin() || isOwner(userId);
+      // A brand-new sign-in creates its own doc with the app's fixed
+      // default role — this is the only path a non-Admin ever sets role.
+      allow create: if isAuthenticated() && isOwner(userId) && request.resource.data.role == 'Student';
+      // After that, role and mentorId are Admin-only to change — this is
+      // the actual security boundary for the app's access model, not just
+      // a UI restriction. Without it, any signed-in user could grant
+      // themselves Admin (or assign themselves a mentor) with a raw
+      // Firestore write, bypassing Users & Permissions entirely. An owner
+      // can still update their own other fields (name/email/status sync
+      // on login) as long as role/mentorId are left unchanged.
+      allow update: if isAdmin() || (
+        isOwner(userId) &&
+        request.resource.data.role == resource.data.role &&
+        request.resource.data.get('mentorId', null) == resource.data.get('mentorId', null)
+      );
+      allow delete: if isAdmin();
     }
   }
 }
