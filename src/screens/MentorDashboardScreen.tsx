@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { cn } from '@/src/utils';
-import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { cn, gradeBadgeVariant } from '@/src/utils';
+import { collection, query, where, orderBy, limit, onSnapshot } from 'firebase/firestore';
 import { format, subDays, isWithinInterval } from 'date-fns';
 import { db } from '../firebase';
-import { SectionHeader, Card, Badge, Button, Table, TableHeader, TableRow, TableHead, TableCell } from '../components/Shared';
-import { Users, TrendingUp, AlertCircle, FileText, User, CheckCircle2, Trophy, ArrowUpRight, ArrowDownRight, Target, BrainCircuit } from 'lucide-react';
+import { SectionHeader, Card, Badge, Button, Modal, Table, TableHeader, TableRow, TableHead, TableCell } from '../components/Shared';
+import { stripHtml } from '../components/RichTextEditor';
+import { Users, TrendingUp, AlertCircle, FileText, User, CheckCircle2, Trophy, ArrowUpRight, ArrowDownRight, Target, BrainCircuit, ChevronRight, BarChart3, BookOpen, Loader2 } from 'lucide-react';
 import { computeDisciplineScore, computeConsistencyScore } from '../services/analyticsService';
-import { Trade } from '../types';
+import { Trade, JournalEntry } from '../types';
 
 // This screen used to genuinely query real students, then read
 // `s.discipline`/`s.consistency`/`s.lastSession`/`s.trend` — fields nothing
@@ -68,6 +69,39 @@ export default function MentorDashboardScreen() {
   const [studentTrades, setStudentTrades] = useState<Record<string, Trade[]>>({});
   const [isLoading, setIsLoading] = useState(true);
 
+  // Clicking a student row opens this drill-down instead of going nowhere —
+  // Trades reuses the per-student data already loaded above; Notes is a
+  // small on-demand fetch since we don't want a live subscription open for
+  // every student's journal just because the roster loaded.
+  const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null);
+  const [detailTab, setDetailTab] = useState<'trades' | 'notes'>('trades');
+  const [studentNotes, setStudentNotes] = useState<JournalEntry[] | null>(null);
+  const [notesLoading, setNotesLoading] = useState(false);
+  const [notesError, setNotesError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!selectedStudentId) { setStudentNotes(null); setNotesError(null); return; }
+    setNotesLoading(true);
+    setNotesError(null);
+    const unsubscribe = onSnapshot(
+      query(collection(db, 'journals'), where('userId', '==', selectedStudentId), orderBy('date', 'desc'), limit(10)),
+      (snapshot) => {
+        setStudentNotes(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as JournalEntry)));
+        setNotesLoading(false);
+      },
+      (error) => {
+        // journals' Firestore rule only grants read to the note's own owner
+        // or an Admin — there's no Mentor-specific rule yet, so a signed-in
+        // Mentor (as opposed to this app's Admin test account) will
+        // legitimately hit this today. Say so rather than hang or crash.
+        console.error('Failed to load student notes:', error);
+        setNotesError("Couldn't load this student's notes — you may not have permission yet.");
+        setNotesLoading(false);
+      }
+    );
+    return () => unsubscribe();
+  }, [selectedStudentId]);
+
   // Real CSV export of the (real) student performance table — everything
   // else on this row of buttons routes to features that aren't built yet
   // (see the disabled buttons below), but this one had real data sitting
@@ -124,6 +158,14 @@ export default function MentorDashboardScreen() {
     () => students.map(s => buildStudentRow(s, studentTrades[s.id] || [])),
     [students, studentTrades]
   );
+
+  const selectedStudent = selectedStudentId ? studentRows.find(s => s.id === selectedStudentId) || null : null;
+  const selectedStudentTrades = useMemo(
+    () => (selectedStudentId ? [...(studentTrades[selectedStudentId] || [])].sort((a, b) => new Date(b.entryTime).getTime() - new Date(a.entryTime).getTime()) : []),
+    [selectedStudentId, studentTrades]
+  );
+  const openStudent = (id: string) => { setSelectedStudentId(id); setDetailTab('trades'); };
+  const closeStudent = () => setSelectedStudentId(null);
 
   const activeStudents = studentRows.filter(s => s.totalTrades > 0);
   const avgDiscipline = activeStudents.length ? Math.round(activeStudents.reduce((s, r) => s + r.discipline, 0) / activeStudents.length) : 0;
@@ -234,13 +276,15 @@ export default function MentorDashboardScreen() {
                   <TableHead className="text-center">Discipline</TableHead>
                   <TableHead className="text-center">Consistency</TableHead>
                   <TableHead className="text-right">7-Day Trend</TableHead>
+                  <TableHead className="w-8" />
                 </TableRow>
               </TableHeader>
               <tbody>
                 {studentRows.length > 0 ? studentRows.map((s) => (
                   <TableRow
                     key={s.id}
-                    className="group"
+                    className="group cursor-pointer hover:bg-muted/40 transition-colors"
+                    onClick={() => openStudent(s.id)}
                   >
                     <TableCell>
                       <div className="flex items-center space-x-4">
@@ -289,10 +333,13 @@ export default function MentorDashboardScreen() {
                         </div>
                       )}
                     </TableCell>
+                    <TableCell>
+                      <ChevronRight className="w-4 h-4 text-muted-foreground/40 group-hover:text-primary group-hover:translate-x-0.5 transition-all" />
+                    </TableCell>
                   </TableRow>
                 )) : (
                   <TableRow>
-                    <TableCell colSpan={4} className="text-center py-12 text-muted-foreground italic">
+                    <TableCell colSpan={5} className="text-center py-12 text-muted-foreground italic">
                       No students assigned to your groups.
                     </TableCell>
                   </TableRow>
@@ -317,9 +364,10 @@ export default function MentorDashboardScreen() {
               {activeStudents.length > 0 ? [...activeStudents].sort((a, b) => (b.discipline + b.consistency) - (a.discipline + a.consistency)).slice(0, 3).map((s, i) => (
                 <div
                   key={s.id}
+                  onClick={() => openStudent(s.id)}
                   className={cn(
-                    "p-5 rounded-2xl border transition-all duration-300",
-                    i === 0 ? "bg-amber-500/10 border-amber-500/30 shadow-lg shadow-amber-500/5" : "bg-card border-border/60"
+                    "p-5 rounded-2xl border transition-all duration-300 cursor-pointer hover:-translate-y-0.5 hover:shadow-lg",
+                    i === 0 ? "bg-amber-500/10 border-amber-500/30 shadow-lg shadow-amber-500/5" : "bg-card border-border/60 hover:border-primary/30"
                   )}
                 >
                   <div className="flex items-center justify-between mb-4">
@@ -484,6 +532,130 @@ export default function MentorDashboardScreen() {
           </div>
         </div>
       </Card>
+
+      {/* Student drill-down — Trades reuses the per-student data already
+          loaded for the table/leaderboard above; Notes is a small
+          on-demand fetch (see the effect near the top of this component)
+          so we're not holding open a live journals listener for every
+          student just because the roster loaded. */}
+      <Modal
+        isOpen={!!selectedStudent}
+        onClose={closeStudent}
+        title={selectedStudent?.name || 'Student'}
+        maxWidth="2xl"
+      >
+        {selectedStudent && (
+          <div className="space-y-6">
+            <div className="flex items-center gap-6 text-xs text-muted-foreground">
+              {selectedStudent.email && <span>{selectedStudent.email}</span>}
+              <span>Last session: {selectedStudent.lastSession}</span>
+            </div>
+
+            <div className="flex gap-2 border-b border-border/60">
+              <button
+                onClick={() => setDetailTab('trades')}
+                className={cn(
+                  "flex items-center gap-2 px-4 py-2.5 text-sm font-bold border-b-2 -mb-px transition-colors",
+                  detailTab === 'trades' ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <BarChart3 className="w-4 h-4" /> Trades ({selectedStudent.totalTrades})
+              </button>
+              <button
+                onClick={() => setDetailTab('notes')}
+                className={cn(
+                  "flex items-center gap-2 px-4 py-2.5 text-sm font-bold border-b-2 -mb-px transition-colors",
+                  detailTab === 'notes' ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <BookOpen className="w-4 h-4" /> Notes{studentNotes ? ` (${studentNotes.length})` : ''}
+              </button>
+            </div>
+
+            {detailTab === 'trades' && (
+              selectedStudentTrades.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground italic text-sm">No trades logged yet.</div>
+              ) : (
+                <div className="max-h-[50vh] overflow-y-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Date</TableHead>
+                        <TableHead>Symbol</TableHead>
+                        <TableHead>Side</TableHead>
+                        <TableHead className="text-right">Net P&L</TableHead>
+                        <TableHead className="text-right">Grade</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <tbody>
+                      {selectedStudentTrades.slice(0, 25).map(t => (
+                        <TableRow key={t.id}>
+                          <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                            {format(new Date(t.entryTime), 'MMM d, yyyy')}
+                          </TableCell>
+                          <TableCell className="font-bold text-sm">{t.symbol}</TableCell>
+                          <TableCell>
+                            <span className={cn(
+                              "text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md",
+                              t.direction === 'LONG' ? "text-emerald-600 bg-emerald-500/10" : "text-rose-600 bg-rose-500/10"
+                            )}>
+                              {t.direction}
+                            </span>
+                          </TableCell>
+                          <TableCell className={cn("text-right font-bold text-sm", t.pnlCurrency >= 0 ? "text-emerald-500" : "text-rose-500")}>
+                            {t.pnlCurrency >= 0 ? '+' : ''}${t.pnlCurrency.toFixed(2)}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {t.tradeGrade ? <Badge variant={gradeBadgeVariant(t.tradeGrade)}>{t.tradeGrade}</Badge> : <span className="text-xs text-muted-foreground">—</span>}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </tbody>
+                  </Table>
+                  {selectedStudentTrades.length > 25 && (
+                    <p className="text-center text-[11px] text-muted-foreground italic pt-3">
+                      Showing the 25 most recent of {selectedStudentTrades.length} trades.
+                    </p>
+                  )}
+                </div>
+              )
+            )}
+
+            {detailTab === 'notes' && (
+              <div className="max-h-[50vh] overflow-y-auto space-y-3">
+                {notesLoading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+                  </div>
+                ) : notesError ? (
+                  <div className="text-center py-12 text-rose-500 text-sm">{notesError}</div>
+                ) : !studentNotes || studentNotes.length === 0 ? (
+                  <div className="text-center py-12 text-muted-foreground italic text-sm">No notes yet.</div>
+                ) : (
+                  studentNotes.map(note => (
+                    <div key={note.id} className="p-4 bg-muted/30 rounded-2xl border border-border/40">
+                      <div className="flex items-center justify-between gap-3 mb-1.5">
+                        <h4 className="font-bold text-sm text-foreground">{note.title || 'Untitled'}</h4>
+                        <span className="text-[10px] text-muted-foreground shrink-0">{note.date}</span>
+                      </div>
+                      {note.content && (
+                        <p className="text-xs text-muted-foreground leading-relaxed line-clamp-3">
+                          {stripHtml(note.content).slice(0, 220)}
+                        </p>
+                      )}
+                      {note.tags && note.tags.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 mt-2">
+                          {note.tags.map(tag => <Badge key={tag} variant="neutral" className="text-[9px]">{tag}</Badge>)}
+                        </div>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }
