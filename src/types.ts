@@ -662,6 +662,41 @@ export interface MentorComment {
   createdAt: string; // ISO string once read back from Firestore's Timestamp
 }
 
+// invites/{inviteId} — a bearer token an Admin generates (Users &
+// Permissions → Invites) that lets a brand-new sign-in arrive with a role
+// other than the app's hardcoded 'Student' default, and optionally a
+// pre-assigned mentor/group. Enforced server-side by firestore.rules'
+// isValidInvite() + the users/{userId} create rule, not just the UI — see
+// AuthContext.tsx's redemption flow.
+export interface Invite {
+  id: string; // == code, the doc ID and the value put in the share link
+  code: string;
+  role: 'Admin' | 'Mentor' | 'Student' | 'Viewer';
+  mentorId?: string | null;
+  groupId?: string | null;
+  label: string;
+  createdBy: string;
+  createdByName: string;
+  createdAt: string;
+  expiresAt: string;
+  maxUses: number;
+  useCount: number;
+  revoked: boolean;
+}
+
+// groups/{groupId} — a purely organizational cohort label used by bulk
+// invites and rostering. NOT an access-control mechanism: membership
+// (users/{uid}.groupId) never by itself grants anyone read access to
+// anyone's data — see firestore.rules' comment on this collection.
+export interface Group {
+  id: string;
+  name: string;
+  mentorId?: string | null; // default mentor applied when generating invites for this group
+  createdBy: string;
+  createdAt: string;
+  memberCount?: number; // computed client-side, not stored
+}
+
 export interface ReconstructionStep {
   id: string;
   timestamp: string;

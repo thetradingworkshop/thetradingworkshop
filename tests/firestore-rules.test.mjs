@@ -20,7 +20,7 @@ import {
   assertFails,
 } from '@firebase/rules-unit-testing';
 import {
-  doc, getDoc, setDoc, updateDoc, deleteDoc,
+  doc, getDoc, setDoc, updateDoc, deleteDoc, collection, getDocs,
 } from 'firebase/firestore';
 
 // A comment payload matching isValidMentorComment(), with one field overridable per-test.
@@ -84,6 +84,49 @@ async function main() {
     await setDoc(doc(db, 'trades', 'trade-2'), { userId: OTHER_STUDENT_UID, symbol: 'NQ' });
     await setDoc(doc(db, 'journals', 'journal-1'), { userId: STUDENT_UID, title: 'Note' });
     await setDoc(doc(db, 'journals', 'journal-2'), { userId: OTHER_STUDENT_UID, title: 'Note' });
+
+    // Invites + groups fixtures
+    await setDoc(doc(db, 'groups', 'group-1'), {
+      name: 'Test Cohort', mentorId: MENTOR_UID, createdBy: ADMIN_UID, createdAt: new Date(),
+    });
+    const NOW = Date.now();
+    const future = new Date(NOW + 7 * 24 * 60 * 60 * 1000);
+    const past = new Date(NOW - 1000);
+    await setDoc(doc(db, 'invites', 'valid-invite'), {
+      code: 'valid-invite', role: 'Student', mentorId: MENTOR_UID, groupId: 'group-1',
+      label: 'Test Invite', createdBy: ADMIN_UID, createdAt: new Date(),
+      expiresAt: future, maxUses: 1, useCount: 0, revoked: false,
+    });
+    // Three independent copies of the same "multi-use" invite so the three
+    // useCount-mutation tests below don't stomp on each other's starting
+    // state (each test's update actually mutates the persisted doc).
+    for (const id of ['multi-use-invite', 'multi-use-invite-2', 'multi-use-invite-3']) {
+      await setDoc(doc(db, 'invites', id), {
+        code: id, role: 'Student', mentorId: null, groupId: 'group-1',
+        label: 'Cohort Invite', createdBy: ADMIN_UID, createdAt: new Date(),
+        expiresAt: future, maxUses: 5, useCount: 2, revoked: false,
+      });
+    }
+    await setDoc(doc(db, 'invites', 'mentor-invite'), {
+      code: 'mentor-invite', role: 'Mentor', mentorId: null, groupId: null,
+      label: 'New Mentor', createdBy: ADMIN_UID, createdAt: new Date(),
+      expiresAt: future, maxUses: 1, useCount: 0, revoked: false,
+    });
+    await setDoc(doc(db, 'invites', 'expired-invite'), {
+      code: 'expired-invite', role: 'Student', mentorId: null, groupId: null,
+      label: 'Old', createdBy: ADMIN_UID, createdAt: new Date(),
+      expiresAt: past, maxUses: 1, useCount: 0, revoked: false,
+    });
+    await setDoc(doc(db, 'invites', 'revoked-invite'), {
+      code: 'revoked-invite', role: 'Student', mentorId: null, groupId: null,
+      label: 'Pulled', createdBy: ADMIN_UID, createdAt: new Date(),
+      expiresAt: future, maxUses: 1, useCount: 0, revoked: true,
+    });
+    await setDoc(doc(db, 'invites', 'exhausted-invite'), {
+      code: 'exhausted-invite', role: 'Student', mentorId: null, groupId: null,
+      label: 'Used up', createdBy: ADMIN_UID, createdAt: new Date(),
+      expiresAt: future, maxUses: 1, useCount: 1, revoked: false,
+    });
   });
 
   const admin = testEnv.authenticatedContext(ADMIN_UID).firestore();
@@ -242,6 +285,139 @@ async function main() {
 
   await check('Admin CAN still write a Viewer\'s data on their behalf', async () => {
     await assertSucceeds(updateDoc(doc(admin, 'journals', 'viewer-journal-1'), { title: 'Admin edit' }));
+  });
+
+  console.log('\ninvites — redemption grants role/mentorId/groupId at account creation\n');
+
+  await check('a brand-new user CAN redeem a valid invite (role+mentor+group match exactly)', async () => {
+    const u = testEnv.authenticatedContext('invitee-1').firestore();
+    await assertSucceeds(setDoc(doc(u, 'users', 'invitee-1'), {
+      role: 'Student', mentorId: MENTOR_UID, groupId: 'group-1', inviteCode: 'valid-invite', name: 'Invitee',
+    }));
+  });
+
+  await check('a brand-new user CAN redeem a Mentor-role invite (role other than Student)', async () => {
+    const u = testEnv.authenticatedContext('invitee-mentor').firestore();
+    await assertSucceeds(setDoc(doc(u, 'users', 'invitee-mentor'), {
+      role: 'Mentor', inviteCode: 'mentor-invite', name: 'New Mentor',
+    }));
+  });
+
+  await check('CANNOT redeem an invite while claiming a different role than it grants', async () => {
+    const u = testEnv.authenticatedContext('invitee-2').firestore();
+    await assertFails(setDoc(doc(u, 'users', 'invitee-2'), {
+      role: 'Admin', mentorId: MENTOR_UID, groupId: 'group-1', inviteCode: 'valid-invite', name: 'Invitee',
+    }));
+  });
+
+  await check('CANNOT redeem an invite while claiming a different mentorId than it grants', async () => {
+    const u = testEnv.authenticatedContext('invitee-3').firestore();
+    await assertFails(setDoc(doc(u, 'users', 'invitee-3'), {
+      role: 'Student', mentorId: OTHER_MENTOR_UID, groupId: 'group-1', inviteCode: 'valid-invite', name: 'Invitee',
+    }));
+  });
+
+  await check('CANNOT redeem an invite while dropping the groupId it grants', async () => {
+    const u = testEnv.authenticatedContext('invitee-4').firestore();
+    await assertFails(setDoc(doc(u, 'users', 'invitee-4'), {
+      role: 'Student', mentorId: MENTOR_UID, inviteCode: 'valid-invite', name: 'Invitee',
+    }));
+  });
+
+  await check('CANNOT redeem an expired invite', async () => {
+    const u = testEnv.authenticatedContext('invitee-5').firestore();
+    await assertFails(setDoc(doc(u, 'users', 'invitee-5'), {
+      role: 'Student', inviteCode: 'expired-invite', name: 'Invitee',
+    }));
+  });
+
+  await check('CANNOT redeem a revoked invite', async () => {
+    const u = testEnv.authenticatedContext('invitee-6').firestore();
+    await assertFails(setDoc(doc(u, 'users', 'invitee-6'), {
+      role: 'Student', inviteCode: 'revoked-invite', name: 'Invitee',
+    }));
+  });
+
+  await check('CANNOT redeem an already-exhausted invite (useCount >= maxUses)', async () => {
+    const u = testEnv.authenticatedContext('invitee-7').firestore();
+    await assertFails(setDoc(doc(u, 'users', 'invitee-7'), {
+      role: 'Student', inviteCode: 'exhausted-invite', name: 'Invitee',
+    }));
+  });
+
+  await check('CANNOT redeem a nonexistent invite code', async () => {
+    const u = testEnv.authenticatedContext('invitee-8').firestore();
+    await assertFails(setDoc(doc(u, 'users', 'invitee-8'), {
+      role: 'Student', inviteCode: 'made-up-code', name: 'Invitee',
+    }));
+  });
+
+  await check('a redeeming user CAN bump the invite\'s useCount by exactly 1', async () => {
+    const u = testEnv.authenticatedContext('invitee-9').firestore();
+    await assertSucceeds(updateDoc(doc(u, 'invites', 'multi-use-invite'), { useCount: 3 }));
+  });
+
+  await check('a redeeming user CANNOT bump useCount by more than 1', async () => {
+    const u = testEnv.authenticatedContext('invitee-10').firestore();
+    await assertFails(updateDoc(doc(u, 'invites', 'multi-use-invite-2'), { useCount: 4 }));
+  });
+
+  await check('a redeeming user CANNOT change other invite fields while bumping useCount', async () => {
+    const u = testEnv.authenticatedContext('invitee-11').firestore();
+    await assertFails(updateDoc(doc(u, 'invites', 'multi-use-invite-3'), { useCount: 3, maxUses: 999 }));
+  });
+
+  await check('a non-Admin CANNOT create an invite', async () => {
+    await assertFails(setDoc(doc(student, 'invites', 'forged-invite'), {
+      code: 'forged-invite', role: 'Admin', createdBy: STUDENT_UID, createdAt: new Date(),
+      expiresAt: new Date(Date.now() + 86400000), maxUses: 1, useCount: 0, revoked: false, label: 'x',
+    }));
+  });
+
+  await check('a non-Admin CANNOT list/enumerate all invites', async () => {
+    await assertFails(getDocs(collection(student, 'invites')));
+  });
+
+  await check('a non-Admin CAN get one specific invite by its known code', async () => {
+    await assertSucceeds(getDoc(doc(student, 'invites', 'valid-invite')));
+  });
+
+  await check('a non-Admin CANNOT revoke an invite', async () => {
+    await assertFails(updateDoc(doc(student, 'invites', 'valid-invite'), { revoked: true }));
+  });
+
+  await check('Admin CAN create an invite', async () => {
+    await assertSucceeds(setDoc(doc(admin, 'invites', 'admin-made-invite'), {
+      code: 'admin-made-invite', role: 'Student', mentorId: null, groupId: null,
+      label: 'Admin Invite', createdBy: ADMIN_UID, createdAt: new Date(),
+      expiresAt: new Date(Date.now() + 86400000), maxUses: 1, useCount: 0, revoked: false,
+    }));
+  });
+
+  await check('Admin CAN list all invites', async () => {
+    await assertSucceeds(getDocs(collection(admin, 'invites')));
+  });
+
+  await check('Admin CAN revoke an invite', async () => {
+    await assertSucceeds(updateDoc(doc(admin, 'invites', 'valid-invite'), { revoked: true }));
+  });
+
+  console.log('\ngroups — organizational label, admin-managed, not an access grant\n');
+
+  await check('any authenticated user CAN read a group', async () => {
+    await assertSucceeds(getDoc(doc(student, 'groups', 'group-1')));
+  });
+
+  await check('a non-Admin CANNOT create a group', async () => {
+    await assertFails(setDoc(doc(student, 'groups', 'rogue-group'), { name: 'Rogue', createdBy: STUDENT_UID }));
+  });
+
+  await check('a non-Admin CANNOT edit a group', async () => {
+    await assertFails(updateDoc(doc(student, 'groups', 'group-1'), { name: 'Renamed' }));
+  });
+
+  await check('Admin CAN create a group', async () => {
+    await assertSucceeds(setDoc(doc(admin, 'groups', 'group-2'), { name: 'Admin Cohort', createdBy: ADMIN_UID, createdAt: new Date() }));
   });
 
   console.log('\nusers/{userId} — role & mentorId self-write protection\n');

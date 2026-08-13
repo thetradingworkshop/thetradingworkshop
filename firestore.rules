@@ -125,6 +125,20 @@ service cloud.firestore {
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role != 'Viewer';
     }
 
+    // An invite is a bearer token an Admin generates (Users & Permissions →
+    // Invites) that lets a brand-new sign-in arrive with a role other than
+    // the app's hardcoded 'Student' default, and optionally a pre-assigned
+    // mentorId/groupId — see the users/{userId} create rule below, which is
+    // the only place this actually matters. Valid means: exists, not
+    // revoked, not expired, and not already fully used.
+    function isValidInvite(inviteId) {
+      return exists(/databases/$(database)/documents/invites/$(inviteId)) &&
+        get(/databases/$(database)/documents/invites/$(inviteId)).data.get('revoked', false) != true &&
+        get(/databases/$(database)/documents/invites/$(inviteId)).data.expiresAt > request.time &&
+        get(/databases/$(database)/documents/invites/$(inviteId)).data.useCount <
+          get(/databases/$(database)/documents/invites/$(inviteId)).data.maxUses;
+    }
+
     function isValidDiagnostics(data) {
       return data.pnlResult in ['WIN', 'LOSS', 'BREAKEVEN'] &&
              data.holdType in ['SCALP', 'INTRADAY', 'SWING'] &&
@@ -405,28 +419,106 @@ service cloud.firestore {
 
     // Users
     // Fields (see AuthContext.tsx / UsersPermissionsScreen.tsx):
-    //   - role: string (Admin/Mentor/Student/Viewer) — Admin-assigned only
+    //   - role: string (Admin/Mentor/Student/Viewer) — Admin-assigned, or
+    //     invite-assigned at creation only (see below)
     //   - mentorId: string, optional — the Mentor-role uid this Student is
-    //     assigned to; Admin-assigned only, from Users & Permissions
+    //     assigned to; Admin- or invite-assigned only
+    //   - groupId: string, optional — cohort label (see /groups); Admin- or
+    //     invite-assigned only, purely organizational, not an access grant
+    //   - inviteCode: string, optional — which invite (if any) was redeemed
+    //     to create this account; audit trail only, never re-checked later
     //   - status, name, email, updatedAt
     match /users/{userId} {
       allow read: if isAuthenticated();
-      // A brand-new sign-in creates its own doc with the app's fixed
-      // default role — this is the only path a non-Admin ever sets role.
-      allow create: if isAuthenticated() && isOwner(userId) && request.resource.data.role == 'Student';
-      // After that, role and mentorId are Admin-only to change — this is
-      // the actual security boundary for the app's access model, not just
-      // a UI restriction. Without it, any signed-in user could grant
-      // themselves Admin (or assign themselves a mentor) with a raw
+      // A brand-new sign-in creates its own doc one of two ways:
+      //   1. No invite: the app's fixed default — role Student, no mentor,
+      //      no group. This is the only path a non-Admin ever sets role
+      //      without an invite.
+      //   2. With an invite: role/mentorId/groupId must match EXACTLY what
+      //      that invite grants (isValidInvite + the get()s below) — an
+      //      invite is the only way a non-Admin can arrive as anything
+      //      other than Student, or with a mentor/group already set, on
+      //      their very first write ever. See isValidInvite() and the
+      //      /invites collection rules for how the invite itself is
+      //      created (Admin-only) and marked used (below, on that doc).
+      allow create: if isAuthenticated() && isOwner(userId) && (
+        (request.resource.data.role == 'Student' &&
+         request.resource.data.get('mentorId', null) == null &&
+         request.resource.data.get('groupId', null) == null &&
+         !('inviteCode' in request.resource.data))
+        ||
+        (
+          'inviteCode' in request.resource.data &&
+          isValidInvite(request.resource.data.inviteCode) &&
+          request.resource.data.role ==
+            get(/databases/$(database)/documents/invites/$(request.resource.data.inviteCode)).data.role &&
+          request.resource.data.get('mentorId', null) ==
+            get(/databases/$(database)/documents/invites/$(request.resource.data.inviteCode)).data.get('mentorId', null) &&
+          request.resource.data.get('groupId', null) ==
+            get(/databases/$(database)/documents/invites/$(request.resource.data.inviteCode)).data.get('groupId', null)
+        )
+      );
+      // After that, role/mentorId/groupId are Admin-only to change — this
+      // is the actual security boundary for the app's access model, not
+      // just a UI restriction. Without it, any signed-in user could grant
+      // themselves Admin (or assign themselves a mentor/group) with a raw
       // Firestore write, bypassing Users & Permissions entirely. An owner
       // can still update their own other fields (name/email/status sync
-      // on login) as long as role/mentorId are left unchanged.
+      // on login) as long as these three are left unchanged.
       allow update: if isAdmin() || (
         isOwner(userId) &&
         request.resource.data.role == resource.data.role &&
-        request.resource.data.get('mentorId', null) == resource.data.get('mentorId', null)
+        request.resource.data.get('mentorId', null) == resource.data.get('mentorId', null) &&
+        request.resource.data.get('groupId', null) == resource.data.get('groupId', null)
       );
       allow delete: if isAdmin();
+    }
+
+    // Invites — the real mechanism behind Users & Permissions' "Generate
+    // Invite". An invite is a bearer token: whoever has the link (the
+    // invite's doc ID, a random code) can redeem it once, that's the
+    // entire point (hand it to a new student/mentor). `get` is open to any
+    // authenticated user so a brand-new sign-in can look up the one invite
+    // they were given; `list` (browsing/enumerating every invite that
+    // exists) is Admin-only, so a non-Admin can never discover a code they
+    // weren't given.
+    match /invites/{inviteId} {
+      allow get: if isAuthenticated();
+      allow list: if isAdmin();
+      allow create: if isAdmin();
+      // Redemption: a non-Admin may bump useCount by exactly 1 and change
+      // nothing else, and only while the invite is still valid (see
+      // isValidInvite) — this is what actually marks it (partially) used.
+      // Every other field is pinned to its current value so redeeming
+      // can't be abused to edit an invite's grant. Admin can still freely
+      // edit/revoke/reuse-reset via the isAdmin() branch.
+      allow update: if isAdmin() || (
+        isAuthenticated() &&
+        isValidInvite(inviteId) &&
+        request.resource.data.useCount == resource.data.useCount + 1 &&
+        request.resource.data.role == resource.data.role &&
+        request.resource.data.get('mentorId', null) == resource.data.get('mentorId', null) &&
+        request.resource.data.get('groupId', null) == resource.data.get('groupId', null) &&
+        request.resource.data.expiresAt == resource.data.expiresAt &&
+        request.resource.data.maxUses == resource.data.maxUses &&
+        request.resource.data.get('revoked', false) == resource.data.get('revoked', false) &&
+        request.resource.data.code == resource.data.code &&
+        request.resource.data.label == resource.data.label &&
+        request.resource.data.createdBy == resource.data.createdBy
+      );
+      allow delete: if isAdmin();
+    }
+
+    // Groups — a purely organizational label (cohort name) used by bulk
+    // invites and rostering in Users & Permissions. Deliberately NOT an
+    // access-control mechanism: a group's mentorId is only a UI default
+    // applied when generating invites for that group. The actual grant
+    // that lets a Mentor read a student's data stays users/{uid}.mentorId
+    // alone (see isAssignedMentor()), completely unchanged by this —
+    // adding someone to a group never by itself grants anyone read access.
+    match /groups/{groupId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
     }
   }
 }

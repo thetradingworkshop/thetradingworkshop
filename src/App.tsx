@@ -40,12 +40,22 @@ function AppContent() {
   const userRole = role || 'Student';
 
   if (!user) {
+    // Set by AuthContext.tsx when the page was loaded from an invite link
+    // (?invite=CODE) — the code itself isn't looked up until after sign-in
+    // (reading it requires being authenticated at all, see firestore.rules),
+    // so this is just a "you have one" indicator, not invite details.
+    const hasPendingInvite = typeof window !== 'undefined' && !!sessionStorage.getItem('pendingInviteCode');
     return (
       <div className="h-screen w-screen flex flex-col items-center justify-center bg-slate-950 p-4">
         <div className="max-w-md w-full space-y-8 text-center">
           <div className="space-y-2">
             <h1 className="text-4xl font-bold tracking-tight text-white">Trading Workshop OS</h1>
             <p className="text-slate-400">Sign in to access your trading dashboard and analytics.</p>
+            {hasPendingInvite && (
+              <p className="text-sm text-indigo-400 font-medium pt-2">
+                You've been invited — sign in to join with your assigned access.
+              </p>
+            )}
           </div>
           <Button
             className="w-full h-14 text-lg font-bold rounded-2xl shadow-lg shadow-indigo-500/20"
