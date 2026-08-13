@@ -43,6 +43,8 @@ import { AnthropicProvider } from '../services/aiProviders';
 import { buildDashboardModel, buildSessionMetrics } from '../services/analyticsService';
 import { RuleBasedMentorService, RuleBasedInsight } from '../services/RuleBasedMentorService';
 import { RuleBasedMentor } from '../components/RuleBasedMentor';
+import { GoalsCard } from '../components/GoalsCard';
+import { useRiskSettings } from '../hooks/useRiskSettings';
 
 export default function DashboardScreen({ setActivePage }: { setActivePage?: (page: string) => void }) {
   const { user, role } = useAuth();
@@ -51,6 +53,7 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
   // detect a genuinely brand-new account (as opposed to an active account
   // whose current filters/date range happen to exclude every trade).
   const { trades: allTrades, filteredTrades: trades, isLiveSyncing, isLoading, error: syncError } = useTrades();
+  const { riskSettings } = useRiskSettings();
   const { getEffectiveRange } = useDateRange();
   const dateRange = getEffectiveRange('dashboard');
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
@@ -407,6 +410,17 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
         </Card>
         )
       )}
+
+      {/* Goals — DLL avoidance + daily/weekly/monthly profit targets, set in
+          Settings → Risk Parameters → Profit Targets. Viewer is read-only
+          and can't reach Settings at all (see AppShell's nav roles), so it
+          gets no "Set Goals" shortcut — a dead-end button to a page the
+          route guard would just bounce them back out of. */}
+      <GoalsCard
+        trades={allTrades}
+        riskSettings={riskSettings}
+        onConfigure={role !== 'Viewer' ? () => setActivePage?.('settings') : undefined}
+      />
 
       {/* Real Profitability — actual cash spent (evals/resets/subscriptions)
           vs. actual payouts received, across every account. This is the

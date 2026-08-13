@@ -83,6 +83,12 @@ export interface RiskSettings {
   riskPerTradePct?: number;
   maxPositionSize?: number;
   maxConsecutiveLosses?: number;
+  // Goals (Dashboard's Goals card, Settings → Risk Parameters → Profit
+  // Targets) — dollar targets per period. maxDailyLossUsd above doubles as
+  // the "don't hit your DLL" goal, so there's no separate field for that.
+  dailyProfitTarget?: number;
+  weeklyProfitTarget?: number;
+  monthlyProfitTarget?: number;
 }
 
 export interface BrokerAccount {

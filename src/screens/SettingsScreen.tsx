@@ -15,6 +15,9 @@ const EMPTY_RISK_FORM = {
   riskPerTradePct: '',
   maxPositionSize: '',
   maxConsecutiveLosses: '',
+  dailyProfitTarget: '',
+  weeklyProfitTarget: '',
+  monthlyProfitTarget: '',
 };
 
 export default function SettingsScreen() {
@@ -39,6 +42,9 @@ export default function SettingsScreen() {
         riskPerTradePct: risk.riskPerTradePct?.toString() ?? '',
         maxPositionSize: risk.maxPositionSize?.toString() ?? '',
         maxConsecutiveLosses: risk.maxConsecutiveLosses?.toString() ?? '',
+        dailyProfitTarget: risk.dailyProfitTarget?.toString() ?? '',
+        weeklyProfitTarget: risk.weeklyProfitTarget?.toString() ?? '',
+        monthlyProfitTarget: risk.monthlyProfitTarget?.toString() ?? '',
       });
     }).finally(() => setIsLoadingRisk(false));
   }, [user?.uid]);
@@ -209,6 +215,46 @@ export default function SettingsScreen() {
                       onChange={e => setRiskForm(f => ({ ...f, maxConsecutiveLosses: e.target.value }))}
                       className="w-full bg-accent/50 border border-border rounded-xl px-4 py-2 text-sm"
                     />
+                  </div>
+                </div>
+
+                <div className="mt-10 pt-8 border-t border-border">
+                  <h4 className="text-sm font-bold mb-1">Profit Targets</h4>
+                  <p className="text-xs text-muted-foreground mb-6">
+                    Feeds the Goals card on your Dashboard — leave any of these blank to skip that goal entirely.
+                    Max Daily Loss above already doubles as your "don't hit your DLL" goal.
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold uppercase text-muted-foreground">Daily Target (USD)</label>
+                      <input
+                        type="number"
+                        placeholder="e.g. 200"
+                        value={riskForm.dailyProfitTarget}
+                        onChange={e => setRiskForm(f => ({ ...f, dailyProfitTarget: e.target.value }))}
+                        className="w-full bg-accent/50 border border-border rounded-xl px-4 py-2 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold uppercase text-muted-foreground">Weekly Target (USD)</label>
+                      <input
+                        type="number"
+                        placeholder="e.g. 800"
+                        value={riskForm.weeklyProfitTarget}
+                        onChange={e => setRiskForm(f => ({ ...f, weeklyProfitTarget: e.target.value }))}
+                        className="w-full bg-accent/50 border border-border rounded-xl px-4 py-2 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold uppercase text-muted-foreground">Monthly Target (USD)</label>
+                      <input
+                        type="number"
+                        placeholder="e.g. 3000"
+                        value={riskForm.monthlyProfitTarget}
+                        onChange={e => setRiskForm(f => ({ ...f, monthlyProfitTarget: e.target.value }))}
+                        className="w-full bg-accent/50 border border-border rounded-xl px-4 py-2 text-sm"
+                      />
+                    </div>
                   </div>
                 </div>
 
