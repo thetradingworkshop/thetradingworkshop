@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { cn, omitUndefined } from '@/src/utils';
 import { SectionHeader, Card, Button, Badge, Toast, Modal, Input } from '../components/Shared';
-import { Search, Plus, Calendar, Share2, MessageSquare, ExternalLink, RotateCcw, Trash2, BookOpen, Edit3, Link as LinkIcon, Zap, X, TrendingUp, TrendingDown, BrainCircuit, Save, Loader2, Star, FileText, BarChart3, FileBarChart, ChevronRight } from 'lucide-react';
+import { Search, Plus, Calendar, Share2, MessageSquare, ExternalLink, RotateCcw, Trash2, BookOpen, Edit3, Link as LinkIcon, Zap, X, TrendingUp, TrendingDown, BrainCircuit, Save, Loader2, Star, FileText, BarChart3, FileBarChart, ChevronRight, Send } from 'lucide-react';
 import { collection, query, where, onSnapshot, orderBy, addDoc, updateDoc, deleteDoc, deleteField, doc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useTrades } from '../context/TradeContext';
@@ -9,6 +9,7 @@ import { useAuth } from '../context/AuthContext';
 import { useDateRange } from '../context/DateContext';
 import { JournalEntry, Trade } from '../types';
 import { RichTextEditor, isContentEmpty, stripHtml } from '../components/RichTextEditor';
+import { useMentorComments, postMentorComment, fmtCommentTimestamp } from '../hooks/useMentorComments';
 import { DictationTextarea } from '../components/DictationTextarea';
 import { TradePickerModal } from '../components/TradePickerModal';
 import { RecapEquityChart } from '../components/RecapEquityChart';
@@ -151,6 +152,36 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
   const [selectedJournal, setSelectedJournal] = useState<any>(null);
   const [journals, setJournals] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  // Real mentor-feedback thread on the currently-open entry — replaces the
+  // fake `.mentorComments` array field the two cards below used to read
+  // (nothing ever wrote it). Called unconditionally per Rules of Hooks;
+  // the hook itself no-ops when there's no entry selected yet.
+  const { comments: mentorComments } = useMentorComments(selectedJournal?.id);
+  const [commentDraft, setCommentDraft] = useState('');
+  const [isPostingComment, setIsPostingComment] = useState(false);
+  const [commentPostError, setCommentPostError] = useState<string | null>(null);
+
+  const postReply = async () => {
+    if (!user || !selectedJournal || !commentDraft.trim()) return;
+    setIsPostingComment(true);
+    setCommentPostError(null);
+    try {
+      // This card is the entry owner's own view of their own journal, so
+      // the reply is always tagged 'Student' — the voice on the receiving
+      // end of mentor feedback, not the mentor's.
+      await postMentorComment(
+        selectedJournal.id,
+        { authorId: user.uid, authorName: user.displayName || user.email || 'Me', authorRole: 'Student' },
+        commentDraft
+      );
+      setCommentDraft('');
+    } catch (err: any) {
+      console.error('Failed to post reply:', err);
+      setCommentPostError("Couldn't post — you may not have permission.");
+    } finally {
+      setIsPostingComment(false);
+    }
+  };
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [draft, setDraft] = useState<JournalDraft | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -565,13 +596,13 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
                 <h3 className="text-xl font-bold">Mentor Feedback</h3>
               </div>
               <div className="space-y-4">
-                {selectedJournal.mentorComments && selectedJournal.mentorComments.length > 0 ? selectedJournal.mentorComments.map((comment: any, idx: number) => (
-                  <div key={idx} className="p-6 bg-white/10 rounded-3xl backdrop-blur-sm border border-white/10">
-                    <div className="flex items-center justify-between mb-4">
-                      <span className="text-sm font-bold">{comment.author}</span>
-                      <span className="text-xs opacity-60">{comment.date}</span>
+                {mentorComments && mentorComments.length > 0 ? mentorComments.map((comment) => (
+                  <div key={comment.id} className="p-6 bg-white/10 rounded-3xl backdrop-blur-sm border border-white/10">
+                    <div className="flex items-center justify-between mb-4 gap-3">
+                      <span className="text-sm font-bold">{comment.authorName}</span>
+                      <span className="text-xs opacity-60 shrink-0">{fmtCommentTimestamp(comment.createdAt)}</span>
                     </div>
-                    <p className="text-lg font-medium leading-relaxed">
+                    <p className="text-lg font-medium leading-relaxed whitespace-pre-wrap">
                       {comment.text}
                     </p>
                   </div>
@@ -1002,20 +1033,36 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
                   <h3 className="font-bold">Mentor Comments</h3>
                 </div>
                 <div className="space-y-4">
-                  {selectedJournal.mentorComments && selectedJournal.mentorComments.length > 0 ? selectedJournal.mentorComments.map((comment: any, idx: number) => (
-                    <div key={idx} className="p-4 bg-accent/50 rounded-2xl">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs font-bold">{comment.author}</span>
-                        <span className="text-[10px] text-muted-foreground">{comment.date}</span>
+                  {mentorComments === null ? (
+                    <div className="text-center py-4 text-muted-foreground italic text-xs">Loading…</div>
+                  ) : mentorComments.length > 0 ? mentorComments.map((comment) => (
+                    <div key={comment.id} className={cn(
+                      "p-4 rounded-2xl",
+                      comment.authorRole === 'Student' ? "bg-accent/50" : "bg-indigo-500/10 border border-indigo-500/20"
+                    )}>
+                      <div className="flex items-center justify-between mb-2 gap-3">
+                        <span className="text-xs font-bold">{comment.authorName}</span>
+                        <span className="text-[10px] text-muted-foreground shrink-0 font-mono">{fmtCommentTimestamp(comment.createdAt)}</span>
                       </div>
-                      <p className="text-sm">{comment.text}</p>
+                      <p className="text-sm whitespace-pre-wrap">{comment.text}</p>
                     </div>
                   )) : (
                     <div className="text-center py-4 text-muted-foreground italic text-xs">
                       No mentor comments yet.
                     </div>
                   )}
-                  <Button variant="ghost" className="w-full text-xs" disabled title="Mentor commenting isn't built yet">Add Mentor Comment</Button>
+                  <div className="flex items-end gap-2">
+                    <textarea
+                      value={commentDraft}
+                      onChange={(e) => setCommentDraft(e.target.value)}
+                      placeholder="Reply to your mentor…"
+                      maxLength={2000}
+                      rows={1}
+                      className="flex-1 bg-background border border-border rounded-lg px-3 py-2 text-xs resize-none focus:outline-none focus:ring-2 focus:ring-primary/20"
+                    />
+                    <Button variant="primary" size="sm" className="h-9 w-9 p-0 shrink-0" icon={Send} onClick={postReply} disabled={!commentDraft.trim() || isPostingComment} />
+                  </div>
+                  {commentPostError && <p className="text-[10px] text-rose-500">{commentPostError}</p>}
                 </div>
               </Card>
             </div>

@@ -644,6 +644,24 @@ export interface JournalEntry {
   };
 }
 
+// journals/{journalId}/mentorComments/{commentId} — a real two-way thread on
+// a journal entry (mentor feedback, student replies), not the fake
+// `.mentorComments` array field the UI used to read before nothing ever
+// wrote it. Append-only: no edit/delete for the author (see firestore.rules),
+// same immutability pattern as audit_logs.
+export interface MentorComment {
+  id: string;
+  authorId: string;
+  authorName: string;
+  // Rules-verified against the author's real users/{uid}.role at write time
+  // — a Student can't tag their own reply as if it came from their mentor.
+  // 'Admin' included since Admins can view/comment from Mentor Dashboard too
+  // (matching every other admin bypass in this app).
+  authorRole: 'Mentor' | 'Student' | 'Admin';
+  text: string;
+  createdAt: string; // ISO string once read back from Firestore's Timestamp
+}
+
 export interface ReconstructionStep {
   id: string;
   timestamp: string;

@@ -23,6 +23,17 @@ import {
   doc, getDoc, setDoc, updateDoc, deleteDoc,
 } from 'firebase/firestore';
 
+// A comment payload matching isValidMentorComment(), with one field overridable per-test.
+function commentPayload(overrides) {
+  return {
+    authorId: overrides.authorId,
+    authorName: overrides.authorName ?? 'Someone',
+    authorRole: overrides.authorRole,
+    text: overrides.text ?? 'Nice trade management today.',
+    createdAt: new Date(),
+  };
+}
+
 const PROJECT_ID = 'rules-test-' + Date.now();
 
 let passed = 0;
@@ -119,6 +130,56 @@ async function main() {
 
   await check('assigned mentor CANNOT read an unassigned student\'s journal', async () => {
     await assertFails(getDoc(doc(mentor, 'journals', 'journal-2')));
+  });
+
+  console.log('\njournals/{id}/mentorComments — the feedback loop\n');
+
+  await check('assigned mentor CAN post a comment on their student\'s journal', async () => {
+    await assertSucceeds(setDoc(
+      doc(mentor, 'journals', 'journal-1', 'mentorComments', 'c1'),
+      commentPayload({ authorId: MENTOR_UID, authorName: 'Mentor One', authorRole: 'Mentor' })
+    ));
+  });
+
+  await check('journal owner (student) CAN read a comment on their own journal', async () => {
+    await assertSucceeds(getDoc(doc(student, 'journals', 'journal-1', 'mentorComments', 'c1')));
+  });
+
+  await check('journal owner (student) CAN reply on their own journal', async () => {
+    await assertSucceeds(setDoc(
+      doc(student, 'journals', 'journal-1', 'mentorComments', 'c2'),
+      commentPayload({ authorId: STUDENT_UID, authorName: 'Student One', authorRole: 'Student' })
+    ));
+  });
+
+  await check('unassigned mentor CANNOT post a comment on an unassigned student\'s journal', async () => {
+    await assertFails(setDoc(
+      doc(mentor, 'journals', 'journal-2', 'mentorComments', 'c3'),
+      commentPayload({ authorId: MENTOR_UID, authorName: 'Mentor One', authorRole: 'Mentor' })
+    ));
+  });
+
+  await check('unassigned mentor CANNOT read comments on an unassigned student\'s journal', async () => {
+    await assertFails(getDoc(doc(mentor, 'journals', 'journal-2', 'mentorComments', 'c1')));
+  });
+
+  await check('a student CANNOT post a comment claiming to be their Mentor (role-spoofing)', async () => {
+    await assertFails(setDoc(
+      doc(student, 'journals', 'journal-1', 'mentorComments', 'c4'),
+      commentPayload({ authorId: STUDENT_UID, authorName: 'Student One', authorRole: 'Mentor' })
+    ));
+  });
+
+  await check('a comment\'s author CANNOT edit it after posting (append-only)', async () => {
+    await assertFails(updateDoc(doc(mentor, 'journals', 'journal-1', 'mentorComments', 'c1'), { text: 'Edited.' }));
+  });
+
+  await check('a comment\'s author CANNOT delete it', async () => {
+    await assertFails(deleteDoc(doc(mentor, 'journals', 'journal-1', 'mentorComments', 'c1')));
+  });
+
+  await check('Admin CAN delete a comment (moderation)', async () => {
+    await assertSucceeds(deleteDoc(doc(admin, 'journals', 'journal-1', 'mentorComments', 'c1')));
   });
 
   console.log('\nusers/{userId} — role & mentorId self-write protection\n');

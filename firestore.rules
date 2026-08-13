@@ -198,6 +198,15 @@ service cloud.firestore {
              (!('matchedTradeId' in data) || data.matchedTradeId is string);
     }
 
+    function isValidMentorComment(data) {
+      return data.authorId is string &&
+             data.authorName is string &&
+             data.authorRole in ['Mentor', 'Student', 'Admin'] &&
+             data.text is string &&
+             data.text.size() > 0 && data.text.size() <= 2000 &&
+             data.createdAt is timestamp;
+    }
+
     // Connection Test
     match /test/connection {
       allow read: if true;
@@ -335,6 +344,31 @@ service cloud.firestore {
       allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
       allow update: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
       allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+
+      // The mentor feedback loop: a real two-way thread on this entry
+      // between its owner and their assigned mentor. Append-only (no
+      // update — comments can't be edited after posting) and
+      // authorRole is checked against the writer's actual current role
+      // so a student can't post a reply tagged as if it came from their
+      // mentor.
+      match /mentorComments/{commentId} {
+        allow read: if isAuthenticated() && (
+          get(/databases/$(database)/documents/journals/$(journalId)).data.userId == request.auth.uid ||
+          isAdmin() ||
+          isAssignedMentor(get(/databases/$(database)/documents/journals/$(journalId)).data.userId)
+        );
+        allow create: if isAuthenticated() &&
+          request.resource.data.authorId == request.auth.uid &&
+          request.resource.data.authorRole == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role &&
+          isValidMentorComment(request.resource.data) &&
+          (
+            get(/databases/$(database)/documents/journals/$(journalId)).data.userId == request.auth.uid ||
+            isAssignedMentor(get(/databases/$(database)/documents/journals/$(journalId)).data.userId) ||
+            isAdmin()
+          );
+        allow update: if false;
+        allow delete: if isAdmin();
+      }
     }
 
     // Users & Permissions' real audit trail — admin-only in both

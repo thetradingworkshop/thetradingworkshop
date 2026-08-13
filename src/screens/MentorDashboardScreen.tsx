@@ -5,9 +5,10 @@ import { format, subDays, isWithinInterval } from 'date-fns';
 import { db } from '../firebase';
 import { SectionHeader, Card, Badge, Button, Modal, Table, TableHeader, TableRow, TableHead, TableCell } from '../components/Shared';
 import { stripHtml } from '../components/RichTextEditor';
-import { Users, TrendingUp, AlertCircle, FileText, User, CheckCircle2, Trophy, ArrowUpRight, ArrowDownRight, Target, BrainCircuit, ChevronRight, BarChart3, BookOpen, Loader2 } from 'lucide-react';
+import { Users, TrendingUp, AlertCircle, FileText, User, CheckCircle2, Trophy, ArrowUpRight, ArrowDownRight, Target, BrainCircuit, ChevronRight, BarChart3, BookOpen, Loader2, Send } from 'lucide-react';
 import { computeDisciplineScore, computeConsistencyScore } from '../services/analyticsService';
 import { useAuth } from '../context/AuthContext';
+import { useMentorComments, postMentorComment, fmtCommentTimestamp } from '../hooks/useMentorComments';
 import { Trade, JournalEntry } from '../types';
 
 // This screen used to genuinely query real students, then read
@@ -43,6 +44,73 @@ interface StudentRow {
 function fmtTradeDate(entryTime: string): string {
   const d = new Date(entryTime);
   return isNaN(d.getTime()) ? 'Unknown date' : format(d, 'MMM d, yyyy');
+}
+
+// Real two-way feedback thread on one journal entry — a mentor leaving
+// notes for their student, or the student replying on their own entry
+// (see JournalScreen.tsx, which uses the same useMentorComments hook).
+// Lives in its own component since it owns its own draft state per note
+// card; the data layer itself is shared, not reimplemented here.
+function NoteCommentThread({ journalId, authorId, authorName, authorRole }: {
+  journalId: string;
+  authorId: string;
+  authorName: string;
+  authorRole: 'Mentor' | 'Admin';
+}) {
+  const { comments } = useMentorComments(journalId);
+  const [draft, setDraft] = useState('');
+  const [posting, setPosting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const postComment = async () => {
+    if (!draft.trim()) return;
+    setPosting(true);
+    setError(null);
+    try {
+      await postMentorComment(journalId, { authorId, authorName, authorRole }, draft);
+      setDraft('');
+    } catch (err: any) {
+      console.error('Failed to post comment:', err);
+      setError("Couldn't post — you may not have permission.");
+    } finally {
+      setPosting(false);
+    }
+  };
+
+  return (
+    <div className="mt-3 pt-3 border-t border-border/40 space-y-2">
+      {comments === null ? (
+        <p className="text-[11px] text-muted-foreground italic">Loading comments…</p>
+      ) : comments.length > 0 && (
+        <div className="space-y-2">
+          {comments.map(c => (
+            <div key={c.id} className={cn(
+              "p-2.5 rounded-xl text-xs",
+              c.authorRole === 'Student' ? "bg-accent/40" : "bg-indigo-500/10 border border-indigo-500/20"
+            )}>
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <span className="font-bold text-foreground">{c.authorName}</span>
+                <span className="text-[10px] text-muted-foreground shrink-0 font-mono">{fmtCommentTimestamp(c.createdAt)}</span>
+              </div>
+              <p className="text-muted-foreground leading-relaxed whitespace-pre-wrap">{c.text}</p>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="flex items-end gap-2">
+        <textarea
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder="Leave feedback on this note…"
+          maxLength={2000}
+          rows={1}
+          className="flex-1 bg-background border border-border rounded-lg px-3 py-2 text-xs resize-none focus:outline-none focus:ring-2 focus:ring-primary/20"
+        />
+        <Button variant="primary" size="sm" className="h-9 w-9 p-0 shrink-0" icon={Send} onClick={postComment} disabled={!draft.trim() || posting} />
+      </div>
+      {error && <p className="text-[10px] text-rose-500">{error}</p>}
+    </div>
+  );
 }
 
 function buildStudentRow(base: { id: string; name?: string; email?: string; status?: string }, trades: Trade[]): StudentRow {
@@ -668,6 +736,14 @@ export default function MentorDashboardScreen() {
                         <div className="flex flex-wrap gap-1.5 mt-2">
                           {note.tags.map(tag => <Badge key={tag} variant="neutral" className="text-[9px]">{tag}</Badge>)}
                         </div>
+                      )}
+                      {user && (role === 'Mentor' || role === 'Admin') && (
+                        <NoteCommentThread
+                          journalId={note.id}
+                          authorId={user.uid}
+                          authorName={user.displayName || user.email || 'Mentor'}
+                          authorRole={role}
+                        />
                       )}
                     </div>
                   ))
