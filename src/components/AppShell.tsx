@@ -27,7 +27,12 @@ import { Sun, Moon, Bell, User } from 'lucide-react';
 import { Toast, Button } from './Shared';
 import { LogIntentModal } from './LogIntentModal';
 
-const navItems = [
+// Exported so App.tsx can enforce the same role list at the route level —
+// this list used to only ever filter the sidebar, which hid pages from the
+// nav but didn't stop activePage from rendering one directly if reached any
+// other way (e.g. a button elsewhere calling setActivePage on a page a
+// Viewer isn't supposed to see).
+export const navItems = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: ['Admin', 'Mentor', 'Student', 'Viewer'] },
   { id: 'connections', label: 'Broker Connections', icon: Zap, roles: ['Admin', 'Student'] },
   { id: 'import', label: 'Import Orders', icon: Upload, roles: ['Admin', 'Student'] },

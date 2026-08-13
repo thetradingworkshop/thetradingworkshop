@@ -67,6 +67,7 @@ async function main() {
   const OTHER_MENTOR_UID = 'mentor-2';
   const STUDENT_UID = 'student-1';       // assigned to MENTOR_UID
   const OTHER_STUDENT_UID = 'student-2'; // unassigned
+  const VIEWER_UID = 'viewer-1';
 
   await testEnv.withSecurityRulesDisabled(async (ctx) => {
     const db = ctx.firestore();
@@ -75,7 +76,10 @@ async function main() {
     await setDoc(doc(db, 'users', OTHER_MENTOR_UID), { role: 'Mentor', name: 'Mentor Two' });
     await setDoc(doc(db, 'users', STUDENT_UID), { role: 'Student', name: 'Student One', mentorId: MENTOR_UID });
     await setDoc(doc(db, 'users', OTHER_STUDENT_UID), { role: 'Student', name: 'Student Two' }); // no mentorId
+    await setDoc(doc(db, 'users', VIEWER_UID), { role: 'Viewer', name: 'Viewer One' });
 
+    await setDoc(doc(db, 'trades', 'viewer-trade-1'), { userId: VIEWER_UID, symbol: 'CL' });
+    await setDoc(doc(db, 'journals', 'viewer-journal-1'), { userId: VIEWER_UID, title: 'Old note' });
     await setDoc(doc(db, 'trades', 'trade-1'), { userId: STUDENT_UID, symbol: 'ES' });
     await setDoc(doc(db, 'trades', 'trade-2'), { userId: OTHER_STUDENT_UID, symbol: 'NQ' });
     await setDoc(doc(db, 'journals', 'journal-1'), { userId: STUDENT_UID, title: 'Note' });
@@ -87,6 +91,7 @@ async function main() {
   const otherMentor = testEnv.authenticatedContext(OTHER_MENTOR_UID).firestore();
   const student = testEnv.authenticatedContext(STUDENT_UID).firestore();
   const otherStudent = testEnv.authenticatedContext(OTHER_STUDENT_UID).firestore();
+  const viewer = testEnv.authenticatedContext(VIEWER_UID).firestore();
 
   console.log('\ntrades — mentor scoping\n');
 
@@ -180,6 +185,63 @@ async function main() {
 
   await check('Admin CAN delete a comment (moderation)', async () => {
     await assertSucceeds(deleteDoc(doc(admin, 'journals', 'journal-1', 'mentorComments', 'c1')));
+  });
+
+  console.log('\nViewer role — read-only enforcement (canWriteOwnData)\n');
+
+  await check('Viewer CAN read their own trade', async () => {
+    await assertSucceeds(getDoc(doc(viewer, 'trades', 'viewer-trade-1')));
+  });
+
+  await check('Viewer CANNOT create a trade', async () => {
+    await assertFails(setDoc(doc(viewer, 'trades', 'viewer-trade-new'), {
+      userId: VIEWER_UID, symbol: 'GC', sessionDate: '2026-01-01', direction: 'LONG',
+      entryTime: '2026-01-01T00:00:00Z', exitTime: '2026-01-01T01:00:00Z',
+      avgEntryPrice: 1, avgExitPrice: 1, pnlPoints: 0, pnlCurrency: 0, isWinner: false,
+      holdTimeSeconds: 60, totalQuantity: 1, dedupeHash: 'x', createdAt: new Date(), updatedAt: new Date(),
+      totalEntryValue: 1, totalExitValue: 1, realizedPnL: 0, maxPositionSize: 1,
+    }));
+  });
+
+  await check('Viewer CANNOT update their own trade', async () => {
+    await assertFails(updateDoc(doc(viewer, 'trades', 'viewer-trade-1'), { symbol: 'NG' }));
+  });
+
+  await check('Viewer CANNOT delete their own trade', async () => {
+    await assertFails(deleteDoc(doc(viewer, 'trades', 'viewer-trade-1')));
+  });
+
+  await check('Viewer CAN read their own journal', async () => {
+    await assertSucceeds(getDoc(doc(viewer, 'journals', 'viewer-journal-1')));
+  });
+
+  await check('Viewer CANNOT create a journal entry', async () => {
+    await assertFails(setDoc(doc(viewer, 'journals', 'viewer-journal-new'), { userId: VIEWER_UID, title: 'New' }));
+  });
+
+  await check('Viewer CANNOT update their own journal', async () => {
+    await assertFails(updateDoc(doc(viewer, 'journals', 'viewer-journal-1'), { title: 'Edited' }));
+  });
+
+  await check('Viewer CANNOT reply on their own journal (mentorComments)', async () => {
+    await assertFails(setDoc(
+      doc(viewer, 'journals', 'viewer-journal-1', 'mentorComments', 'v1'),
+      commentPayload({ authorId: VIEWER_UID, authorName: 'Viewer One', authorRole: 'Viewer' })
+    ));
+  });
+
+  await check('Viewer CANNOT create a strategy', async () => {
+    await assertFails(setDoc(doc(viewer, 'strategies', 'viewer-strategy-1'), {
+      userId: VIEWER_UID, name: 'Test', status: 'active', categories: [],
+    }));
+  });
+
+  await check('Viewer CAN still update their own name (unrelated field on users/{uid})', async () => {
+    await assertSucceeds(updateDoc(doc(viewer, 'users', VIEWER_UID), { name: 'Updated Viewer Name' }));
+  });
+
+  await check('Admin CAN still write a Viewer\'s data on their behalf', async () => {
+    await assertSucceeds(updateDoc(doc(admin, 'journals', 'viewer-journal-1'), { title: 'Admin edit' }));
   });
 
   console.log('\nusers/{userId} — role & mentorId self-write protection\n');

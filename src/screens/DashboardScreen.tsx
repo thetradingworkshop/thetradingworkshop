@@ -45,7 +45,7 @@ import { RuleBasedMentorService, RuleBasedInsight } from '../services/RuleBasedM
 import { RuleBasedMentor } from '../components/RuleBasedMentor';
 
 export default function DashboardScreen({ setActivePage }: { setActivePage?: (page: string) => void }) {
-  const { user } = useAuth();
+  const { user, role } = useAuth();
   // `trades` here is the globally-filtered set (used throughout this screen);
   // `allTrades` is the account's real, unfiltered trade list — used only to
   // detect a genuinely brand-new account (as opposed to an active account
@@ -356,8 +356,28 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
           (zero trades ever, regardless of filters/date range). Everything
           below this point renders as an honest all-zeros dashboard once
           real trades exist, so new users need a clear first step instead
-          of silently staring at a wall of $0.00. */}
+          of silently staring at a wall of $0.00.
+          Viewer is read-only (see firestore.rules' canWriteOwnData()) and
+          can't reach Connect Broker/Import Orders/Trades at all — pointing
+          them at three buttons that would just bounce back to this page
+          would be actively misleading, so they get a plain explanation
+          instead. */}
       {allTrades.length === 0 && (
+        role === 'Viewer' ? (
+          <Card className="p-8 border-2 border-border/60">
+            <div className="flex items-start gap-4">
+              <div className="p-3 bg-muted rounded-2xl shrink-0">
+                <Rocket className="w-6 h-6 text-muted-foreground" />
+              </div>
+              <div>
+                <h3 className="text-lg font-black tracking-tight text-foreground">No trade data yet</h3>
+                <p className="text-sm text-muted-foreground mt-1 max-w-md">
+                  This is a read-only view. Once trades are added to this account, they'll show up here automatically.
+                </p>
+              </div>
+            </div>
+          </Card>
+        ) : (
         <Card className="p-8 border-2 border-indigo-500/20 bg-gradient-to-br from-indigo-500/[0.06] to-transparent">
           <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
             <div className="flex items-start gap-4">
@@ -385,6 +405,7 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
             </div>
           </div>
         </Card>
+        )
       )}
 
       {/* Real Profitability — actual cash spent (evals/resets/subscriptions)

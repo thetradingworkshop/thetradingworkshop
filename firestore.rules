@@ -112,6 +112,19 @@ service cloud.firestore {
         get(/databases/$(database)/documents/users/$(ownerId)).data.get('mentorId', null) == request.auth.uid;
     }
 
+    // Viewer is meant to be genuinely read-only (per Users & Permissions'
+    // own Role Templates reference: "Access to personal trading data
+    // only") — before this, that was a label with nothing behind it; a
+    // Viewer-role account could write to every collection exactly like a
+    // Student. Added as one extra clause on each existing owner-write
+    // check below, not a restructure, so read access (the entire point of
+    // the role) is untouched.
+    function canWriteOwnData() {
+      return isAuthenticated() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role != 'Viewer';
+    }
+
     function isValidDiagnostics(data) {
       return data.pnlResult in ['WIN', 'LOSS', 'BREAKEVEN'] &&
              data.holdType in ['SCALP', 'INTRADAY', 'SWING'] &&
@@ -215,18 +228,18 @@ service cloud.firestore {
     // Broker Connections
     match /broker_connections/{connectionId} {
       allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
-      allow update: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid && canWriteOwnData();
+      allow update: if isAuthenticated() && ((resource.data.userId == request.auth.uid && canWriteOwnData()) || isAdmin());
+      allow delete: if isAuthenticated() && ((resource.data.userId == request.auth.uid && canWriteOwnData()) || isAdmin());
 
       match /accounts/{accountId} {
         allow read: if isAuthenticated() && (get(/databases/$(database)/documents/broker_connections/$(connectionId)).data.userId == request.auth.uid || isAdmin());
-        allow write: if isAuthenticated() && (get(/databases/$(database)/documents/broker_connections/$(connectionId)).data.userId == request.auth.uid || isAdmin());
+        allow write: if isAuthenticated() && ((get(/databases/$(database)/documents/broker_connections/$(connectionId)).data.userId == request.auth.uid && canWriteOwnData()) || isAdmin());
 
         match /transactions/{transactionId} {
           allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
-          allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
-          allow update, delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+          allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid && canWriteOwnData();
+          allow update, delete: if isAuthenticated() && ((resource.data.userId == request.auth.uid && canWriteOwnData()) || isAdmin());
         }
       }
     }
@@ -238,9 +251,9 @@ service cloud.firestore {
       // stay owner-or-Admin only (a mentor can't edit or delete a
       // student's trade record).
       allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin() || isAssignedMentor(resource.data.userId));
-      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid && isValidTrade(request.resource.data);
-      allow update: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin()) && isValidTrade(request.resource.data);
-      allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid && canWriteOwnData() && isValidTrade(request.resource.data);
+      allow update: if isAuthenticated() && ((resource.data.userId == request.auth.uid && canWriteOwnData()) || isAdmin()) && isValidTrade(request.resource.data);
+      allow delete: if isAuthenticated() && ((resource.data.userId == request.auth.uid && canWriteOwnData()) || isAdmin());
     }
 
     // Ingestion Events
@@ -282,33 +295,33 @@ service cloud.firestore {
     // Sessions
     match /sessions/{sessionId} {
       allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
-      allow update: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid && canWriteOwnData();
+      allow update: if isAuthenticated() && ((resource.data.userId == request.auth.uid && canWriteOwnData()) || isAdmin());
       allow delete: if isAdmin();
     }
 
     // Trade Reviews
     match /trade_reviews/{reviewId} {
       allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid && isValidTradeReview(request.resource.data);
-      allow update: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin()) && isValidTradeReview(request.resource.data);
-      allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid && canWriteOwnData() && isValidTradeReview(request.resource.data);
+      allow update: if isAuthenticated() && ((resource.data.userId == request.auth.uid && canWriteOwnData()) || isAdmin()) && isValidTradeReview(request.resource.data);
+      allow delete: if isAuthenticated() && ((resource.data.userId == request.auth.uid && canWriteOwnData()) || isAdmin());
     }
 
     // Tag Categories
     match /tagCategories/{categoryId} {
       allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid && isValidTagCategory(request.resource.data);
-      allow update: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin()) && isValidTagCategory(request.resource.data);
-      allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid && canWriteOwnData() && isValidTagCategory(request.resource.data);
+      allow update: if isAuthenticated() && ((resource.data.userId == request.auth.uid && canWriteOwnData()) || isAdmin()) && isValidTagCategory(request.resource.data);
+      allow delete: if isAuthenticated() && ((resource.data.userId == request.auth.uid && canWriteOwnData()) || isAdmin());
     }
 
     // Drawing Templates
     match /drawing_templates/{templateId} {
       allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid && isValidDrawingTemplate(request.resource.data);
-      allow update: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin()) && isValidDrawingTemplate(request.resource.data);
-      allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid && canWriteOwnData() && isValidDrawingTemplate(request.resource.data);
+      allow update: if isAuthenticated() && ((resource.data.userId == request.auth.uid && canWriteOwnData()) || isAdmin()) && isValidDrawingTemplate(request.resource.data);
+      allow delete: if isAuthenticated() && ((resource.data.userId == request.auth.uid && canWriteOwnData()) || isAdmin());
     }
 
     // Strategies
@@ -323,9 +336,9 @@ service cloud.firestore {
     //   - createdAt/updatedAt: string (required)
     match /strategies/{strategyId} {
       allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid && isValidStrategy(request.resource.data);
-      allow update: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin()) && isValidStrategy(request.resource.data);
-      allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid && canWriteOwnData() && isValidStrategy(request.resource.data);
+      allow update: if isAuthenticated() && ((resource.data.userId == request.auth.uid && canWriteOwnData()) || isAdmin()) && isValidStrategy(request.resource.data);
+      allow delete: if isAuthenticated() && ((resource.data.userId == request.auth.uid && canWriteOwnData()) || isAdmin());
     }
 
     // Day View "Review with AI" cache — same shape as ingestion_events:
@@ -340,18 +353,18 @@ service cloud.firestore {
     // Trade Intents
     match /trade_intents/{intentId} {
       allow read: if isAuthenticated() && (isDocOwner() || isAdmin());
-      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid && isValidTradeIntent(request.resource.data);
-      allow update: if isAuthenticated() && (isDocOwner() || isAdmin()) && isValidTradeIntent(request.resource.data);
-      allow delete: if isAuthenticated() && (isDocOwner() || isAdmin());
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid && canWriteOwnData() && isValidTradeIntent(request.resource.data);
+      allow update: if isAuthenticated() && ((isDocOwner() && canWriteOwnData()) || isAdmin()) && isValidTradeIntent(request.resource.data);
+      allow delete: if isAuthenticated() && ((isDocOwner() && canWriteOwnData()) || isAdmin());
     }
 
     // Journals
     match /journals/{journalId} {
       // Same read-only mentor access as trades — see isAssignedMentor().
       allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin() || isAssignedMentor(resource.data.userId));
-      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
-      allow update: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid && canWriteOwnData();
+      allow update: if isAuthenticated() && ((resource.data.userId == request.auth.uid && canWriteOwnData()) || isAdmin());
+      allow delete: if isAuthenticated() && ((resource.data.userId == request.auth.uid && canWriteOwnData()) || isAdmin());
 
       // The mentor feedback loop: a real two-way thread on this entry
       // between its owner and their assigned mentor. Append-only (no
@@ -368,6 +381,7 @@ service cloud.firestore {
         allow create: if isAuthenticated() &&
           request.resource.data.authorId == request.auth.uid &&
           request.resource.data.authorRole == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role &&
+          canWriteOwnData() &&
           isValidMentorComment(request.resource.data) &&
           (
             get(/databases/$(database)/documents/journals/$(journalId)).data.userId == request.auth.uid ||

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { ThemeProvider } from './components/ThemeProvider';
 import { TradeProvider } from './context/TradeContext';
-import { AppShell } from './components/AppShell';
+import { AppShell, navItems } from './components/AppShell';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import DashboardScreen from './screens/DashboardScreen';
 import ImportOrdersScreen from './screens/ImportOrdersScreen';
@@ -69,8 +69,18 @@ function AppContent() {
     );
   }
 
+  // AppShell's sidebar already hides pages a role can't see, but hiding a
+  // nav link isn't the same as enforcing the boundary — anything else that
+  // calls setActivePage with a page id outside the current role's list
+  // (e.g. a Viewer somehow reaching Dashboard's "Add Trade Manually"
+  // button, which navigates to 'trades') would previously have rendered it
+  // anyway. Falls back to Dashboard, same as an unrecognized page id would.
+  const activeNavItem = navItems.find(item => item.id === activePage);
+  const isPageAllowed = !activeNavItem || activeNavItem.roles.includes(userRole);
+  const effectivePage = isPageAllowed ? activePage : 'dashboard';
+
   const renderScreen = () => {
-    switch (activePage) {
+    switch (effectivePage) {
       case 'dashboard':
         return <DashboardScreen setActivePage={setActivePage} />;
       case 'import':
@@ -106,11 +116,11 @@ function AppContent() {
 
   return (
     <AppShell
-      activePage={activePage}
+      activePage={effectivePage}
       setActivePage={setActivePage}
       userRole={userRole}
     >
-      <ErrorBoundary resetKey={activePage}>
+      <ErrorBoundary resetKey={effectivePage}>
         {renderScreen()}
       </ErrorBoundary>
     </AppShell>
