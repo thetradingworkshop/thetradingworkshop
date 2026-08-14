@@ -7,6 +7,30 @@
         { "fieldPath": "role", "order": "ASCENDING" },
         { "fieldPath": "mentorId", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "journals",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "userId", "order": "ASCENDING" },
+        { "fieldPath": "date", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "reports",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "userId", "order": "ASCENDING" },
+        { "fieldPath": "week", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "trade_intents",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "userId", "order": "ASCENDING" },
+        { "fieldPath": "confirmedAt", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": [
@@ -24,6 +48,14 @@
     { "collectionGroup": "sessions", "fieldPath": "whatWentWell", "indexes": [] },
     { "collectionGroup": "sessions", "fieldPath": "whatHurt", "indexes": [] },
     { "collectionGroup": "sessions", "fieldPath": "correctiveAction", "indexes": [] },
-    { "collectionGroup": "mentorComments", "fieldPath": "text", "indexes": [] }
+    { "collectionGroup": "mentorComments", "fieldPath": "text", "indexes": [] },
+    {
+      "collectionGroup": "transactions",
+      "fieldPath": "userId",
+      "indexes": [
+        { "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" },
+        { "order": "DESCENDING", "queryScope": "COLLECTION_GROUP" }
+      ]
+    }
   ]
 }
