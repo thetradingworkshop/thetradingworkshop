@@ -9,5 +9,21 @@
       ]
     }
   ],
-  "fieldOverrides": []
+  "fieldOverrides": [
+    { "collectionGroup": "journals", "fieldPath": "content", "indexes": [] },
+    { "collectionGroup": "trades", "fieldPath": "verdict", "indexes": [] },
+    { "collectionGroup": "trades", "fieldPath": "lessonLearned", "indexes": [] },
+    { "collectionGroup": "trades", "fieldPath": "attachments", "indexes": [] },
+    { "collectionGroup": "trades", "fieldPath": "diagnostics.dataInsight", "indexes": [] },
+    { "collectionGroup": "trade_reviews", "fieldPath": "verdict", "indexes": [] },
+    { "collectionGroup": "trade_reviews", "fieldPath": "lessonLearned", "indexes": [] },
+    { "collectionGroup": "trade_reviews", "fieldPath": "attachments", "indexes": [] },
+    { "collectionGroup": "sessions", "fieldPath": "notes", "indexes": [] },
+    { "collectionGroup": "sessions", "fieldPath": "premarketPlan", "indexes": [] },
+    { "collectionGroup": "sessions", "fieldPath": "sessionNotes", "indexes": [] },
+    { "collectionGroup": "sessions", "fieldPath": "whatWentWell", "indexes": [] },
+    { "collectionGroup": "sessions", "fieldPath": "whatHurt", "indexes": [] },
+    { "collectionGroup": "sessions", "fieldPath": "correctiveAction", "indexes": [] },
+    { "collectionGroup": "mentorComments", "fieldPath": "text", "indexes": [] }
+  ]
 }
