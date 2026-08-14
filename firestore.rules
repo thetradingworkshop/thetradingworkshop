@@ -401,7 +401,12 @@ service cloud.firestore {
 
     // Trade Reviews
     match /trade_reviews/{reviewId} {
-      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      // Read-only mentor access mirrors trades/journals/strategies — needed
+      // for fields that only ever live here and are never mirrored onto
+      // the trade doc itself (attachments is the one saveReview() doesn't
+      // copy over), so the Mentor Dashboard's trade detail view (readOnly
+      // TradePerformanceLog) can show them too.
+      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin() || isAssignedMentor(resource.data.userId));
       allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid && canWriteOwnData() && isValidTradeReview(request.resource.data);
       allow update: if isAuthenticated() && ((resource.data.userId == request.auth.uid && canWriteOwnData()) || isAdmin()) && isValidTradeReview(request.resource.data);
       allow delete: if isAuthenticated() && ((resource.data.userId == request.auth.uid && canWriteOwnData()) || isAdmin());

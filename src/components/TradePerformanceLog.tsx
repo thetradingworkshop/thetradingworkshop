@@ -29,7 +29,7 @@ import {
   Rocket,
   ChevronDown
 } from 'lucide-react';
-import { Trade, TradeReview, TagCategory, Strategy } from '../types';
+import { Trade, TradeReview, TagCategory, Strategy, JournalEntry } from '../types';
 import { doc, getDoc, getDocs, addDoc, setDoc, serverTimestamp, collection, query, where, onSnapshot, deleteField, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../context/AuthContext';
@@ -41,13 +41,28 @@ import { RunningPnlChart } from './RunningPnlChart';
 import { RichTextEditor, stripHtml, isContentEmpty } from './RichTextEditor';
 import { TradeAttachments } from './TradeAttachments';
 import { LinkTradeModal } from './LinkTradeModal';
+import { NoteCommentThread } from './NoteCommentThread';
 import { useMarketBars } from '../hooks/useMarketBars';
 import { getPointValue } from '../contractSpecs';
+import { MessageCircle } from 'lucide-react';
 
 interface TradePerformanceLogProps {
   trades: Trade[];
   title?: string;
   subtitle?: string;
+  // Read-only viewer mode — for a Mentor/Admin reviewing a STUDENT's
+  // trades, not their own. Every write path (Save Review, autosave, Mark
+  // as Reviewed, delete, link, strategy assign/checklist, tags, sliders,
+  // star rating) is disabled rather than left reachable-but-failing —
+  // firestore.rules already makes the underlying writes fail for a real
+  // (non-Admin) Mentor, since a student's trades/trade_reviews/strategies/
+  // tagCategories docs aren't theirs to write. Instead of that failing
+  // silently (or loudly) per click, the UI itself never offers the action.
+  // `ownerId` is the trade owner's uid — needed because subscribeStrategies/
+  // tagCategories are otherwise scoped to the *viewer's* own uid, which
+  // would show the mentor's own playbooks/tags instead of the student's.
+  readOnly?: boolean;
+  ownerId?: string;
 }
 
 // Maximum Adverse/Favorable Excursion — the worst and best unrealized price
@@ -120,10 +135,14 @@ function EditableStatRow({
   );
 }
 
-export function TradePerformanceLog({ trades, title, subtitle }: TradePerformanceLogProps) {
-  const { user } = useAuth();
+export function TradePerformanceLog({ trades, title, subtitle, readOnly, ownerId }: TradePerformanceLogProps) {
+  const { user, role } = useAuth();
   const { deleteTrades, tradeIdToOpen, setTradeIdToOpen } = useTrades();
   const [searchQuery, setSearchQuery] = useState('');
+  // Whose strategy/tag library to read — the trade OWNER's in readOnly
+  // mode (ownerId, a mentor reviewing a student), otherwise the viewer's
+  // own uid, same as always.
+  const libraryOwnerId = readOnly ? ownerId : user?.uid;
   // The user's whole strategy library, for the Strategy tab's
   // pick-a-strategy list and for looking up the name/categories/rules of
   // whichever one a selected trade is tagged with. Kept live (not
@@ -131,9 +150,9 @@ export function TradePerformanceLog({ trades, title, subtitle }: TradePerformanc
   // this drawer is open should immediately show its new rule text here.
   const [strategies, setStrategies] = useState<Strategy[]>([]);
   useEffect(() => {
-    if (!user) return;
-    return subscribeStrategies(user.uid, setStrategies);
-  }, [user]);
+    if (!libraryOwnerId) return;
+    return subscribeStrategies(libraryOwnerId, setStrategies);
+  }, [libraryOwnerId]);
   // Holds only the id, not a snapshot of the trade object — deriving
   // selectedTrade from the live `trades` prop below means it automatically
   // reflects Firestore updates (e.g. right after saveReview writes new
@@ -169,8 +188,39 @@ export function TradePerformanceLog({ trades, title, subtitle }: TradePerformanc
   const [leftTab, setLeftTab] = useState<'stats' | 'strategy' | 'executions' | 'attachments'>('stats');
   const [rightTab, setRightTab] = useState<'chart' | 'notes' | 'pnl'>('chart');
 
+  // readOnly-only: a mentor leaving feedback on whichever journal note is
+  // linked to the currently open trade (same userId+tradeId query the rest
+  // of the app uses to find/sync a trade's note). Fetched lazily — only
+  // while the modal is open — rather than for every trade in the table.
+  const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+  const [feedbackNote, setFeedbackNote] = useState<JournalEntry[] | null>(null);
+  const [feedbackNoteLoading, setFeedbackNoteLoading] = useState(false);
+  const [previewAttachment, setPreviewAttachment] = useState<string | null>(null);
   useEffect(() => {
-    if (!user) return;
+    if (!showFeedbackModal || !selectedTrade || !ownerId) { setFeedbackNote(null); return; }
+    setFeedbackNoteLoading(true);
+    const unsubscribe = onSnapshot(
+      query(collection(db, 'journals'), where('userId', '==', ownerId), where('tradeId', '==', selectedTrade.id)),
+      (snapshot) => {
+        setFeedbackNote(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as JournalEntry)));
+        setFeedbackNoteLoading(false);
+      },
+      (error) => {
+        console.error('Failed to load trade note for feedback:', error);
+        setFeedbackNote([]);
+        setFeedbackNoteLoading(false);
+      }
+    );
+    return () => unsubscribe();
+  }, [showFeedbackModal, selectedTrade?.id, ownerId]);
+
+  // Not fetched at all in readOnly mode — the Tags picker itself (which is
+  // what this feeds) isn't rendered there, tags show as plain badges off
+  // the trade doc instead. tagCategories has no mentor-read grant in
+  // firestore.rules (only owner/Admin), so this would 403 for a real
+  // Mentor anyway if it tried to read the student's categories.
+  useEffect(() => {
+    if (!user || readOnly) return;
     const unsubscribe = onSnapshot(
       query(collection(db, 'tagCategories'), where('userId', '==', user.uid)),
       (snapshot) => {
@@ -181,7 +231,7 @@ export function TradePerformanceLog({ trades, title, subtitle }: TradePerformanc
       }
     );
     return () => unsubscribe();
-  }, [user]);
+  }, [user, readOnly]);
 
   // Review State
   const [review, setReview] = useState<Partial<TradeReview>>({
@@ -244,16 +294,17 @@ export function TradePerformanceLog({ trades, title, subtitle }: TradePerformanc
 
   const requestDeleteOne = (id: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
+    if (readOnly) return;
     setPendingDeleteIds([id]);
   };
 
   const requestDeleteSelected = () => {
-    if (selectedIds.size === 0) return;
+    if (readOnly || selectedIds.size === 0) return;
     setPendingDeleteIds(Array.from(selectedIds));
   };
 
   const confirmDelete = async () => {
-    if (!pendingDeleteIds || pendingDeleteIds.length === 0) return;
+    if (readOnly || !pendingDeleteIds || pendingDeleteIds.length === 0) return;
     setIsDeleting(true);
     try {
       await deleteTrades(pendingDeleteIds);
@@ -286,8 +337,12 @@ export function TradePerformanceLog({ trades, title, subtitle }: TradePerformanc
     const loadReview = async () => {
       setIsLoadingReview(true);
       try {
-        const reviewRef = doc(db, 'trade_reviews', selectedTrade.id);
-        const reviewSnap = await getDoc(reviewRef);
+        // trade_reviews grants read to the owner, Admin, or (like trades/
+        // journals/strategies) the student's assigned mentor — needed here
+        // specifically for `attachments`, the one review field saveReview()
+        // never mirrors onto the trade doc itself, so the fallback below
+        // can't stand in for it the way it can for every other field.
+        const reviewSnap = await getDoc(doc(db, 'trade_reviews', selectedTrade.id));
         if (reviewSnap.exists()) {
           setReview(reviewSnap.data() as TradeReview);
         } else {
@@ -334,6 +389,7 @@ export function TradePerformanceLog({ trades, title, subtitle }: TradePerformanc
     if (selectedTrade) {
       setLeftTab('stats');
       setRightTab('chart');
+      setShowFeedbackModal(false);
     }
   }, [selectedTrade?.id]);
 
@@ -373,7 +429,7 @@ export function TradePerformanceLog({ trades, title, subtitle }: TradePerformanc
   };
 
   const saveReview = async (silent: boolean = false) => {
-    if (!selectedTrade || !user) return;
+    if (readOnly || !selectedTrade || !user) return;
     setIsSavingReview(true);
     try {
       const reviewRef = doc(db, 'trade_reviews', selectedTrade.id);
@@ -434,7 +490,7 @@ export function TradePerformanceLog({ trades, title, subtitle }: TradePerformanc
   }, [selectedTrade?.id]);
 
   useEffect(() => {
-    if (isLoadingReview) return;
+    if (readOnly || isLoadingReview) return;
     if (skipNextAutoSaveRef.current) {
       skipNextAutoSaveRef.current = false;
       return;
@@ -452,7 +508,7 @@ export function TradePerformanceLog({ trades, title, subtitle }: TradePerformanc
   // trades/trade_reviews write shape so the merged fields behave identically
   // to a normal save on the target trade.
   const handleLinkTrade = async (targetTradeId: string) => {
-    if (!selectedTrade || !user) return;
+    if (readOnly || !selectedTrade || !user) return;
     const sourceTrade = selectedTrade;
     try {
       const sourceReviewSnap = await getDoc(doc(db, 'trade_reviews', sourceTrade.id));
@@ -516,7 +572,7 @@ export function TradePerformanceLog({ trades, title, subtitle }: TradePerformanc
   // and clobber this back on its next Save Review). A value of undefined/''
   // deletes the field rather than leaving a stale one behind.
   const updateTradeFields = async (fields: Record<string, any>) => {
-    if (!selectedTrade || !user) return;
+    if (readOnly || !selectedTrade || !user) return;
     const cleaned: Record<string, any> = {};
     for (const [key, value] of Object.entries(fields)) {
       cleaned[key] = (value === undefined || value === '') ? deleteField() : value;
@@ -557,7 +613,7 @@ export function TradePerformanceLog({ trades, title, subtitle }: TradePerformanc
   // stale state underneath.
   const toggleRowReviewed = async (trade: Trade, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!user) return;
+    if (readOnly || !user) return;
     const reviewed = !trade.reviewed;
     try {
       const tradeRef = doc(db, 'trades', trade.id);
@@ -573,6 +629,7 @@ export function TradePerformanceLog({ trades, title, subtitle }: TradePerformanc
   };
 
   const handleFlagToggle = (flag: string) => {
+    if (readOnly) return;
     setReview(prev => {
       const flags = prev.behaviorFlags || [];
       if (flags.includes(flag)) {
@@ -589,6 +646,35 @@ export function TradePerformanceLog({ trades, title, subtitle }: TradePerformanc
   const renderNotesEditors = () => {
     if (!selectedTrade) return null;
     if (isLoadingReview) return <p className="text-xs text-muted-foreground italic">Loading notes...</p>;
+    if (readOnly) {
+      const hasVerdict = !isContentEmpty(review.verdict);
+      const hasLesson = !isContentEmpty(review.lessonLearned);
+      if (!hasVerdict && !hasLesson) {
+        return <p className="text-xs text-muted-foreground italic">No verdict or lesson recorded on this trade.</p>;
+      }
+      return (
+        <>
+          {hasVerdict && (
+            <div className="space-y-2">
+              <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Verdict / Summary</label>
+              <div
+                className="text-sm text-muted-foreground leading-relaxed prose-sm max-w-none [&_img]:rounded-lg [&_img]:my-2 [&_img]:max-w-full"
+                dangerouslySetInnerHTML={{ __html: review.verdict || '' }}
+              />
+            </div>
+          )}
+          {hasLesson && (
+            <div className="space-y-2">
+              <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Lesson Learned</label>
+              <div
+                className="text-sm text-muted-foreground leading-relaxed prose-sm max-w-none [&_img]:rounded-lg [&_img]:my-2 [&_img]:max-w-full"
+                dangerouslySetInnerHTML={{ __html: review.lessonLearned || '' }}
+              />
+            </div>
+          )}
+        </>
+      );
+    }
     return (
       <>
         <div className="space-y-2">
@@ -677,14 +763,16 @@ export function TradePerformanceLog({ trades, title, subtitle }: TradePerformanc
             <thead>
               <tr className="bg-accent/5 border-b border-border">
                 <th className="w-10 px-4 py-3">
-                  <input
-                    type="checkbox"
-                    className="w-4 h-4 rounded border-border accent-primary cursor-pointer"
-                    checked={isAllSelected}
-                    ref={(el) => { if (el) el.indeterminate = isSomeSelected; }}
-                    onChange={toggleSelectAll}
-                    aria-label="Select all trades"
-                  />
+                  {!readOnly && (
+                    <input
+                      type="checkbox"
+                      className="w-4 h-4 rounded border-border accent-primary cursor-pointer"
+                      checked={isAllSelected}
+                      ref={(el) => { if (el) el.indeterminate = isSomeSelected; }}
+                      onChange={toggleSelectAll}
+                      aria-label="Select all trades"
+                    />
+                  )}
                 </th>
                 <th className="text-left px-4 py-3 font-bold text-[10px] uppercase tracking-widest text-muted-foreground">
                   <div className="flex items-center space-x-2">
@@ -716,13 +804,15 @@ export function TradePerformanceLog({ trades, title, subtitle }: TradePerformanc
                   onClick={() => setSelectedId(trade.id)}
                 >
                   <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                    <input
-                      type="checkbox"
-                      className="w-4 h-4 rounded border-border accent-primary cursor-pointer"
-                      checked={selectedIds.has(trade.id)}
-                      onChange={() => toggleSelectOne(trade.id)}
-                      aria-label={`Select trade ${trade.id}`}
-                    />
+                    {!readOnly && (
+                      <input
+                        type="checkbox"
+                        className="w-4 h-4 rounded border-border accent-primary cursor-pointer"
+                        checked={selectedIds.has(trade.id)}
+                        onChange={() => toggleSelectOne(trade.id)}
+                        aria-label={`Select trade ${trade.id}`}
+                      />
+                    )}
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex flex-col">
@@ -773,25 +863,28 @@ export function TradePerformanceLog({ trades, title, subtitle }: TradePerformanc
                   <td className="px-4 py-3 text-center">
                     <button
                       onClick={(e) => toggleRowReviewed(trade, e)}
-                      className="mx-auto flex items-center justify-center rounded-full p-1 -m-1 transition-colors hover:bg-accent"
+                      disabled={readOnly}
+                      className="mx-auto flex items-center justify-center rounded-full p-1 -m-1 transition-colors enabled:hover:bg-accent disabled:cursor-default"
                       aria-label={trade.reviewed ? "Mark as not reviewed" : "Mark as reviewed"}
-                      title={trade.reviewed ? "Reviewed — click to unmark" : "Mark as reviewed"}
+                      title={trade.reviewed ? "Reviewed" + (readOnly ? "" : " — click to unmark") : (readOnly ? "Not reviewed" : "Mark as reviewed")}
                     >
                       {trade.reviewed ? (
                         <CheckCircle2 className="w-4 h-4 text-emerald-500" />
                       ) : (
-                        <Circle className="w-4 h-4 text-muted-foreground/30 hover:text-muted-foreground/60" />
+                        <Circle className={cn("w-4 h-4 text-muted-foreground/30", !readOnly && "hover:text-muted-foreground/60")} />
                       )}
                     </button>
                   </td>
                   <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                    <button
-                      onClick={(e) => requestDeleteOne(trade.id, e)}
-                      className="p-2 rounded-lg text-muted-foreground hover:text-rose-600 hover:bg-rose-500/10 transition-colors"
-                      aria-label="Delete trade"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    {!readOnly && (
+                      <button
+                        onClick={(e) => requestDeleteOne(trade.id, e)}
+                        className="p-2 rounded-lg text-muted-foreground hover:text-rose-600 hover:bg-rose-500/10 transition-colors"
+                        aria-label="Delete trade"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-right">
                     <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-foreground transition-colors ml-auto" />
@@ -827,37 +920,57 @@ export function TradePerformanceLog({ trades, title, subtitle }: TradePerformanc
                 <p className="text-sm text-muted-foreground">Reconstructed from {selectedTrade.fills.length} execution fills</p>
               </div>
               <div className="flex items-center gap-2">
-                <button
-                  onClick={() => updateTradeFields({ reviewed: !selectedTrade.reviewed })}
-                  className={cn(
-                    "flex items-center gap-2 px-3 py-2 rounded-full text-xs font-bold transition-colors",
-                    selectedTrade.reviewed
-                      ? "bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20"
-                      : "text-muted-foreground hover:bg-accent hover:text-foreground"
-                  )}
-                  aria-label={selectedTrade.reviewed ? "Mark as not reviewed" : "Mark as reviewed"}
-                  title={selectedTrade.reviewed ? "Reviewed" : "Mark as Reviewed"}
-                >
-                  <CheckCircle2 className="w-5 h-5" />
-                  <span>{selectedTrade.reviewed ? "Reviewed" : "Mark as Reviewed"}</span>
-                </button>
-                {selectedTrade.isManualEntry && (
-                  <button
-                    onClick={() => setIsLinkModalOpen(true)}
-                    className="p-2 hover:bg-primary/10 text-muted-foreground hover:text-primary rounded-full transition-colors"
-                    aria-label="Link to imported trade"
-                    title="Link to imported trade"
-                  >
-                    <Link2 className="w-5 h-5" />
-                  </button>
+                {readOnly ? (
+                  <>
+                    {selectedTrade.reviewed && (
+                      <span className="flex items-center gap-2 px-3 py-2 rounded-full text-xs font-bold bg-emerald-500/10 text-emerald-500">
+                        <CheckCircle2 className="w-5 h-5" />
+                        <span>Reviewed</span>
+                      </span>
+                    )}
+                    <button
+                      onClick={() => setShowFeedbackModal(true)}
+                      className="flex items-center gap-2 px-3 py-2 rounded-full text-xs font-bold text-primary hover:bg-primary/10 transition-colors"
+                    >
+                      <MessageCircle className="w-5 h-5" />
+                      <span>Leave Feedback</span>
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => updateTradeFields({ reviewed: !selectedTrade.reviewed })}
+                      className={cn(
+                        "flex items-center gap-2 px-3 py-2 rounded-full text-xs font-bold transition-colors",
+                        selectedTrade.reviewed
+                          ? "bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20"
+                          : "text-muted-foreground hover:bg-accent hover:text-foreground"
+                      )}
+                      aria-label={selectedTrade.reviewed ? "Mark as not reviewed" : "Mark as reviewed"}
+                      title={selectedTrade.reviewed ? "Reviewed" : "Mark as Reviewed"}
+                    >
+                      <CheckCircle2 className="w-5 h-5" />
+                      <span>{selectedTrade.reviewed ? "Reviewed" : "Mark as Reviewed"}</span>
+                    </button>
+                    {selectedTrade.isManualEntry && (
+                      <button
+                        onClick={() => setIsLinkModalOpen(true)}
+                        className="p-2 hover:bg-primary/10 text-muted-foreground hover:text-primary rounded-full transition-colors"
+                        aria-label="Link to imported trade"
+                        title="Link to imported trade"
+                      >
+                        <Link2 className="w-5 h-5" />
+                      </button>
+                    )}
+                    <button
+                      onClick={(e) => requestDeleteOne(selectedTrade.id, e)}
+                      className="p-2 hover:bg-rose-500/10 text-muted-foreground hover:text-rose-600 rounded-full transition-colors"
+                      aria-label="Delete trade"
+                    >
+                      <Trash2 className="w-5 h-5" />
+                    </button>
+                  </>
                 )}
-                <button
-                  onClick={(e) => requestDeleteOne(selectedTrade.id, e)}
-                  className="p-2 hover:bg-rose-500/10 text-muted-foreground hover:text-rose-600 rounded-full transition-colors"
-                  aria-label="Delete trade"
-                >
-                  <Trash2 className="w-5 h-5" />
-                </button>
                 <button
                   onClick={() => setSelectedId(null)}
                   className="p-2 hover:bg-accent rounded-full transition-colors"
@@ -970,13 +1083,17 @@ export function TradePerformanceLog({ trades, title, subtitle }: TradePerformanc
                               </span>
                             </StatRow>
                           )}
-                          <EditableStatRow
-                            key={`strategy-${selectedTrade.id}`}
-                            label="Strategy"
-                            defaultValue={selectedTrade.strategy || ''}
-                            placeholder="e.g. ORB Breakout"
-                            onCommit={(value) => updateTradeFields({ strategy: value })}
-                          />
+                          {readOnly ? (
+                            <StatRow label="Strategy">{selectedTrade.strategy || '—'}</StatRow>
+                          ) : (
+                            <EditableStatRow
+                              key={`strategy-${selectedTrade.id}`}
+                              label="Strategy"
+                              defaultValue={selectedTrade.strategy || ''}
+                              placeholder="e.g. ORB Breakout"
+                              onCommit={(value) => updateTradeFields({ strategy: value })}
+                            />
+                          )}
                         </div>
 
                         {typeof selectedTrade.executionQuality === 'number' && (() => {
@@ -1031,7 +1148,7 @@ export function TradePerformanceLog({ trades, title, subtitle }: TradePerformanc
                                 <button
                                   key={n}
                                   type="button"
-                                  disabled={isUpdatingRating}
+                                  disabled={isUpdatingRating || readOnly}
                                   onClick={() => updateStarRating(n)}
                                   className={cn(
                                     "text-4xl leading-none transition-colors disabled:opacity-50",
@@ -1043,24 +1160,36 @@ export function TradePerformanceLog({ trades, title, subtitle }: TradePerformanc
                               ))}
                             </div>
                           </StatRow>
-                          <EditableStatRow
-                            key={`target-${selectedTrade.id}`}
-                            label="Initial Target" type="number"
-                            defaultValue={selectedTrade.initialTarget?.toString() ?? ''}
-                            onCommit={(value) => updateTradeFields({ initialTarget: value === '' ? undefined : parseFloat(value) })}
-                          />
-                          <EditableStatRow
-                            key={`risk-${selectedTrade.id}`}
-                            label="Trade Risk" type="number"
-                            defaultValue={selectedTrade.tradeRisk?.toString() ?? ''}
-                            onCommit={(value) => updateTradeFields({ tradeRisk: value === '' ? undefined : parseFloat(value) })}
-                          />
-                          <EditableStatRow
-                            key={`plannedR-${selectedTrade.id}`}
-                            label="Planned R Multiple" type="number"
-                            defaultValue={selectedTrade.plannedRMultiple?.toString() ?? ''}
-                            onCommit={(value) => updateTradeFields({ plannedRMultiple: value === '' ? undefined : parseFloat(value) })}
-                          />
+                          {readOnly ? (
+                            <StatRow label="Initial Target">{selectedTrade.initialTarget?.toString() ?? '—'}</StatRow>
+                          ) : (
+                            <EditableStatRow
+                              key={`target-${selectedTrade.id}`}
+                              label="Initial Target" type="number"
+                              defaultValue={selectedTrade.initialTarget?.toString() ?? ''}
+                              onCommit={(value) => updateTradeFields({ initialTarget: value === '' ? undefined : parseFloat(value) })}
+                            />
+                          )}
+                          {readOnly ? (
+                            <StatRow label="Trade Risk">{selectedTrade.tradeRisk?.toString() ?? '—'}</StatRow>
+                          ) : (
+                            <EditableStatRow
+                              key={`risk-${selectedTrade.id}`}
+                              label="Trade Risk" type="number"
+                              defaultValue={selectedTrade.tradeRisk?.toString() ?? ''}
+                              onCommit={(value) => updateTradeFields({ tradeRisk: value === '' ? undefined : parseFloat(value) })}
+                            />
+                          )}
+                          {readOnly ? (
+                            <StatRow label="Planned R Multiple">{selectedTrade.plannedRMultiple?.toString() ?? '—'}</StatRow>
+                          ) : (
+                            <EditableStatRow
+                              key={`plannedR-${selectedTrade.id}`}
+                              label="Planned R Multiple" type="number"
+                              defaultValue={selectedTrade.plannedRMultiple?.toString() ?? ''}
+                              onCommit={(value) => updateTradeFields({ plannedRMultiple: value === '' ? undefined : parseFloat(value) })}
+                            />
+                          )}
                           <StatRow label="Realized R Multiple">
                             {(() => {
                               if (typeof selectedTrade.tradeRisk !== 'number') return '--';
@@ -1077,13 +1206,17 @@ export function TradePerformanceLog({ trades, title, subtitle }: TradePerformanc
                           <StatRow label="Best Exit Price">
                             {excursion ? excursion.bestExitPrice.toFixed(2) : 'Not available'}
                           </StatRow>
-                          <EditableStatRow
-                            key={`bestExitTime-${selectedTrade.id}`}
-                            label="Best Exit Time"
-                            defaultValue={selectedTrade.bestExitTime || ''}
-                            placeholder="e.g. 14:20:00"
-                            onCommit={(value) => updateTradeFields({ bestExitTime: value })}
-                          />
+                          {readOnly ? (
+                            <StatRow label="Best Exit Time">{selectedTrade.bestExitTime || '—'}</StatRow>
+                          ) : (
+                            <EditableStatRow
+                              key={`bestExitTime-${selectedTrade.id}`}
+                              label="Best Exit Time"
+                              defaultValue={selectedTrade.bestExitTime || ''}
+                              placeholder="e.g. 14:20:00"
+                              onCommit={(value) => updateTradeFields({ bestExitTime: value })}
+                            />
+                          )}
                           <StatRow label="Entry Price">{selectedTrade.avgEntryPrice.toFixed(2)}</StatRow>
                           <StatRow label="Exit Price">{selectedTrade.avgExitPrice.toFixed(2)}</StatRow>
                         </div>
@@ -1108,22 +1241,34 @@ export function TradePerformanceLog({ trades, title, subtitle }: TradePerformanc
 
                           <div className="space-y-2">
                             <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Behavior Flags</label>
-                            <div className="flex flex-wrap gap-2">
-                              {['FOMO', 'Revenge', 'Early Exit', 'Late Entry', 'Over-sized'].map(flag => (
-                                <button
-                                  key={flag}
-                                  onClick={() => handleFlagToggle(flag)}
-                                  className={cn(
-                                    "px-3 py-1.5 rounded-lg text-[10px] font-bold border transition-all",
-                                    review.behaviorFlags?.includes(flag)
-                                      ? "bg-rose-500 text-white border-rose-500"
-                                      : "bg-accent/30 border-border hover:border-rose-500/30"
-                                  )}
-                                >
-                                  {flag}
-                                </button>
-                              ))}
-                            </div>
+                            {readOnly ? (
+                              (review.behaviorFlags?.length ?? 0) > 0 ? (
+                                <div className="flex flex-wrap gap-2">
+                                  {review.behaviorFlags!.map(flag => (
+                                    <Badge key={flag} variant="negative" className="text-[10px]">{flag}</Badge>
+                                  ))}
+                                </div>
+                              ) : (
+                                <p className="text-xs text-muted-foreground italic">None flagged.</p>
+                              )
+                            ) : (
+                              <div className="flex flex-wrap gap-2">
+                                {['FOMO', 'Revenge', 'Early Exit', 'Late Entry', 'Over-sized'].map(flag => (
+                                  <button
+                                    key={flag}
+                                    onClick={() => handleFlagToggle(flag)}
+                                    className={cn(
+                                      "px-3 py-1.5 rounded-lg text-[10px] font-bold border transition-all",
+                                      review.behaviorFlags?.includes(flag)
+                                        ? "bg-rose-500 text-white border-rose-500"
+                                        : "bg-accent/30 border-border hover:border-rose-500/30"
+                                    )}
+                                  >
+                                    {flag}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
                           </div>
 
                           <div className="grid grid-cols-2 gap-4">
@@ -1131,7 +1276,8 @@ export function TradePerformanceLog({ trades, title, subtitle }: TradePerformanc
                               <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Execution Quality ({review.executionQuality}%)</label>
                               <input
                                 type="range" min="0" max="100" step="10"
-                                className="w-full accent-primary"
+                                disabled={readOnly}
+                                className="w-full accent-primary disabled:opacity-60"
                                 value={review.executionQuality}
                                 onChange={(e) => setReview(prev => ({ ...prev, executionQuality: parseInt(e.target.value) }))}
                               />
@@ -1140,7 +1286,8 @@ export function TradePerformanceLog({ trades, title, subtitle }: TradePerformanc
                               <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Strategy Quality ({review.strategyQuality}%)</label>
                               <input
                                 type="range" min="0" max="100" step="10"
-                                className="w-full accent-primary"
+                                disabled={readOnly}
+                                className="w-full accent-primary disabled:opacity-60"
                                 value={review.strategyQuality}
                                 onChange={(e) => setReview(prev => ({ ...prev, strategyQuality: parseInt(e.target.value) }))}
                               />
@@ -1152,7 +1299,8 @@ export function TradePerformanceLog({ trades, title, subtitle }: TradePerformanc
                               <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Entry ({review.entryQuality}%)</label>
                               <input
                                 type="range" min="0" max="100" step="10"
-                                className="w-full accent-primary"
+                                disabled={readOnly}
+                                className="w-full accent-primary disabled:opacity-60"
                                 value={review.entryQuality}
                                 onChange={(e) => setReview(prev => ({ ...prev, entryQuality: parseInt(e.target.value) }))}
                               />
@@ -1161,7 +1309,8 @@ export function TradePerformanceLog({ trades, title, subtitle }: TradePerformanc
                               <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Exit ({review.exitQuality}%)</label>
                               <input
                                 type="range" min="0" max="100" step="10"
-                                className="w-full accent-primary"
+                                disabled={readOnly}
+                                className="w-full accent-primary disabled:opacity-60"
                                 value={review.exitQuality}
                                 onChange={(e) => setReview(prev => ({ ...prev, exitQuality: parseInt(e.target.value) }))}
                               />
@@ -1170,7 +1319,8 @@ export function TradePerformanceLog({ trades, title, subtitle }: TradePerformanc
                               <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Timing ({review.timingScore}%)</label>
                               <input
                                 type="range" min="0" max="100" step="10"
-                                className="w-full accent-primary"
+                                disabled={readOnly}
+                                className="w-full accent-primary disabled:opacity-60"
                                 value={review.timingScore}
                                 onChange={(e) => setReview(prev => ({ ...prev, timingScore: parseInt(e.target.value) }))}
                               />
@@ -1179,7 +1329,15 @@ export function TradePerformanceLog({ trades, title, subtitle }: TradePerformanc
 
                           <div className="space-y-2">
                             <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Tags</label>
-                            {user && (
+                            {readOnly ? (
+                              (review.tags?.length ?? 0) > 0 ? (
+                                <div className="flex flex-wrap gap-1.5">
+                                  {review.tags!.map(tag => <Badge key={tag} variant="neutral" className="text-[9px]">{tag}</Badge>)}
+                                </div>
+                              ) : (
+                                <p className="text-xs text-muted-foreground italic">No tags.</p>
+                              )
+                            ) : user && (
                               <TagCategoriesPicker
                                 categories={tagCategories}
                                 selectedTags={review.tags || []}
@@ -1199,6 +1357,7 @@ export function TradePerformanceLog({ trades, title, subtitle }: TradePerformanc
                       strategies={strategies}
                       onAssign={(strategyId) => updateTradeFields({ strategyId, strategyChecklist: {} })}
                       onChecklistChange={(checklist) => updateTradeFields({ strategyChecklist: checklist })}
+                      readOnly={readOnly}
                     />
                   )}
 
@@ -1209,50 +1368,84 @@ export function TradePerformanceLog({ trades, title, subtitle }: TradePerformanc
                         <span>Execution Timeline</span>
                       </h3>
                       <div className="space-y-4">
-                        {selectedTrade.fills.map((fill, idx) => (
-                          <div key={fill.order_id} className="flex items-start space-x-4">
-                            <div className="flex flex-col items-center">
-                              <div className={cn(
-                                "w-3 h-3 rounded-full border-2 border-background",
-                                fill.side === 'BUY' ? "bg-emerald-500" : "bg-rose-500"
-                              )} />
-                              {idx < selectedTrade.fills.length - 1 && <div className="w-px h-12 bg-border" />}
-                            </div>
-                            <div className="flex-1">
-                              <div className="flex items-center justify-between mb-1">
-                                <span className="text-xs font-bold">{fill.side} {fill.quantity} @ {fill.avg_price.toFixed(2)}</span>
-                                <span className="text-[10px] text-muted-foreground">{new Date(fill.fill_time).toLocaleTimeString()}</span>
+                        {selectedTrade.fills.map((fill, idx) => {
+                          // order_id/avg_price/fill_time are snake_case
+                          // aliases (see the Order type's own comment) not
+                          // guaranteed to be populated on every fill —
+                          // falling back to the canonical id/price/timestamp
+                          // avoids crashing this whole tab (and the error
+                          // boundary above it) on fills that only ever had
+                          // the camelCase fields set.
+                          const execId = fill.order_id || fill.id;
+                          const execPrice = fill.avg_price ?? fill.price;
+                          const execTime = fill.fill_time || fill.timestamp;
+                          return (
+                            <div key={execId || idx} className="flex items-start space-x-4">
+                              <div className="flex flex-col items-center">
+                                <div className={cn(
+                                  "w-3 h-3 rounded-full border-2 border-background",
+                                  fill.side === 'BUY' ? "bg-emerald-500" : "bg-rose-500"
+                                )} />
+                                {idx < selectedTrade.fills.length - 1 && <div className="w-px h-12 bg-border" />}
                               </div>
-                              <p className="text-[10px] text-muted-foreground">Execution ID: {fill.order_id}</p>
+                              <div className="flex-1">
+                                <div className="flex items-center justify-between mb-1">
+                                  <span className="text-xs font-bold">{fill.side} {fill.quantity} @ {execPrice.toFixed(2)}</span>
+                                  <span className="text-[10px] text-muted-foreground">{new Date(execTime).toLocaleTimeString()}</span>
+                                </div>
+                                <p className="text-[10px] text-muted-foreground">Execution ID: {execId}</p>
+                              </div>
                             </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </section>
                   )}
 
                   {leftTab === 'attachments' && (
-                    <TradeAttachments
-                      attachments={review.attachments || []}
-                      onChange={(attachments) => setReview(prev => ({ ...prev, attachments }))}
-                    />
+                    readOnly ? (
+                      (review.attachments?.length ?? 0) === 0 ? (
+                        <p className="text-sm text-muted-foreground italic text-center py-8">No attachments on this trade.</p>
+                      ) : (
+                        <div className="grid grid-cols-2 gap-2">
+                          {review.attachments!.map((src, i) => (
+                            <button
+                              key={i}
+                              onClick={() => setPreviewAttachment(src)}
+                              className="rounded-lg overflow-hidden border border-border/40 hover:border-primary/50 transition-colors"
+                            >
+                              <img src={src} alt={`Attachment ${i + 1}`} className="w-full h-28 object-cover" />
+                            </button>
+                          ))}
+                        </div>
+                      )
+                    ) : (
+                      <TradeAttachments
+                        attachments={review.attachments || []}
+                        onChange={(attachments) => setReview(prev => ({ ...prev, attachments }))}
+                      />
+                    )
                   )}
                 </div>
 
                 {/* Persistent across tabs — Verdict/Lesson (Stats), Manual Review
                     fields (Strategy), and Attachments all live in the same
-                    `review` object and are only committed to Firestore here. */}
-                <div className="p-4 border-t border-border shrink-0">
-                  <Button
-                    variant="primary"
-                    className="w-full"
-                    icon={isSavingReview ? Loader2 : Save}
-                    onClick={() => saveReview()}
-                    disabled={isSavingReview}
-                  >
-                    {isSavingReview ? 'Saving...' : 'Save Review'}
-                  </Button>
-                </div>
+                    `review` object and are only committed to Firestore here.
+                    Not rendered in readOnly mode — nothing left on these
+                    tabs is actually savable. */}
+                {!readOnly && (
+                  <div className="p-4 border-t border-border shrink-0">
+                    <Button
+                      variant="primary"
+                      className="w-full"
+                      icon={isSavingReview ? Loader2 : Save}
+                      onClick={() => saveReview()}
+                      disabled={isSavingReview}
+                    >
+                      {isSavingReview ? 'Saving...' : 'Save Review'}
+                    </Button>
+                  </div>
+                )}
               </div>
 
               {/* Right Pane: Chart / Notes / Running P&L */}
@@ -1356,6 +1549,54 @@ export function TradePerformanceLog({ trades, title, subtitle }: TradePerformanc
         />
       )}
 
+      {/* readOnly-only: a mentor's feedback thread on the trade's linked
+          note — mentorComments live inside a journal entry, so there's
+          nothing to comment on until the student has actually written one. */}
+      {readOnly && selectedTrade && (
+        <Modal isOpen={showFeedbackModal} onClose={() => setShowFeedbackModal(false)} title="Leave Feedback" maxWidth="lg">
+          {feedbackNoteLoading ? (
+            <div className="flex items-center justify-center py-10">
+              <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : !feedbackNote || feedbackNote.length === 0 ? (
+            <p className="text-sm text-muted-foreground italic text-center py-8">
+              No note linked to this trade yet — feedback attaches to the student's trade note, and they haven't written one.
+            </p>
+          ) : (
+            <div className="space-y-4">
+              {feedbackNote.map(note => (
+                <div key={note.id}>
+                  <div className="flex items-center justify-between gap-3 mb-1.5">
+                    <h4 className="font-bold text-sm text-foreground">{note.title || 'Untitled'}</h4>
+                    <span className="text-[10px] text-muted-foreground shrink-0">{note.date}</span>
+                  </div>
+                  {note.content && (
+                    <div
+                      className="text-xs text-muted-foreground leading-relaxed prose-sm max-w-none [&_img]:rounded-lg [&_img]:my-2 [&_img]:max-w-full"
+                      dangerouslySetInnerHTML={{ __html: note.content }}
+                    />
+                  )}
+                  {user && (role === 'Mentor' || role === 'Admin') && (
+                    <NoteCommentThread
+                      journalId={note.id}
+                      authorId={user.uid}
+                      authorName={user.displayName || user.email || 'Mentor'}
+                      authorRole={role}
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </Modal>
+      )}
+
+      {readOnly && (
+        <Modal isOpen={!!previewAttachment} onClose={() => setPreviewAttachment(null)} title="Attachment" maxWidth="2xl">
+          {previewAttachment && <img src={previewAttachment} alt="Attachment preview" className="w-full rounded-xl" />}
+        </Modal>
+      )}
+
       {/* Toast Notification */}
       {toast && (
         <Toast
@@ -1373,11 +1614,12 @@ export function TradePerformanceLog({ trades, title, subtitle }: TradePerformanc
 // individual rules you actually executed on. Answers "did I run my own
 // plan in full, or only in part" per trade, same idea as the reference
 // screenshot's "X of N rules followed" readout.
-function StrategyTabContent({ trade, strategies, onAssign, onChecklistChange }: {
+function StrategyTabContent({ trade, strategies, onAssign, onChecklistChange, readOnly }: {
   trade: Trade;
   strategies: Strategy[];
   onAssign: (strategyId: string) => void;
   onChecklistChange: (checklist: Record<string, boolean>) => void;
+  readOnly?: boolean;
 }) {
   const activeStrategies = strategies.filter(s => s.status === 'active');
   const assigned = trade.strategyId ? strategies.find(s => s.id === trade.strategyId) : null;
@@ -1389,23 +1631,25 @@ function StrategyTabContent({ trade, strategies, onAssign, onChecklistChange }: 
         <div className="text-center py-8">
           <Rocket className="w-8 h-8 text-muted-foreground/40 mx-auto mb-3" />
           <p className="text-sm font-bold text-foreground">No strategy assigned</p>
-          <p className="text-xs text-muted-foreground mt-1">Tag this trade with one of your playbooks to track how much of it you followed.</p>
+          {!readOnly && <p className="text-xs text-muted-foreground mt-1">Tag this trade with one of your playbooks to track how much of it you followed.</p>}
         </div>
-        {activeStrategies.length === 0 ? (
-          <p className="text-xs text-muted-foreground text-center italic">You haven't created any strategies yet — head to the Strategies section to add one.</p>
-        ) : (
-          <div className="space-y-1.5">
-            {activeStrategies.map(s => (
-              <button
-                key={s.id}
-                onClick={() => onAssign(s.id)}
-                className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl border border-border bg-accent/20 hover:bg-accent/40 text-left transition-colors"
-              >
-                <span>{s.icon || '📈'}</span>
-                <span className="text-sm font-bold">{s.name}</span>
-              </button>
-            ))}
-          </div>
+        {!readOnly && (
+          activeStrategies.length === 0 ? (
+            <p className="text-xs text-muted-foreground text-center italic">You haven't created any strategies yet — head to the Strategies section to add one.</p>
+          ) : (
+            <div className="space-y-1.5">
+              {activeStrategies.map(s => (
+                <button
+                  key={s.id}
+                  onClick={() => onAssign(s.id)}
+                  className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl border border-border bg-accent/20 hover:bg-accent/40 text-left transition-colors"
+                >
+                  <span>{s.icon || '📈'}</span>
+                  <span className="text-sm font-bold">{s.name}</span>
+                </button>
+              ))}
+            </div>
+          )
         )}
       </section>
     );
@@ -1416,9 +1660,15 @@ function StrategyTabContent({ trade, strategies, onAssign, onChecklistChange }: 
       <section className="space-y-3">
         <div className="p-4 rounded-2xl bg-rose-500/5 border border-rose-500/20">
           <p className="text-sm font-bold text-rose-600">This strategy no longer exists</p>
-          <p className="text-xs text-muted-foreground mt-1">It was deleted from your Strategies library — any rules checked here previously are preserved, but there's nothing left to display or add to.</p>
+          <p className="text-xs text-muted-foreground mt-1">
+            {readOnly
+              ? "It was deleted from the trader's Strategies library — any rules checked here previously are preserved, but there's nothing left to display."
+              : "It was deleted from your Strategies library — any rules checked here previously are preserved, but there's nothing left to display or add to."}
+          </p>
         </div>
-        <button onClick={() => onAssign('')} className="text-xs font-bold text-primary hover:underline">Clear assignment</button>
+        {!readOnly && (
+          <button onClick={() => onAssign('')} className="text-xs font-bold text-primary hover:underline">Clear assignment</button>
+        )}
       </section>
     );
   }
@@ -1465,28 +1715,30 @@ function StrategyTabContent({ trade, strategies, onAssign, onChecklistChange }: 
         </div>
         <div className="flex flex-col items-end gap-1.5">
           <Badge variant={pct === 100 ? 'positive' : pct === 0 ? 'neutral' : 'warning'}>{pct}%</Badge>
-          <div className="relative">
-            <button onClick={() => setPickerOpen(o => !o)} className="text-[11px] font-bold text-primary hover:underline flex items-center gap-0.5">
-              Change <ChevronDown className="w-3 h-3" />
-            </button>
-            {pickerOpen && (
-              <div className="absolute right-0 top-6 z-20 w-56 rounded-xl border border-border bg-card shadow-lg overflow-hidden max-h-64 overflow-y-auto">
-                {activeStrategies.map(s => (
-                  <button
-                    key={s.id}
-                    onClick={() => { onAssign(s.id); setPickerOpen(false); }}
-                    className={cn(
-                      "w-full flex items-center gap-2 px-3 py-2.5 text-xs font-bold text-left hover:bg-accent transition-colors",
-                      s.id === assigned.id && "bg-accent/60"
-                    )}
-                  >
-                    <span>{s.icon || '📈'}</span>
-                    {s.name}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+          {!readOnly && (
+            <div className="relative">
+              <button onClick={() => setPickerOpen(o => !o)} className="text-[11px] font-bold text-primary hover:underline flex items-center gap-0.5">
+                Change <ChevronDown className="w-3 h-3" />
+              </button>
+              {pickerOpen && (
+                <div className="absolute right-0 top-6 z-20 w-56 rounded-xl border border-border bg-card shadow-lg overflow-hidden max-h-64 overflow-y-auto">
+                  {activeStrategies.map(s => (
+                    <button
+                      key={s.id}
+                      onClick={() => { onAssign(s.id); setPickerOpen(false); }}
+                      className={cn(
+                        "w-full flex items-center gap-2 px-3 py-2.5 text-xs font-bold text-left hover:bg-accent transition-colors",
+                        s.id === assigned.id && "bg-accent/60"
+                      )}
+                    >
+                      <span>{s.icon || '📈'}</span>
+                      {s.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -1495,23 +1747,37 @@ function StrategyTabContent({ trade, strategies, onAssign, onChecklistChange }: 
           <div key={cat.id} className="space-y-1.5">
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{cat.name}</span>
-              <button onClick={() => checkAllInCategory(cat.id)} className="text-[10px] font-bold text-primary hover:underline">Check all</button>
+              {!readOnly && (
+                <button onClick={() => checkAllInCategory(cat.id)} className="text-[10px] font-bold text-primary hover:underline">Check all</button>
+              )}
             </div>
             <div className="space-y-1">
-              {cat.rules.map(rule => (
-                <label
-                  key={rule.id}
-                  className="flex items-start gap-2.5 px-3 py-2 rounded-xl border border-border bg-accent/10 hover:bg-accent/20 cursor-pointer transition-colors"
-                >
-                  <input
-                    type="checkbox"
-                    checked={!!checklist[rule.id]}
-                    onChange={() => toggleRule(rule.id)}
-                    className="mt-0.5 rounded border-border shrink-0"
-                  />
-                  <span className="text-sm">{rule.text}</span>
-                </label>
-              ))}
+              {cat.rules.map(rule => {
+                const followed = !!checklist[rule.id];
+                return readOnly ? (
+                  <div key={rule.id} className="flex items-start gap-2.5 px-3 py-2 rounded-xl border border-border bg-accent/10">
+                    {followed ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                    ) : (
+                      <Circle className="w-4 h-4 text-muted-foreground/30 shrink-0 mt-0.5" />
+                    )}
+                    <span className={cn("text-sm", !followed && "text-muted-foreground")}>{rule.text}</span>
+                  </div>
+                ) : (
+                  <label
+                    key={rule.id}
+                    className="flex items-start gap-2.5 px-3 py-2 rounded-xl border border-border bg-accent/10 hover:bg-accent/20 cursor-pointer transition-colors"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={followed}
+                      onChange={() => toggleRule(rule.id)}
+                      className="mt-0.5 rounded border-border shrink-0"
+                    />
+                    <span className="text-sm">{rule.text}</span>
+                  </label>
+                );
+              })}
             </div>
           </div>
         ))}

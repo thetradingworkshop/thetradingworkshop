@@ -104,6 +104,8 @@ async function main() {
     await setDoc(doc(db, 'journals', 'journal-2'), { userId: OTHER_STUDENT_UID, title: 'Note' });
     await setDoc(doc(db, 'strategies', 'strategy-1'), { userId: STUDENT_UID, name: 'ORB Continuation', status: 'active', categories: [] });
     await setDoc(doc(db, 'strategies', 'strategy-2'), { userId: OTHER_STUDENT_UID, name: 'VWAP Fade', status: 'active', categories: [] });
+    await setDoc(doc(db, 'trade_reviews', 'trade-1'), { userId: STUDENT_UID, tradeId: 'trade-1', attachments: ['data:image/png;base64,x'] });
+    await setDoc(doc(db, 'trade_reviews', 'trade-2'), { userId: OTHER_STUDENT_UID, tradeId: 'trade-2', attachments: [] });
 
     // Invites + groups fixtures
     await setDoc(doc(db, 'groups', 'group-1'), {
@@ -202,6 +204,20 @@ async function main() {
 
   await check('assigned mentor CANNOT update the student\'s strategy (read-only)', async () => {
     await assertFails(updateDoc(doc(mentor, 'strategies', 'strategy-1'), { name: 'Renamed' }));
+  });
+
+  console.log('\ntrade_reviews — mentor scoping (Mentor Dashboard trade detail, attachments)\n');
+
+  await check('assigned mentor CAN read their student\'s trade review', async () => {
+    await assertSucceeds(getDoc(doc(mentor, 'trade_reviews', 'trade-1')));
+  });
+
+  await check('assigned mentor CANNOT read an unassigned student\'s trade review', async () => {
+    await assertFails(getDoc(doc(mentor, 'trade_reviews', 'trade-2')));
+  });
+
+  await check('assigned mentor CANNOT update the student\'s trade review (read-only)', async () => {
+    await assertFails(updateDoc(doc(mentor, 'trade_reviews', 'trade-1'), { verdict: 'edited' }));
   });
 
   console.log('\njournals — mentor scoping\n');

@@ -1,18 +1,16 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { cn, gradeBadgeVariant } from '@/src/utils';
-import { collection, doc, query, where, orderBy, limit, onSnapshot } from 'firebase/firestore';
+import { cn } from '@/src/utils';
+import { collection, query, where, orderBy, limit, onSnapshot } from 'firebase/firestore';
 import { format, subDays, isWithinInterval } from 'date-fns';
 import { db } from '../firebase';
-import { SectionHeader, Card, Badge, Button, Modal, Table, TableHeader, TableRow, TableHead, TableCell } from '../components/Shared';
-import { stripHtml, isContentEmpty } from '../components/RichTextEditor';
-import { Users, TrendingUp, AlertCircle, FileText, User, CheckCircle2, Trophy, ArrowUpRight, ArrowDownRight, Target, BrainCircuit, ChevronRight, ChevronLeft, BarChart3, BookOpen, LineChart, Star, Clock, Loader2, Send } from 'lucide-react';
+import { SectionHeader, Card, Badge, Button, Table, TableHeader, TableRow, TableHead, TableCell } from '../components/Shared';
+import { stripHtml } from '../components/RichTextEditor';
+import { Users, TrendingUp, AlertCircle, FileText, User, CheckCircle2, Trophy, ArrowUpRight, ArrowDownRight, Target, BrainCircuit, ChevronRight, ChevronLeft, BarChart3, BookOpen, Loader2 } from 'lucide-react';
 import { computeDisciplineScore, computeConsistencyScore } from '../services/analyticsService';
 import { useAuth } from '../context/AuthContext';
-import { useMentorComments, postMentorComment, fmtCommentTimestamp } from '../hooks/useMentorComments';
-import { Trade, JournalEntry, ChartDrawing, Strategy } from '../types';
-import { TradeCandleChart } from '../components/TradeCandleChart';
-import { RunningPnlChart } from '../components/RunningPnlChart';
-import { useMarketBars } from '../hooks/useMarketBars';
+import { Trade, JournalEntry } from '../types';
+import { TradePerformanceLog } from '../components/TradePerformanceLog';
+import { NoteCommentThread } from '../components/NoteCommentThread';
 
 // This screen used to genuinely query real students, then read
 // `s.discipline`/`s.consistency`/`s.lastSession`/`s.trend` — fields nothing
@@ -49,85 +47,9 @@ function fmtTradeDate(entryTime: string): string {
   return isNaN(d.getTime()) ? 'Unknown date' : format(d, 'MMM d, yyyy');
 }
 
-// Real two-way feedback thread on one journal entry — a mentor leaving
-// notes for their student, or the student replying on their own entry
-// (see JournalScreen.tsx, which uses the same useMentorComments hook).
-// Lives in its own component since it owns its own draft state per note
-// card; the data layer itself is shared, not reimplemented here.
-function NoteCommentThread({ journalId, authorId, authorName, authorRole }: {
-  journalId: string;
-  authorId: string;
-  authorName: string;
-  authorRole: 'Mentor' | 'Admin';
-}) {
-  const { comments } = useMentorComments(journalId);
-  const [draft, setDraft] = useState('');
-  const [posting, setPosting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const postComment = async () => {
-    if (!draft.trim()) return;
-    setPosting(true);
-    setError(null);
-    try {
-      await postMentorComment(journalId, { authorId, authorName, authorRole }, draft);
-      setDraft('');
-    } catch (err: any) {
-      console.error('Failed to post comment:', err);
-      setError("Couldn't post — you may not have permission.");
-    } finally {
-      setPosting(false);
-    }
-  };
-
-  return (
-    <div className="mt-3 pt-3 border-t border-border/40 space-y-2">
-      {comments === null ? (
-        <p className="text-[11px] text-muted-foreground italic">Loading comments…</p>
-      ) : comments.length > 0 && (
-        <div className="space-y-2">
-          {comments.map(c => (
-            <div key={c.id} className={cn(
-              "p-2.5 rounded-xl text-xs",
-              c.authorRole === 'Student' ? "bg-accent/40" : "bg-indigo-500/10 border border-indigo-500/20"
-            )}>
-              <div className="flex items-center justify-between gap-2 mb-1">
-                <span className="font-bold text-foreground">{c.authorName}</span>
-                <span className="text-[10px] text-muted-foreground shrink-0 font-mono">{fmtCommentTimestamp(c.createdAt)}</span>
-              </div>
-              <p className="text-muted-foreground leading-relaxed whitespace-pre-wrap">{c.text}</p>
-            </div>
-          ))}
-        </div>
-      )}
-      <div className="flex items-end gap-2">
-        <textarea
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          placeholder="Leave feedback on this note…"
-          maxLength={2000}
-          rows={1}
-          className="flex-1 bg-background border border-border rounded-lg px-3 py-2 text-xs resize-none focus:outline-none focus:ring-2 focus:ring-primary/20"
-        />
-        <Button variant="primary" size="sm" className="h-9 w-9 p-0 shrink-0" icon={Send} onClick={postComment} disabled={!draft.trim() || posting} />
-      </div>
-      {error && <p className="text-[10px] text-rose-500">{error}</p>}
-    </div>
-  );
-}
-
-// Same label/value row TradePerformanceLog's own Trade Details drawer uses
-// for its stats panel — kept a plain read-only display here (no
-// EditableStatRow equivalent) since a mentor never has write access to a
-// student's trade.
-function StatRow({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex items-center justify-between py-2.5 border-b border-border/40 last:border-b-0">
-      <span className="text-xs font-medium text-muted-foreground">{label}</span>
-      <span className="text-sm font-bold font-mono text-right">{children}</span>
-    </div>
-  );
-}
+// NoteCommentThread (mentor <-> student feedback on one journal entry) now
+// lives in its own file — shared with TradePerformanceLog's readOnly mode,
+// which reuses it for the "Leave Feedback" button on a trade's linked note.
 
 function buildStudentRow(base: { id: string; name?: string; email?: string; status?: string }, trades: Trade[]): StudentRow {
   if (trades.length === 0) {
@@ -173,39 +95,6 @@ export default function MentorDashboardScreen() {
   const [notesLoading, setNotesLoading] = useState(false);
   const [notesError, setNotesError] = useState<string | null>(null);
 
-  // Clicking a trade in the Trades tab drills into that specific trade —
-  // its own stats plus whichever journal note is linked to it (if any),
-  // with the same mentor comment thread the Notes tab already has. Fetched
-  // independently of `studentNotes` above (which is capped to the 10 most
-  // recent notes) via the same userId+tradeId query TradePerformanceLog
-  // itself uses to find/sync a trade's note — so this reliably finds the
-  // right one even if it's not among the most recent 10.
-  const [selectedTradeId, setSelectedTradeId] = useState<string | null>(null);
-  const [tradeNote, setTradeNote] = useState<JournalEntry[] | null>(null);
-  const [tradeNoteLoading, setTradeNoteLoading] = useState(false);
-
-  // Trade Detail's own tab state — same left/right split as
-  // TradePerformanceLog's own Trade Details drawer (Stats/Strategy/
-  // Executions/Attachments on the left, Chart/Notes/Running P&L on the
-  // right), rebuilt read-only here. Chart edits are session-local only
-  // (see localDrawings' own comment further down) rather than saved back
-  // to the student's trade.
-  const [leftTab, setLeftTab] = useState<'stats' | 'strategy' | 'executions' | 'attachments'>('stats');
-  const [rightTab, setRightTab] = useState<'chart' | 'notes' | 'pnl'>('chart');
-  const [chartTimeframe, setChartTimeframe] = useState<string | undefined>(undefined);
-  const [localDrawings, setLocalDrawings] = useState<ChartDrawing[]>([]);
-  const [previewAttachment, setPreviewAttachment] = useState<string | null>(null);
-
-  // The real strategy doc behind selectedTrade.strategyId, for the
-  // Strategy tab's rule checklist — the trade only stores strategyId/
-  // strategyChecklist (rule id -> followed), not the rules' own text, so
-  // this is a separate read. Requires firestore.rules to grant a mentor
-  // read access to their assigned students' strategies collection (same
-  // isAssignedMentor() pattern as trades/journals) — without it this
-  // would 403 for a real (non-Admin) Mentor account.
-  const [tradeStrategy, setTradeStrategy] = useState<Strategy | null>(null);
-  const [tradeStrategyLoading, setTradeStrategyLoading] = useState(false);
-
   useEffect(() => {
     if (!selectedStudentId) { setStudentNotes(null); setNotesError(null); return; }
     setNotesLoading(true);
@@ -229,27 +118,6 @@ export default function MentorDashboardScreen() {
     );
     return () => unsubscribe();
   }, [selectedStudentId]);
-
-  // The specific note linked to whichever trade is currently drilled into
-  // (see selectedTradeId below) — a separate query from studentNotes above
-  // since a trade's note might not be among the 10 most recent.
-  useEffect(() => {
-    if (!selectedStudentId || !selectedTradeId) { setTradeNote(null); return; }
-    setTradeNoteLoading(true);
-    const unsubscribe = onSnapshot(
-      query(collection(db, 'journals'), where('userId', '==', selectedStudentId), where('tradeId', '==', selectedTradeId)),
-      (snapshot) => {
-        setTradeNote(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as JournalEntry)));
-        setTradeNoteLoading(false);
-      },
-      (error) => {
-        console.error('Failed to load trade note:', error);
-        setTradeNote([]);
-        setTradeNoteLoading(false);
-      }
-    );
-    return () => unsubscribe();
-  }, [selectedStudentId, selectedTradeId]);
 
   // Real CSV export of the (real) student performance table — everything
   // else on this row of buttons routes to features that aren't built yet
@@ -323,59 +191,8 @@ export default function MentorDashboardScreen() {
     () => (selectedStudentId ? [...(studentTrades[selectedStudentId] || [])].sort((a, b) => new Date(b.entryTime).getTime() - new Date(a.entryTime).getTime()) : []),
     [selectedStudentId, studentTrades]
   );
-  const selectedTrade = selectedTradeId ? selectedStudentTrades.find(t => t.id === selectedTradeId) || null : null;
-  const openStudent = (id: string) => { setSelectedStudentId(id); setDetailTab('trades'); setSelectedTradeId(null); };
-  const closeStudent = () => { setSelectedStudentId(null); setSelectedTradeId(null); };
-
-  // Real intraday candles for the drilled-into trade's own window, same
-  // hook TradePerformanceLog uses — pure trade-scoped market data, no
-  // per-user subscription, so it's exactly as safe to reuse here as it is
-  // there (falls back to fills-based/synthetic bars if the market fetch
-  // comes back empty — see TradeCandleChart).
-  const { market, isLoading: isLoadingMarket } = useMarketBars(selectedTrade, chartTimeframe);
-
-  // Seeds the chart with whatever the trader already drew on this trade
-  // (real context for the mentor to review), but edits from here never
-  // write back — a mentor is read-only on trades/trade_reviews per
-  // firestore.rules, and TradeCandleChart's own save path
-  // (updateTradeFields({ drawings })) is exactly the kind of student-owned
-  // write that would be silently rejected. Kept local/session-only instead
-  // of wiring onDrawingsChange to a no-op that drops edits on the floor —
-  // this way a mentor can still sketch while reviewing, it just resets the
-  // next time they open a trade.
-  useEffect(() => {
-    setLocalDrawings(selectedTrade?.drawings || []);
-    setRightTab('chart');
-    setLeftTab('stats');
-    setChartTimeframe(undefined);
-    setPreviewAttachment(null);
-  }, [selectedTradeId]);
-
-  // The real strategy doc behind selectedTrade.strategyId, for the
-  // Strategy tab's rule checklist — the trade only stores strategyId/
-  // strategyChecklist (rule id -> followed), not the rules' own text, so
-  // this is a separate read. Requires firestore.rules to grant a mentor
-  // read access to their assigned students' strategies collection (same
-  // isAssignedMentor() pattern as trades/journals) — without it this
-  // would 403 for a real (non-Admin) Mentor account.
-  useEffect(() => {
-    const strategyId = selectedTrade?.strategyId;
-    if (!strategyId) { setTradeStrategy(null); return; }
-    setTradeStrategyLoading(true);
-    const unsubscribe = onSnapshot(
-      doc(db, 'strategies', strategyId),
-      (snap) => {
-        setTradeStrategy(snap.exists() ? ({ id: snap.id, ...snap.data() } as Strategy) : null);
-        setTradeStrategyLoading(false);
-      },
-      (error) => {
-        console.error('Failed to load trade strategy:', error);
-        setTradeStrategy(null);
-        setTradeStrategyLoading(false);
-      }
-    );
-    return () => unsubscribe();
-  }, [selectedTrade?.strategyId]);
+  const openStudent = (id: string) => { setSelectedStudentId(id); setDetailTab('trades'); };
+  const closeStudent = () => setSelectedStudentId(null);
 
   const activeStudents = studentRows.filter(s => s.totalTrades > 0);
   const avgDiscipline = activeStudents.length ? Math.round(activeStudents.reduce((s, r) => s + r.discipline, 0) / activeStudents.length) : 0;
@@ -405,355 +222,6 @@ export default function MentorDashboardScreen() {
     if (score >= 75) return "bg-amber-500/10 border-amber-500/20";
     return "bg-rose-500/10 border-rose-500/20";
   };
-
-  // Trade Detail — a real full page (was a small modal), reusing
-  // TradeCandleChart / RunningPnlChart / useMarketBars for genuine visual
-  // parity with TradePerformanceLog's own Trade Details view — not the
-  // shared component itself: that one is wired to the CURRENT signed-in
-  // user (subscribeStrategies(user.uid, ...), tagCategories where
-  // userId==user.uid, writes scoped to request.auth.uid), so pointing it
-  // at a student's trade would mix in the mentor's own tag/strategy
-  // library and attempt writes firestore.rules already blocks (mentors
-  // are read-only on trades). Review fields (tags/verdict/lessonLearned/
-  // starRating/behaviorFlags) are mirrored onto the trade doc itself by
-  // TradePerformanceLog's saveReview(), so they're readable straight off
-  // `selectedTrade` here with no separate trade_reviews read needed —
-  // useful since trade_reviews' own rule doesn't even grant mentors read
-  // access, only owner or Admin.
-  if (selectedTradeId && selectedTrade && selectedStudent) {
-    const starRating = selectedTrade.starRating || 0;
-    const hasReview = !!(starRating || (selectedTrade.tags && selectedTrade.tags.length > 0) ||
-      (selectedTrade.behaviorFlags && selectedTrade.behaviorFlags.length > 0) ||
-      !isContentEmpty(selectedTrade.verdict) || !isContentEmpty(selectedTrade.lessonLearned));
-    return (
-      <div className="space-y-6 pb-20">
-        <button
-          onClick={() => setSelectedTradeId(null)}
-          className="flex items-center gap-1.5 text-xs font-bold text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <ChevronLeft className="w-4 h-4" /> Back to {selectedStudent.name.split(' ')[0]}'s trades
-        </button>
-
-        <Card noPadding className="overflow-hidden border-border/50">
-          <div className="p-6 border-b border-border flex items-center justify-between gap-4 flex-wrap">
-            <div>
-              <div className="flex items-center gap-2.5 flex-wrap">
-                <h2 className="text-xl font-black tracking-tight">{selectedTrade.symbol}</h2>
-                <span className={cn(
-                  "text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md",
-                  selectedTrade.direction === 'LONG' ? "text-emerald-600 bg-emerald-500/10" : "text-rose-600 bg-rose-500/10"
-                )}>
-                  {selectedTrade.direction}
-                </span>
-                {selectedTrade.tradeGrade && <Badge variant={gradeBadgeVariant(selectedTrade.tradeGrade)}>{selectedTrade.tradeGrade}</Badge>}
-                {selectedTrade.isManualEntry && <Badge variant="warning" className="text-[10px]">Manually entered</Badge>}
-              </div>
-              <p className="text-xs text-muted-foreground mt-1">
-                {fmtTradeDate(selectedTrade.entryTime)} · Reconstructed from {selectedTrade.fills?.length ?? 0} execution fills
-              </p>
-            </div>
-            <p className={cn("text-2xl font-black", selectedTrade.pnlCurrency >= 0 ? "text-emerald-500" : "text-rose-500")}>
-              {selectedTrade.pnlCurrency >= 0 ? '+' : ''}${selectedTrade.pnlCurrency.toFixed(2)}
-            </p>
-          </div>
-
-          <div className="flex flex-col lg:flex-row">
-            {/* Left: Stats / Strategy / Executions / Attachments — all read-only */}
-            <div className="lg:w-[420px] shrink-0 lg:border-r border-border flex flex-col">
-              <div className="flex items-center gap-1 p-4 border-b border-border">
-                {([
-                  { id: 'stats' as const, label: 'Stats' },
-                  { id: 'strategy' as const, label: 'Strategy' },
-                  { id: 'executions' as const, label: 'Executions' },
-                  { id: 'attachments' as const, label: 'Attachments' },
-                ]).map(tab => (
-                  <button
-                    key={tab.id}
-                    onClick={() => setLeftTab(tab.id)}
-                    className={cn(
-                      "flex-1 py-2 rounded-xl text-xs font-bold transition-all",
-                      leftTab === tab.id ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent/40"
-                    )}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
-
-              <div className="p-6 space-y-6">
-                {leftTab === 'stats' && (
-                  <>
-                    <div>
-                      <StatRow label="Entry">{selectedTrade.avgEntryPrice}</StatRow>
-                      <StatRow label="Exit">{selectedTrade.avgExitPrice}</StatRow>
-                      <StatRow label="Quantity">{selectedTrade.totalQuantity}</StatRow>
-                      <StatRow label="Points">{selectedTrade.pnlPoints >= 0 ? '+' : ''}{selectedTrade.pnlPoints}</StatRow>
-                      <StatRow label="Hold Time">
-                        {selectedTrade.holdTimeSeconds >= 60 ? `${Math.round(selectedTrade.holdTimeSeconds / 60)}m` : `${selectedTrade.holdTimeSeconds}s`}
-                      </StatRow>
-                      {selectedTrade.riskRewardRatio != null && (
-                        <StatRow label="Risk/Reward">1 : {selectedTrade.riskRewardRatio.toFixed(2)}</StatRow>
-                      )}
-                      {selectedTrade.totalCommission != null && (
-                        <StatRow label="Commission">${selectedTrade.totalCommission.toFixed(2)}</StatRow>
-                      )}
-                      {selectedTrade.strategy && <StatRow label="Strategy">{selectedTrade.strategy}</StatRow>}
-                    </div>
-
-                    {(selectedTrade.executionQuality != null || selectedTrade.strategyQuality != null ||
-                      selectedTrade.entryQuality != null || selectedTrade.exitQuality != null || selectedTrade.timingScore != null) && (
-                      <div className="pt-5 border-t border-border/40">
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">Execution Quality</p>
-                        {selectedTrade.executionQuality != null && <StatRow label="Execution">{selectedTrade.executionQuality}/100</StatRow>}
-                        {selectedTrade.strategyQuality != null && <StatRow label="Strategy Fit">{selectedTrade.strategyQuality}/100</StatRow>}
-                        {selectedTrade.entryQuality != null && <StatRow label="Entry Quality">{selectedTrade.entryQuality}/100</StatRow>}
-                        {selectedTrade.exitQuality != null && <StatRow label="Exit Quality">{selectedTrade.exitQuality}/100</StatRow>}
-                        {selectedTrade.timingScore != null && <StatRow label="Timing">{selectedTrade.timingScore}/100</StatRow>}
-                      </div>
-                    )}
-
-                    {hasReview && (
-                      <div className="pt-5 border-t border-border/40 space-y-3">
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Trade Review</p>
-                        {starRating > 0 && (
-                          <div className="flex items-center gap-0.5">
-                            {Array.from({ length: 5 }).map((_, i) => (
-                              <Star key={i} className={cn("w-3.5 h-3.5", i < starRating ? "fill-amber-400 text-amber-400" : "text-muted-foreground/25")} />
-                            ))}
-                          </div>
-                        )}
-                        {selectedTrade.tags && selectedTrade.tags.length > 0 && (
-                          <div className="flex flex-wrap gap-1.5">
-                            {selectedTrade.tags.map(tag => <Badge key={tag} variant="neutral" className="text-[9px]">{tag}</Badge>)}
-                          </div>
-                        )}
-                        {selectedTrade.behaviorFlags && selectedTrade.behaviorFlags.length > 0 && (
-                          <div className="flex flex-wrap gap-1.5">
-                            {selectedTrade.behaviorFlags.map(flag => <Badge key={flag} variant="negative" className="text-[9px]">{flag}</Badge>)}
-                          </div>
-                        )}
-                        {/* verdict/lessonLearned are RichTextEditor HTML — can embed
-                            inline screenshots (<img src="data:...">). Rendering them
-                            as plain text used to dump the raw markup (including the
-                            base64 image data) across the screen; dangerouslySetInnerHTML
-                            + prose-sm renders it the same way the Linked Note below
-                            already does, and constrains any embedded images to the
-                            column width. */}
-                        {selectedTrade.verdict && !isContentEmpty(selectedTrade.verdict) && (
-                          <div>
-                            <p className="text-xs font-bold text-foreground mb-1">Verdict</p>
-                            <div
-                              className="text-xs text-muted-foreground leading-relaxed prose-sm max-w-none [&_img]:rounded-lg [&_img]:my-2 [&_img]:max-w-full"
-                              dangerouslySetInnerHTML={{ __html: selectedTrade.verdict }}
-                            />
-                          </div>
-                        )}
-                        {selectedTrade.lessonLearned && !isContentEmpty(selectedTrade.lessonLearned) && (
-                          <div>
-                            <p className="text-xs font-bold text-foreground mb-1">Lesson Learned</p>
-                            <div
-                              className="text-xs text-muted-foreground leading-relaxed prose-sm max-w-none [&_img]:rounded-lg [&_img]:my-2 [&_img]:max-w-full"
-                              dangerouslySetInnerHTML={{ __html: selectedTrade.lessonLearned }}
-                            />
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </>
-                )}
-
-                {leftTab === 'strategy' && (
-                  !selectedTrade.strategyId ? (
-                    <div className="text-center py-12 text-muted-foreground italic text-sm">No strategy tagged on this trade.</div>
-                  ) : tradeStrategyLoading ? (
-                    <div className="flex items-center justify-center py-12">
-                      <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
-                    </div>
-                  ) : !tradeStrategy ? (
-                    <div className="text-center py-12 text-muted-foreground italic text-sm">Strategy not found — it may have been deleted.</div>
-                  ) : (
-                    <div className="space-y-5">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          {tradeStrategy.icon && <span className="text-lg leading-none">{tradeStrategy.icon}</span>}
-                          <h4 className="font-bold text-sm">{tradeStrategy.name}</h4>
-                        </div>
-                        {tradeStrategy.description && (
-                          <p className="text-xs text-muted-foreground leading-relaxed mt-1">{tradeStrategy.description}</p>
-                        )}
-                      </div>
-                      {tradeStrategy.categories.map(cat => (
-                        <div key={cat.id}>
-                          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">{cat.name}</p>
-                          <div className="space-y-2">
-                            {cat.rules.map(rule => {
-                              const followed = selectedTrade.strategyChecklist?.[rule.id];
-                              return (
-                                <div key={rule.id} className="flex items-start gap-2 text-xs">
-                                  {followed ? (
-                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
-                                  ) : (
-                                    <AlertCircle className="w-3.5 h-3.5 text-rose-500/70 shrink-0 mt-0.5" />
-                                  )}
-                                  <span className={followed ? "text-foreground" : "text-muted-foreground"}>{rule.text}</span>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )
-                )}
-
-                {leftTab === 'executions' && (
-                  !selectedTrade.fills || selectedTrade.fills.length === 0 ? (
-                    <div className="text-center py-12 text-muted-foreground italic text-sm">No individual execution data for this trade.</div>
-                  ) : (
-                    <div className="space-y-4">
-                      {selectedTrade.fills.map((fill, idx) => (
-                        <div key={fill.id || fill.order_id || idx} className="flex items-start space-x-4">
-                          <div className="flex flex-col items-center">
-                            <div className={cn(
-                              "w-3 h-3 rounded-full border-2 border-background",
-                              fill.side === 'BUY' ? "bg-emerald-500" : "bg-rose-500"
-                            )} />
-                            {idx < selectedTrade.fills.length - 1 && <div className="w-px h-12 bg-border" />}
-                          </div>
-                          <div className="flex-1">
-                            <div className="flex items-center justify-between mb-1">
-                              <span className="text-xs font-bold">
-                                {fill.side} {fill.quantity} @ {(fill.avg_price ?? fill.price).toFixed(2)}
-                              </span>
-                              <span className="text-[10px] text-muted-foreground">
-                                {new Date(fill.fill_time ?? fill.timestamp).toLocaleTimeString()}
-                              </span>
-                            </div>
-                            <p className="text-[10px] text-muted-foreground">Execution ID: {fill.order_id || fill.id}</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )
-                )}
-
-                {leftTab === 'attachments' && (
-                  !selectedTrade.attachments || selectedTrade.attachments.length === 0 ? (
-                    <div className="text-center py-12 text-muted-foreground italic text-sm">No attachments on this trade.</div>
-                  ) : (
-                    <div className="grid grid-cols-2 gap-2">
-                      {selectedTrade.attachments.map((src, i) => (
-                        <button
-                          key={i}
-                          onClick={() => setPreviewAttachment(src)}
-                          className="rounded-lg overflow-hidden border border-border/40 hover:border-primary/50 transition-colors"
-                        >
-                          <img src={src} alt={`Attachment ${i + 1}`} className="w-full h-24 object-cover" />
-                        </button>
-                      ))}
-                    </div>
-                  )
-                )}
-              </div>
-            </div>
-
-            {/* Right: Chart / Notes / Running P&L */}
-            <div className="flex-1 min-w-0 flex flex-col">
-              <div className="flex items-center gap-1 p-4 border-b border-border">
-                {([
-                  { id: 'chart' as const, label: 'Chart', icon: BarChart3 },
-                  { id: 'notes' as const, label: 'Notes', icon: BookOpen },
-                  { id: 'pnl' as const, label: 'Running P&L', icon: LineChart },
-                ]).map(tab => {
-                  const Icon = tab.icon;
-                  return (
-                    <button
-                      key={tab.id}
-                      onClick={() => setRightTab(tab.id)}
-                      className={cn(
-                        "flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold transition-all",
-                        rightTab === tab.id ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent/40"
-                      )}
-                    >
-                      <Icon className="w-4 h-4" />
-                      <span>{tab.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
-
-              <div className="p-6">
-                {rightTab === 'chart' && (
-                  <div className="h-[420px]">
-                    <TradeCandleChart
-                      trade={selectedTrade}
-                      market={market}
-                      isLoadingMarket={isLoadingMarket}
-                      timeframe={chartTimeframe}
-                      onTimeframeChange={setChartTimeframe}
-                      drawings={localDrawings}
-                      onDrawingsChange={setLocalDrawings}
-                    />
-                  </div>
-                )}
-
-                {rightTab === 'pnl' && <RunningPnlChart trade={selectedTrade} />}
-
-                {rightTab === 'notes' && (
-                  <div>
-                    <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground mb-2">Linked Note</p>
-                    {tradeNoteLoading ? (
-                      <div className="flex items-center justify-center py-10">
-                        <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
-                      </div>
-                    ) : !tradeNote || tradeNote.length === 0 ? (
-                      <div className="text-center py-8 text-muted-foreground italic text-sm bg-muted/20 rounded-2xl border border-border/40">
-                        No notes for this trade yet.
-                      </div>
-                    ) : (
-                      <div className="space-y-3">
-                        {tradeNote.map(note => (
-                          <div key={note.id} className="p-4 bg-muted/30 rounded-2xl border border-border/40">
-                            <div className="flex items-center justify-between gap-3 mb-1.5">
-                              <h4 className="font-bold text-sm text-foreground">{note.title || 'Untitled'}</h4>
-                              <span className="text-[10px] text-muted-foreground shrink-0">{note.date}</span>
-                            </div>
-                            {note.content && (
-                              <div
-                                className="text-xs text-muted-foreground leading-relaxed prose-sm max-w-none"
-                                dangerouslySetInnerHTML={{ __html: note.content }}
-                              />
-                            )}
-                            {note.tags && note.tags.length > 0 && (
-                              <div className="flex flex-wrap gap-1.5 mt-2">
-                                {note.tags.map(tag => <Badge key={tag} variant="neutral" className="text-[9px]">{tag}</Badge>)}
-                              </div>
-                            )}
-                            {user && (role === 'Mentor' || role === 'Admin') && (
-                              <NoteCommentThread
-                                journalId={note.id}
-                                authorId={user.uid}
-                                authorName={user.displayName || user.email || 'Mentor'}
-                                authorRole={role}
-                              />
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </Card>
-
-        <Modal isOpen={!!previewAttachment} onClose={() => setPreviewAttachment(null)} title="Attachment" maxWidth="2xl">
-          {previewAttachment && <img src={previewAttachment} alt="Attachment preview" className="w-full rounded-xl" />}
-        </Modal>
-      </div>
-    );
-  }
 
   // Student Detail — also a real full page now (was a modal). Trades
   // reuses the per-student data already loaded for the roster
@@ -800,56 +268,26 @@ export default function MentorDashboardScreen() {
           </button>
         </div>
 
+        {/* Reuses the real Trade Details experience every trader/admin gets
+            elsewhere in the app (candlestick chart, full stats, strategy
+            checklist, executions, attachments) instead of a hand-rebuilt
+            copy — readOnly disables every write path (mentors are
+            read-only on a student's trades per firestore.rules), and
+            ownerId points its strategy/tag lookups at the STUDENT's own
+            library rather than the signed-in mentor's. "Leave Feedback"
+            inside a trade opens the same mentor comment thread the Notes
+            tab below uses, attached to that trade's linked note. */}
         {detailTab === 'trades' && (
           selectedStudentTrades.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground italic text-sm">No trades logged yet.</div>
           ) : (
-            <Card noPadding>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Symbol</TableHead>
-                    <TableHead>Side</TableHead>
-                    <TableHead className="text-right">Net P&L</TableHead>
-                    <TableHead className="text-right">Grade</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <tbody>
-                  {selectedStudentTrades.slice(0, 100).map(t => (
-                    <TableRow
-                      key={t.id}
-                      onClick={() => setSelectedTradeId(t.id)}
-                      className="cursor-pointer hover:bg-accent/20 transition-colors"
-                    >
-                      <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
-                        {fmtTradeDate(t.entryTime)}
-                      </TableCell>
-                      <TableCell className="font-bold text-sm">{t.symbol}</TableCell>
-                      <TableCell>
-                        <span className={cn(
-                          "text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md",
-                          t.direction === 'LONG' ? "text-emerald-600 bg-emerald-500/10" : "text-rose-600 bg-rose-500/10"
-                        )}>
-                          {t.direction}
-                        </span>
-                      </TableCell>
-                      <TableCell className={cn("text-right font-bold text-sm", t.pnlCurrency >= 0 ? "text-emerald-500" : "text-rose-500")}>
-                        {t.pnlCurrency >= 0 ? '+' : ''}${t.pnlCurrency.toFixed(2)}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {t.tradeGrade ? <Badge variant={gradeBadgeVariant(t.tradeGrade)}>{t.tradeGrade}</Badge> : <span className="text-xs text-muted-foreground">—</span>}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </tbody>
-              </Table>
-              {selectedStudentTrades.length > 100 && (
-                <p className="text-center text-[11px] text-muted-foreground italic p-3">
-                  Showing the 100 most recent of {selectedStudentTrades.length} trades.
-                </p>
-              )}
-            </Card>
+            <TradePerformanceLog
+              trades={selectedStudentTrades}
+              title={`${selectedStudent.name}'s Trades`}
+              subtitle="Read-only — click a trade for its full details, or Leave Feedback there to comment on its note."
+              readOnly
+              ownerId={selectedStudentId!}
+            />
           )
         )}
 
