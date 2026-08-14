@@ -9,7 +9,7 @@ import { useAuth } from '../context/AuthContext';
 import { useDateRange } from '../context/DateContext';
 import { JournalEntry, Trade } from '../types';
 import { RichTextEditor, isContentEmpty, stripHtml } from '../components/RichTextEditor';
-import { useMentorComments, postMentorComment, fmtCommentTimestamp } from '../hooks/useMentorComments';
+import { useMentorComments, postMentorComment, markMentorCommentsRead, fmtCommentTimestamp } from '../hooks/useMentorComments';
 import { DictationTextarea } from '../components/DictationTextarea';
 import { TradePickerModal } from '../components/TradePickerModal';
 import { RecapEquityChart } from '../components/RecapEquityChart';
@@ -160,6 +160,13 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
   const [commentDraft, setCommentDraft] = useState('');
   const [isPostingComment, setIsPostingComment] = useState(false);
   const [commentPostError, setCommentPostError] = useState<string | null>(null);
+
+  // Opening an entry is "having seen" whatever mentor feedback is on it —
+  // clears the flag driving both the header Bell badge and this entry's
+  // own "New" marker in the list on the left.
+  useEffect(() => {
+    if (selectedJournal?.id) markMentorCommentsRead(selectedJournal.id, 'Student');
+  }, [selectedJournal?.id]);
 
   const postReply = async () => {
     if (!user || !selectedJournal || !commentDraft.trim()) return;
@@ -712,7 +719,18 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
                               </Badge>
                             </div>
                           </div>
-                          <h4 className="font-bold text-sm mb-1">{j.title}</h4>
+                          <h4 className="font-bold text-sm mb-1 flex items-center gap-1.5">
+                            {j.title}
+                            {j.unreadByStudent && (
+                              <span
+                                title="New mentor feedback"
+                                className={cn(
+                                  "w-2 h-2 rounded-full shrink-0",
+                                  selectedJournal?.id === j.id ? "bg-primary-foreground" : "bg-indigo-500"
+                                )}
+                              />
+                            )}
+                          </h4>
                           <p className={cn(
                             "text-xs truncate",
                             selectedJournal?.id === j.id ? "text-primary-foreground/70" : "text-muted-foreground"

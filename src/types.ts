@@ -639,6 +639,19 @@ export interface JournalEntry {
     // Cumulative realized P&L by day within the recap range, for the equity curve.
     equityCurve: { date: string; cumPnl: number }[];
   };
+
+  // Denormalized summary of this entry's mentorComments thread, written by
+  // postMentorComment() alongside the comment itself (same "update the
+  // parent doc's summary fields" pattern as support_threads) — lets the
+  // header Bell and the note list show "new feedback" without opening a
+  // live listener on every entry's own subcollection. unreadByStudent
+  // flips true when a Mentor/Admin comments, unreadByMentor flips true
+  // when the Student replies; each clears only when that side actually
+  // opens the thread (see markMentorCommentsRead in useMentorComments.ts).
+  unreadByStudent?: boolean;
+  unreadByMentor?: boolean;
+  lastCommentAt?: string;
+  lastCommentByRole?: 'Mentor' | 'Student' | 'Admin';
 }
 
 // journals/{journalId}/mentorComments/{commentId} — a real two-way thread on

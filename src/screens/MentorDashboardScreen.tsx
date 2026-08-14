@@ -305,7 +305,12 @@ export default function MentorDashboardScreen() {
               studentNotes.map(note => (
                 <div key={note.id} className="p-4 bg-muted/30 rounded-2xl border border-border/40">
                   <div className="flex items-center justify-between gap-3 mb-1.5">
-                    <h4 className="font-bold text-sm text-foreground">{note.title || 'Untitled'}</h4>
+                    <h4 className="font-bold text-sm text-foreground flex items-center gap-1.5">
+                      {note.title || 'Untitled'}
+                      {note.unreadByMentor && (
+                        <span title="New reply from student" className="w-2 h-2 rounded-full bg-indigo-500 shrink-0" />
+                      )}
+                    </h4>
                     <span className="text-[10px] text-muted-foreground shrink-0">{note.date}</span>
                   </div>
                   {note.content && (

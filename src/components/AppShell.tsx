@@ -28,6 +28,7 @@ import { Toast, Button } from './Shared';
 import { LogIntentModal } from './LogIntentModal';
 import { SupportChatWidget } from './SupportChatWidget';
 import { useUnreadSupportCount } from '../hooks/useSupportChat';
+import { useUnreadMentorFeedbackCount } from '../hooks/useMentorComments';
 
 // Exported so App.tsx can enforce the same role list at the route level —
 // this list used to only ever filter the sidebar, which hid pages from the
@@ -82,6 +83,7 @@ export function AppShell({
   const { user, logout } = useAuth();
   const showTradeControls = TRADE_SCOPED_PAGES.includes(activePage);
   const unreadSupportCount = useUnreadSupportCount(userRole === 'Admin');
+  const unreadMentorFeedbackCount = useUnreadMentorFeedbackCount(userRole === 'Student' ? user?.uid : null);
 
   // This used to be a hardcoded "Jean Paul" regardless of who was actually
   // signed in — real name/initials from the authenticated Firebase user.
@@ -191,10 +193,13 @@ export function AppShell({
               {theme === 'dark' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
             </button>
  
-            {/* Real for Admin only so far: live unread count from
-                support_threads (see Users & Permissions → Support).
-                Everyone else still gets the disabled placeholder — no
-                notification surface exists for them yet. */}
+            {/* Admin: live unread count from support_threads (Users &
+                Permissions → Support). Student: live unread count of
+                journal entries with new mentor feedback (unreadByStudent —
+                see useMentorComments.ts). Mentor/Viewer still get the
+                disabled placeholder — no notification surface exists for
+                them yet (a mentor sees new student replies as a per-note
+                dot on the Mentor Dashboard's Notes tab instead). */}
             {userRole === 'Admin' ? (
               <button
                 onClick={() => setActivePage('admin')}
@@ -205,6 +210,19 @@ export function AppShell({
                 {unreadSupportCount > 0 && (
                   <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center">
                     {unreadSupportCount > 9 ? '9+' : unreadSupportCount}
+                  </span>
+                )}
+              </button>
+            ) : userRole === 'Student' ? (
+              <button
+                onClick={() => setActivePage('journal')}
+                title={unreadMentorFeedbackCount > 0 ? `${unreadMentorFeedbackCount} note${unreadMentorFeedbackCount === 1 ? '' : 's'} with new mentor feedback` : 'No new mentor feedback'}
+                className="relative w-10 h-10 rounded-xl border border-border flex items-center justify-center hover:bg-accent transition-colors"
+              >
+                <Bell className="w-5 h-5" />
+                {unreadMentorFeedbackCount > 0 && (
+                  <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center">
+                    {unreadMentorFeedbackCount > 9 ? '9+' : unreadMentorFeedbackCount}
                   </span>
                 )}
               </button>

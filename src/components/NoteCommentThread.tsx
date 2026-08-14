@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { cn } from '@/src/utils';
 import { Button } from './Shared';
 import { Send } from 'lucide-react';
-import { useMentorComments, postMentorComment, fmtCommentTimestamp } from '../hooks/useMentorComments';
+import { useMentorComments, postMentorComment, markMentorCommentsRead, fmtCommentTimestamp } from '../hooks/useMentorComments';
 
 // Real two-way feedback thread on one journal entry — a mentor leaving
 // notes for their student, or the student replying on their own entry.
@@ -21,6 +21,14 @@ export function NoteCommentThread({ journalId, authorId, authorName, authorRole 
   const [draft, setDraft] = useState('');
   const [posting, setPosting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // This component only ever renders for a Mentor/Admin viewer (it's the
+  // mentor-feedback UI, not the student's own reply box — see
+  // JournalScreen for that side), so opening it always clears
+  // unreadByMentor, the flag a Student's own reply sets.
+  useEffect(() => {
+    markMentorCommentsRead(journalId, authorRole);
+  }, [journalId]);
 
   const postComment = async () => {
     if (!draft.trim()) return;

@@ -230,6 +230,26 @@ async function main() {
     await assertFails(getDoc(doc(mentor, 'journals', 'journal-2')));
   });
 
+  console.log('\njournals — mentor comment-notification fields (unreadByStudent/unreadByMentor)\n');
+
+  await check('assigned mentor CAN flip unreadByStudent on their student\'s journal', async () => {
+    await assertSucceeds(updateDoc(doc(mentor, 'journals', 'journal-1'), {
+      unreadByStudent: true, unreadByMentor: false, lastCommentAt: new Date(), lastCommentByRole: 'Mentor',
+    }));
+  });
+
+  await check('assigned mentor CANNOT touch other fields on their student\'s journal via this branch', async () => {
+    await assertFails(updateDoc(doc(mentor, 'journals', 'journal-1'), { title: 'Edited by mentor' }));
+  });
+
+  await check('assigned mentor CANNOT smuggle a content edit in alongside a valid notification field', async () => {
+    await assertFails(updateDoc(doc(mentor, 'journals', 'journal-1'), { unreadByStudent: true, title: 'Edited by mentor' }));
+  });
+
+  await check('assigned mentor CANNOT flip notification fields on an unassigned student\'s journal', async () => {
+    await assertFails(updateDoc(doc(mentor, 'journals', 'journal-2'), { unreadByStudent: true }));
+  });
+
   console.log('\njournals/{id}/mentorComments — the feedback loop\n');
 
   await check('assigned mentor CAN post a comment on their student\'s journal', async () => {

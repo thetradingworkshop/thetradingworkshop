@@ -288,6 +288,19 @@ service cloud.firestore {
              data.createdAt is timestamp;
     }
 
+    // Lets an assigned mentor flip the unread flags on their STUDENT's own
+    // journal doc — postMentorComment() needs this to mark unreadByStudent
+    // true when they comment, and NoteCommentThread needs it to clear
+    // unreadByMentor when they open a thread the student replied on. Scoped
+    // tightly to just these fields via affectedKeys().hasOnly() so a mentor
+    // (not the doc's owner) can never touch the entry's actual content
+    // through this branch — mirrors the field-locking pattern users/{uid}
+    // already uses for mentorId self-assign.
+    function isValidMentorNotificationUpdate() {
+      return request.resource.data.diff(resource.data).affectedKeys()
+        .hasOnly(['unreadByStudent', 'unreadByMentor', 'lastCommentAt', 'lastCommentByRole']);
+    }
+
     // support_threads/{userId} — the summary doc behind the floating
     // support chat widget and the Admin inbox (Users & Permissions →
     // Support). One thread per user, keyed by their own uid — same
@@ -471,7 +484,11 @@ service cloud.firestore {
       // Same read-only mentor access as trades — see isAssignedMentor().
       allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin() || isAssignedMentor(resource.data.userId));
       allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid && canWriteOwnData();
-      allow update: if isAuthenticated() && ((resource.data.userId == request.auth.uid && canWriteOwnData()) || isAdmin());
+      allow update: if isAuthenticated() && (
+        (resource.data.userId == request.auth.uid && canWriteOwnData()) ||
+        isAdmin() ||
+        (isAssignedMentor(resource.data.userId) && isValidMentorNotificationUpdate())
+      );
       allow delete: if isAuthenticated() && ((resource.data.userId == request.auth.uid && canWriteOwnData()) || isAdmin());
 
       // The mentor feedback loop: a real two-way thread on this entry
