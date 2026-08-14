@@ -102,6 +102,8 @@ async function main() {
     await setDoc(doc(db, 'trades', 'trade-2'), { userId: OTHER_STUDENT_UID, symbol: 'NQ' });
     await setDoc(doc(db, 'journals', 'journal-1'), { userId: STUDENT_UID, title: 'Note' });
     await setDoc(doc(db, 'journals', 'journal-2'), { userId: OTHER_STUDENT_UID, title: 'Note' });
+    await setDoc(doc(db, 'strategies', 'strategy-1'), { userId: STUDENT_UID, name: 'ORB Continuation', status: 'active', categories: [] });
+    await setDoc(doc(db, 'strategies', 'strategy-2'), { userId: OTHER_STUDENT_UID, name: 'VWAP Fade', status: 'active', categories: [] });
 
     // Invites + groups fixtures
     await setDoc(doc(db, 'groups', 'group-1'), {
@@ -186,6 +188,20 @@ async function main() {
 
   await check('a student CAN read their own trade', async () => {
     await assertSucceeds(getDoc(doc(student, 'trades', 'trade-1')));
+  });
+
+  console.log('\nstrategies — mentor scoping (Mentor Dashboard trade detail Strategy tab)\n');
+
+  await check('assigned mentor CAN read their student\'s strategy', async () => {
+    await assertSucceeds(getDoc(doc(mentor, 'strategies', 'strategy-1')));
+  });
+
+  await check('assigned mentor CANNOT read an unassigned student\'s strategy', async () => {
+    await assertFails(getDoc(doc(mentor, 'strategies', 'strategy-2')));
+  });
+
+  await check('assigned mentor CANNOT update the student\'s strategy (read-only)', async () => {
+    await assertFails(updateDoc(doc(mentor, 'strategies', 'strategy-1'), { name: 'Renamed' }));
   });
 
   console.log('\njournals — mentor scoping\n');

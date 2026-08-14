@@ -434,7 +434,11 @@ service cloud.firestore {
     //     each rule optionally carrying a showWhen outcome filter)
     //   - createdAt/updatedAt: string (required)
     match /strategies/{strategyId} {
-      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      // Read-only mentor access mirrors trades/journals — the Mentor
+      // Dashboard's trade detail Strategy tab looks up a student's
+      // strategy (name + rule text) to show alongside strategyChecklist,
+      // which lives on the trade doc itself.
+      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin() || isAssignedMentor(resource.data.userId));
       allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid && canWriteOwnData() && isValidStrategy(request.resource.data);
       allow update: if isAuthenticated() && ((resource.data.userId == request.auth.uid && canWriteOwnData()) || isAdmin()) && isValidStrategy(request.resource.data);
       allow delete: if isAuthenticated() && ((resource.data.userId == request.auth.uid && canWriteOwnData()) || isAdmin());
