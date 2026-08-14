@@ -5,7 +5,7 @@ import { format, subDays, isWithinInterval } from 'date-fns';
 import { db } from '../firebase';
 import { SectionHeader, Card, Badge, Button, Modal, Table, TableHeader, TableRow, TableHead, TableCell } from '../components/Shared';
 import { stripHtml } from '../components/RichTextEditor';
-import { Users, TrendingUp, AlertCircle, FileText, User, CheckCircle2, Trophy, ArrowUpRight, ArrowDownRight, Target, BrainCircuit, ChevronRight, BarChart3, BookOpen, Loader2, Send } from 'lucide-react';
+import { Users, TrendingUp, AlertCircle, FileText, User, CheckCircle2, Trophy, ArrowUpRight, ArrowDownRight, Target, BrainCircuit, ChevronRight, ChevronLeft, BarChart3, BookOpen, Loader2, Send } from 'lucide-react';
 import { computeDisciplineScore, computeConsistencyScore } from '../services/analyticsService';
 import { useAuth } from '../context/AuthContext';
 import { useMentorComments, postMentorComment, fmtCommentTimestamp } from '../hooks/useMentorComments';
@@ -157,6 +157,17 @@ export default function MentorDashboardScreen() {
   const [notesLoading, setNotesLoading] = useState(false);
   const [notesError, setNotesError] = useState<string | null>(null);
 
+  // Clicking a trade in the Trades tab drills into that specific trade —
+  // its own stats plus whichever journal note is linked to it (if any),
+  // with the same mentor comment thread the Notes tab already has. Fetched
+  // independently of `studentNotes` above (which is capped to the 10 most
+  // recent notes) via the same userId+tradeId query TradePerformanceLog
+  // itself uses to find/sync a trade's note — so this reliably finds the
+  // right one even if it's not among the most recent 10.
+  const [selectedTradeId, setSelectedTradeId] = useState<string | null>(null);
+  const [tradeNote, setTradeNote] = useState<JournalEntry[] | null>(null);
+  const [tradeNoteLoading, setTradeNoteLoading] = useState(false);
+
   useEffect(() => {
     if (!selectedStudentId) { setStudentNotes(null); setNotesError(null); return; }
     setNotesLoading(true);
@@ -180,6 +191,27 @@ export default function MentorDashboardScreen() {
     );
     return () => unsubscribe();
   }, [selectedStudentId]);
+
+  // The specific note linked to whichever trade is currently drilled into
+  // (see selectedTradeId below) — a separate query from studentNotes above
+  // since a trade's note might not be among the 10 most recent.
+  useEffect(() => {
+    if (!selectedStudentId || !selectedTradeId) { setTradeNote(null); return; }
+    setTradeNoteLoading(true);
+    const unsubscribe = onSnapshot(
+      query(collection(db, 'journals'), where('userId', '==', selectedStudentId), where('tradeId', '==', selectedTradeId)),
+      (snapshot) => {
+        setTradeNote(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as JournalEntry)));
+        setTradeNoteLoading(false);
+      },
+      (error) => {
+        console.error('Failed to load trade note:', error);
+        setTradeNote([]);
+        setTradeNoteLoading(false);
+      }
+    );
+    return () => unsubscribe();
+  }, [selectedStudentId, selectedTradeId]);
 
   // Real CSV export of the (real) student performance table — everything
   // else on this row of buttons routes to features that aren't built yet
@@ -253,8 +285,9 @@ export default function MentorDashboardScreen() {
     () => (selectedStudentId ? [...(studentTrades[selectedStudentId] || [])].sort((a, b) => new Date(b.entryTime).getTime() - new Date(a.entryTime).getTime()) : []),
     [selectedStudentId, studentTrades]
   );
-  const openStudent = (id: string) => { setSelectedStudentId(id); setDetailTab('trades'); };
-  const closeStudent = () => setSelectedStudentId(null);
+  const selectedTrade = selectedTradeId ? selectedStudentTrades.find(t => t.id === selectedTradeId) || null : null;
+  const openStudent = (id: string) => { setSelectedStudentId(id); setDetailTab('trades'); setSelectedTradeId(null); };
+  const closeStudent = () => { setSelectedStudentId(null); setSelectedTradeId(null); };
 
   const activeStudents = studentRows.filter(s => s.totalTrades > 0);
   const avgDiscipline = activeStudents.length ? Math.round(activeStudents.reduce((s, r) => s + r.discipline, 0) / activeStudents.length) : 0;
@@ -640,115 +673,217 @@ export default function MentorDashboardScreen() {
               <span>Last session: {selectedStudent.lastSession}</span>
             </div>
 
-            <div className="flex gap-2 border-b border-border/60">
-              <button
-                onClick={() => setDetailTab('trades')}
-                className={cn(
-                  "flex items-center gap-2 px-4 py-2.5 text-sm font-bold border-b-2 -mb-px transition-colors",
-                  detailTab === 'trades' ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
-                )}
-              >
-                <BarChart3 className="w-4 h-4" /> Trades ({selectedStudent.totalTrades})
-              </button>
-              <button
-                onClick={() => setDetailTab('notes')}
-                className={cn(
-                  "flex items-center gap-2 px-4 py-2.5 text-sm font-bold border-b-2 -mb-px transition-colors",
-                  detailTab === 'notes' ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
-                )}
-              >
-                <BookOpen className="w-4 h-4" /> Notes{studentNotes ? ` (${studentNotes.length})` : ''}
-              </button>
-            </div>
+            {selectedTrade ? (
+              <div className="space-y-5">
+                <button
+                  onClick={() => setSelectedTradeId(null)}
+                  className="flex items-center gap-1.5 text-xs font-bold text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <ChevronLeft className="w-4 h-4" /> Back to {selectedStudent.name.split(' ')[0]}'s trades
+                </button>
 
-            {detailTab === 'trades' && (
-              selectedStudentTrades.length === 0 ? (
-                <div className="text-center py-12 text-muted-foreground italic text-sm">No trades logged yet.</div>
-              ) : (
-                <div className="max-h-[50vh] overflow-y-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Date</TableHead>
-                        <TableHead>Symbol</TableHead>
-                        <TableHead>Side</TableHead>
-                        <TableHead className="text-right">Net P&L</TableHead>
-                        <TableHead className="text-right">Grade</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <tbody>
-                      {selectedStudentTrades.slice(0, 25).map(t => (
-                        <TableRow key={t.id}>
-                          <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
-                            {fmtTradeDate(t.entryTime)}
-                          </TableCell>
-                          <TableCell className="font-bold text-sm">{t.symbol}</TableCell>
-                          <TableCell>
-                            <span className={cn(
-                              "text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md",
-                              t.direction === 'LONG' ? "text-emerald-600 bg-emerald-500/10" : "text-rose-600 bg-rose-500/10"
-                            )}>
-                              {t.direction}
-                            </span>
-                          </TableCell>
-                          <TableCell className={cn("text-right font-bold text-sm", t.pnlCurrency >= 0 ? "text-emerald-500" : "text-rose-500")}>
-                            {t.pnlCurrency >= 0 ? '+' : ''}${t.pnlCurrency.toFixed(2)}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            {t.tradeGrade ? <Badge variant={gradeBadgeVariant(t.tradeGrade)}>{t.tradeGrade}</Badge> : <span className="text-xs text-muted-foreground">—</span>}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </tbody>
-                  </Table>
-                  {selectedStudentTrades.length > 25 && (
-                    <p className="text-center text-[11px] text-muted-foreground italic pt-3">
-                      Showing the 25 most recent of {selectedStudentTrades.length} trades.
+                <div className="flex items-start justify-between gap-4 flex-wrap">
+                  <div>
+                    <div className="flex items-center gap-2.5">
+                      <h3 className="text-xl font-black">{selectedTrade.symbol}</h3>
+                      <span className={cn(
+                        "text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md",
+                        selectedTrade.direction === 'LONG' ? "text-emerald-600 bg-emerald-500/10" : "text-rose-600 bg-rose-500/10"
+                      )}>
+                        {selectedTrade.direction}
+                      </span>
+                      {selectedTrade.tradeGrade && <Badge variant={gradeBadgeVariant(selectedTrade.tradeGrade)}>{selectedTrade.tradeGrade}</Badge>}
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">{fmtTradeDate(selectedTrade.entryTime)}</p>
+                  </div>
+                  <p className={cn("text-2xl font-black", selectedTrade.pnlCurrency >= 0 ? "text-emerald-500" : "text-rose-500")}>
+                    {selectedTrade.pnlCurrency >= 0 ? '+' : ''}${selectedTrade.pnlCurrency.toFixed(2)}
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="p-3 bg-muted/30 rounded-xl border border-border/40">
+                    <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground mb-1">Entry</p>
+                    <p className="text-sm font-bold">{selectedTrade.avgEntryPrice}</p>
+                  </div>
+                  <div className="p-3 bg-muted/30 rounded-xl border border-border/40">
+                    <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground mb-1">Exit</p>
+                    <p className="text-sm font-bold">{selectedTrade.avgExitPrice}</p>
+                  </div>
+                  <div className="p-3 bg-muted/30 rounded-xl border border-border/40">
+                    <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground mb-1">Points</p>
+                    <p className="text-sm font-bold">{selectedTrade.pnlPoints >= 0 ? '+' : ''}{selectedTrade.pnlPoints}</p>
+                  </div>
+                  <div className="p-3 bg-muted/30 rounded-xl border border-border/40">
+                    <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground mb-1">Hold Time</p>
+                    <p className="text-sm font-bold">
+                      {selectedTrade.holdTimeSeconds >= 60
+                        ? `${Math.round(selectedTrade.holdTimeSeconds / 60)}m`
+                        : `${selectedTrade.holdTimeSeconds}s`}
                     </p>
+                  </div>
+                </div>
+
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground mb-2">Linked Note</p>
+                  {tradeNoteLoading ? (
+                    <div className="flex items-center justify-center py-10">
+                      <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+                    </div>
+                  ) : !tradeNote || tradeNote.length === 0 ? (
+                    <div className="text-center py-8 text-muted-foreground italic text-sm bg-muted/20 rounded-2xl border border-border/40">
+                      No notes for this trade yet.
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {tradeNote.map(note => (
+                        <div key={note.id} className="p-4 bg-muted/30 rounded-2xl border border-border/40">
+                          <div className="flex items-center justify-between gap-3 mb-1.5">
+                            <h4 className="font-bold text-sm text-foreground">{note.title || 'Untitled'}</h4>
+                            <span className="text-[10px] text-muted-foreground shrink-0">{note.date}</span>
+                          </div>
+                          {note.content && (
+                            <div
+                              className="text-xs text-muted-foreground leading-relaxed prose-sm max-w-none"
+                              dangerouslySetInnerHTML={{ __html: note.content }}
+                            />
+                          )}
+                          {note.tags && note.tags.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5 mt-2">
+                              {note.tags.map(tag => <Badge key={tag} variant="neutral" className="text-[9px]">{tag}</Badge>)}
+                            </div>
+                          )}
+                          {user && (role === 'Mentor' || role === 'Admin') && (
+                            <NoteCommentThread
+                              journalId={note.id}
+                              authorId={user.uid}
+                              authorName={user.displayName || user.email || 'Mentor'}
+                              authorRole={role}
+                            />
+                          )}
+                        </div>
+                      ))}
+                    </div>
                   )}
                 </div>
-              )
-            )}
+              </div>
+            ) : (
+              <>
+                <div className="flex gap-2 border-b border-border/60">
+                  <button
+                    onClick={() => setDetailTab('trades')}
+                    className={cn(
+                      "flex items-center gap-2 px-4 py-2.5 text-sm font-bold border-b-2 -mb-px transition-colors",
+                      detailTab === 'trades' ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    <BarChart3 className="w-4 h-4" /> Trades ({selectedStudent.totalTrades})
+                  </button>
+                  <button
+                    onClick={() => setDetailTab('notes')}
+                    className={cn(
+                      "flex items-center gap-2 px-4 py-2.5 text-sm font-bold border-b-2 -mb-px transition-colors",
+                      detailTab === 'notes' ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    <BookOpen className="w-4 h-4" /> Notes{studentNotes ? ` (${studentNotes.length})` : ''}
+                  </button>
+                </div>
 
-            {detailTab === 'notes' && (
-              <div className="max-h-[50vh] overflow-y-auto space-y-3">
-                {notesLoading ? (
-                  <div className="flex items-center justify-center py-12">
-                    <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-                  </div>
-                ) : notesError ? (
-                  <div className="text-center py-12 text-rose-500 text-sm">{notesError}</div>
-                ) : !studentNotes || studentNotes.length === 0 ? (
-                  <div className="text-center py-12 text-muted-foreground italic text-sm">No notes yet.</div>
-                ) : (
-                  studentNotes.map(note => (
-                    <div key={note.id} className="p-4 bg-muted/30 rounded-2xl border border-border/40">
-                      <div className="flex items-center justify-between gap-3 mb-1.5">
-                        <h4 className="font-bold text-sm text-foreground">{note.title || 'Untitled'}</h4>
-                        <span className="text-[10px] text-muted-foreground shrink-0">{note.date}</span>
-                      </div>
-                      {note.content && (
-                        <p className="text-xs text-muted-foreground leading-relaxed line-clamp-3">
-                          {stripHtml(note.content).slice(0, 220)}
+                {detailTab === 'trades' && (
+                  selectedStudentTrades.length === 0 ? (
+                    <div className="text-center py-12 text-muted-foreground italic text-sm">No trades logged yet.</div>
+                  ) : (
+                    <div className="max-h-[50vh] overflow-y-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Date</TableHead>
+                            <TableHead>Symbol</TableHead>
+                            <TableHead>Side</TableHead>
+                            <TableHead className="text-right">Net P&L</TableHead>
+                            <TableHead className="text-right">Grade</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <tbody>
+                          {selectedStudentTrades.slice(0, 25).map(t => (
+                            <TableRow
+                              key={t.id}
+                              onClick={() => setSelectedTradeId(t.id)}
+                              className="cursor-pointer hover:bg-accent/20 transition-colors"
+                            >
+                              <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                                {fmtTradeDate(t.entryTime)}
+                              </TableCell>
+                              <TableCell className="font-bold text-sm">{t.symbol}</TableCell>
+                              <TableCell>
+                                <span className={cn(
+                                  "text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md",
+                                  t.direction === 'LONG' ? "text-emerald-600 bg-emerald-500/10" : "text-rose-600 bg-rose-500/10"
+                                )}>
+                                  {t.direction}
+                                </span>
+                              </TableCell>
+                              <TableCell className={cn("text-right font-bold text-sm", t.pnlCurrency >= 0 ? "text-emerald-500" : "text-rose-500")}>
+                                {t.pnlCurrency >= 0 ? '+' : ''}${t.pnlCurrency.toFixed(2)}
+                              </TableCell>
+                              <TableCell className="text-right">
+                                {t.tradeGrade ? <Badge variant={gradeBadgeVariant(t.tradeGrade)}>{t.tradeGrade}</Badge> : <span className="text-xs text-muted-foreground">—</span>}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </tbody>
+                      </Table>
+                      {selectedStudentTrades.length > 25 && (
+                        <p className="text-center text-[11px] text-muted-foreground italic pt-3">
+                          Showing the 25 most recent of {selectedStudentTrades.length} trades.
                         </p>
                       )}
-                      {note.tags && note.tags.length > 0 && (
-                        <div className="flex flex-wrap gap-1.5 mt-2">
-                          {note.tags.map(tag => <Badge key={tag} variant="neutral" className="text-[9px]">{tag}</Badge>)}
-                        </div>
-                      )}
-                      {user && (role === 'Mentor' || role === 'Admin') && (
-                        <NoteCommentThread
-                          journalId={note.id}
-                          authorId={user.uid}
-                          authorName={user.displayName || user.email || 'Mentor'}
-                          authorRole={role}
-                        />
-                      )}
                     </div>
-                  ))
+                  )
                 )}
-              </div>
+
+                {detailTab === 'notes' && (
+                  <div className="max-h-[50vh] overflow-y-auto space-y-3">
+                    {notesLoading ? (
+                      <div className="flex items-center justify-center py-12">
+                        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+                      </div>
+                    ) : notesError ? (
+                      <div className="text-center py-12 text-rose-500 text-sm">{notesError}</div>
+                    ) : !studentNotes || studentNotes.length === 0 ? (
+                      <div className="text-center py-12 text-muted-foreground italic text-sm">No notes yet.</div>
+                    ) : (
+                      studentNotes.map(note => (
+                        <div key={note.id} className="p-4 bg-muted/30 rounded-2xl border border-border/40">
+                          <div className="flex items-center justify-between gap-3 mb-1.5">
+                            <h4 className="font-bold text-sm text-foreground">{note.title || 'Untitled'}</h4>
+                            <span className="text-[10px] text-muted-foreground shrink-0">{note.date}</span>
+                          </div>
+                          {note.content && (
+                            <p className="text-xs text-muted-foreground leading-relaxed line-clamp-3">
+                              {stripHtml(note.content).slice(0, 220)}
+                            </p>
+                          )}
+                          {note.tags && note.tags.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5 mt-2">
+                              {note.tags.map(tag => <Badge key={tag} variant="neutral" className="text-[9px]">{tag}</Badge>)}
+                            </div>
+                          )}
+                          {user && (role === 'Mentor' || role === 'Admin') && (
+                            <NoteCommentThread
+                              journalId={note.id}
+                              authorId={user.uid}
+                              authorName={user.displayName || user.email || 'Mentor'}
+                              authorRole={role}
+                            />
+                          )}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}
