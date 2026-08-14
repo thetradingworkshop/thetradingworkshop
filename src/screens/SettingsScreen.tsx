@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { SectionHeader, Card, Button, Toast } from '../components/Shared';
-import { Bell, Shield, User, Database, Wallet, AlertTriangle, Link2 } from 'lucide-react';
+import { Bell, Shield, User, Database, Wallet, AlertTriangle, Link2, UserCheck } from 'lucide-react';
 import { useTrades } from '../context/TradeContext';
 import { useAuth } from '../context/AuthContext';
 import { db } from '../firebase';
@@ -8,6 +8,7 @@ import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { RiskSettings } from '../types';
 import TradingAccountsSettings from './TradingAccountsSettings';
 import ReferralsSettings from './ReferralsSettings';
+import MentorSettings from './MentorSettings';
 
 const EMPTY_RISK_FORM = {
   maxDailyLossUsd: '',
@@ -22,9 +23,9 @@ const EMPTY_RISK_FORM = {
 
 export default function SettingsScreen() {
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
-  const [activeTab, setActiveTab] = useState<'trading-parameters' | 'risk-parameters' | 'accounts' | 'referrals'>('trading-parameters');
+  const [activeTab, setActiveTab] = useState<'trading-parameters' | 'risk-parameters' | 'accounts' | 'referrals' | 'mentor'>('trading-parameters');
   const { clearTrades } = useTrades();
-  const { user } = useAuth();
+  const { user, role } = useAuth();
   const [isClearingTrades, setIsClearingTrades] = useState(false);
 
   const [riskForm, setRiskForm] = useState(EMPTY_RISK_FORM);
@@ -114,6 +115,18 @@ export default function SettingsScreen() {
             <Link2 className="w-4 h-4" />
             <span>Referrals</span>
           </button>
+          {/* Mentor pickup is only meaningful for Students — Mentors don't
+              have mentors, and Admins manage assignments directly from
+              Users & Permissions instead. */}
+          {role === 'Student' && (
+            <button
+              onClick={() => setActiveTab('mentor')}
+              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-colors ${activeTab === 'mentor' ? 'bg-primary text-primary-foreground font-medium' : 'hover:bg-accent text-muted-foreground'}`}
+            >
+              <UserCheck className="w-4 h-4" />
+              <span>Mentor</span>
+            </button>
+          )}
           <button
             disabled
             title="Notification settings aren't built yet"
@@ -136,6 +149,7 @@ export default function SettingsScreen() {
         <div className="lg:col-span-9 space-y-6">
           {activeTab === 'accounts' && <TradingAccountsSettings />}
           {activeTab === 'referrals' && <ReferralsSettings />}
+          {activeTab === 'mentor' && role === 'Student' && <MentorSettings />}
 
           {activeTab === 'trading-parameters' && (
           <Card className="p-8">

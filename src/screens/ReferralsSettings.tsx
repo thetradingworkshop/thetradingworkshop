@@ -10,13 +10,16 @@ import { Link2, Copy, Check, RefreshCw, Users } from 'lucide-react';
 // stored on their own profile as `referralCode` and backed by an
 // `invites/{code}` doc — the same collection Users & Permissions' cohort
 // invites live in, just created by a regular user instead of an Admin. A
-// personal link is hard-capped server-side to grant role: 'Viewer' — the
-// lowest-privilege role in the app — no matter who made it or who redeems
-// it (see firestore.rules' isValidSelfServiceInvite()), so this can never
-// be a privilege-escalation path. What this screen actually tracks: who
-// referred whom (referredBy on the new account). Turning that into an
-// actual reward system isn't built yet — this is the attribution layer it
-// would read from.
+// personal link is hard-capped server-side to grant role: 'Student' — a
+// real, usable account, but nothing that touches anyone else's data or
+// reaches any admin surface — no matter who made it or who redeems it (see
+// firestore.rules' isValidSelfServiceInvite()), so this can never be a
+// privilege-escalation path. A referred Student can pick up a mentor later
+// from Settings → Mentor whenever they're ready, rather than the referrer
+// assigning one. What this screen actually tracks: who referred whom
+// (referredBy on the new account). Turning that into an actual reward
+// system isn't built yet — this is the attribution layer it would read
+// from.
 const EXPIRES_IN_DAYS = 365;
 const MAX_USES = 500;
 
@@ -54,7 +57,7 @@ export default function ReferralsSettings() {
     const newCode = generateInviteCode();
     await setDoc(doc(db, 'invites', newCode), {
       code: newCode,
-      role: 'Viewer',
+      role: 'Student',
       mentorId: null,
       groupId: null,
       label: 'Personal Referral Link',
@@ -126,7 +129,7 @@ export default function ReferralsSettings() {
             id: d.id,
             name: data.name || data.email || 'Unnamed user',
             email: data.email || '',
-            role: data.role || 'Viewer',
+            role: data.role || 'Student',
             joinedAt: fmtDate(data.updatedAt),
           };
         }));
@@ -171,8 +174,9 @@ export default function ReferralsSettings() {
       <Card className="p-8">
         <h3 className="text-lg font-bold mb-2 flex items-center gap-2"><Link2 className="w-4 h-4 text-primary" /> Your Referral Link</h3>
         <p className="text-sm text-muted-foreground mb-6">
-          Share this to bring new people into the app. Anyone who signs up through it joins as a read-only Viewer —
-          it never grants more than that, no matter whose link it is — and you'll see them below.
+          Share this to bring new people into the app. Anyone who signs up through it joins as a full Student
+          account, ready to start trading and journaling right away — it never grants more than that, no matter
+          whose link it is — and you'll see them below.
         </p>
         {isLoading ? (
           <p className="text-sm text-muted-foreground">Loading your link…</p>

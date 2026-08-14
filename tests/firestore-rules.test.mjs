@@ -491,22 +491,26 @@ async function main() {
     await assertFails(updateDoc(doc(otherStudent, 'trade_intents', 'intent-1'), { status: 'matched' }));
   });
 
-  console.log('\npersonal referral links — self-service invites, hard-capped to Viewer\n');
+  console.log('\npersonal referral links — self-service invites, hard-capped to Student\n');
 
   const future90 = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
   const selfInvitePayload = (overrides = {}) => ({
-    code: 'my-ref-code', role: 'Viewer', mentorId: null, groupId: null,
+    code: 'my-ref-code', role: 'Student', mentorId: null, groupId: null,
     label: 'My Referral Link', createdBy: STUDENT_UID, createdByName: 'Student One', createdAt: new Date(),
     expiresAt: future90, maxUses: 500, useCount: 0, revoked: false,
     ...overrides,
   });
 
-  await check('a non-Admin CAN create their own personal referral link (role Viewer)', async () => {
+  await check('a non-Admin CAN create their own personal referral link (role Student)', async () => {
     await assertSucceeds(setDoc(doc(student, 'invites', 'my-ref-code'), selfInvitePayload()));
   });
 
-  await check('a non-Admin CANNOT self-create a referral link granting Student (above Viewer)', async () => {
-    await assertFails(setDoc(doc(student, 'invites', 'bad-ref-1'), selfInvitePayload({ code: 'bad-ref-1', role: 'Student' })));
+  await check('a non-Admin CANNOT self-create a referral link granting Viewer (no longer the grant)', async () => {
+    await assertFails(setDoc(doc(student, 'invites', 'bad-ref-1'), selfInvitePayload({ code: 'bad-ref-1', role: 'Viewer' })));
+  });
+
+  await check('a non-Admin CANNOT self-create a referral link granting Mentor', async () => {
+    await assertFails(setDoc(doc(student, 'invites', 'bad-ref-1b'), selfInvitePayload({ code: 'bad-ref-1b', role: 'Mentor' })));
   });
 
   await check('a non-Admin CANNOT self-create a referral link granting Admin', async () => {
@@ -542,21 +546,26 @@ async function main() {
   await check('a brand-new user CAN redeem a personal referral link and gets referredBy/referredByName', async () => {
     const u = testEnv.authenticatedContext('referred-uid-1').firestore();
     await assertSucceeds(setDoc(doc(u, 'users', 'referred-uid-1'), {
-      role: 'Viewer', inviteCode: 'my-ref-code', referredBy: STUDENT_UID, referredByName: 'Student One', name: 'Referred Person',
+      role: 'Student', inviteCode: 'my-ref-code', referredBy: STUDENT_UID, referredByName: 'Student One', name: 'Referred Person',
     }));
+  });
+
+  await check('a referred user CAN write their own trading data (real Student account, not read-only)', async () => {
+    const u = testEnv.authenticatedContext('referred-uid-1').firestore();
+    await assertSucceeds(setDoc(doc(u, 'journals', 'referred-journal-1'), { userId: 'referred-uid-1', title: 'First trade' }));
   });
 
   await check('CANNOT redeem a referral link while claiming a different referredBy than its creator', async () => {
     const u = testEnv.authenticatedContext('referred-uid-2').firestore();
     await assertFails(setDoc(doc(u, 'users', 'referred-uid-2'), {
-      role: 'Viewer', inviteCode: 'my-ref-code', referredBy: OTHER_STUDENT_UID, referredByName: 'Someone Else', name: 'Referred Person',
+      role: 'Student', inviteCode: 'my-ref-code', referredBy: OTHER_STUDENT_UID, referredByName: 'Someone Else', name: 'Referred Person',
     }));
   });
 
   await check('CANNOT redeem a referral link while dropping referredBy entirely', async () => {
     const u = testEnv.authenticatedContext('referred-uid-3').firestore();
     await assertFails(setDoc(doc(u, 'users', 'referred-uid-3'), {
-      role: 'Viewer', inviteCode: 'my-ref-code', name: 'Referred Person',
+      role: 'Student', inviteCode: 'my-ref-code', name: 'Referred Person',
     }));
   });
 
@@ -583,14 +592,34 @@ async function main() {
     await assertFails(updateDoc(doc(otherStudent, 'invites', 'other-persons-ref'), { revoked: true }));
   });
 
-  console.log('\nusers/{userId} — role & mentorId self-write protection\n');
+  console.log('\nusers/{userId} — role self-write protection, mentorId self-assign\n');
 
   await check('a student CANNOT self-promote their own role to Admin', async () => {
     await assertFails(updateDoc(doc(student, 'users', STUDENT_UID), { role: 'Admin' }));
   });
 
-  await check('a student CANNOT self-assign their own mentorId', async () => {
-    await assertFails(updateDoc(doc(otherStudent, 'users', OTHER_STUDENT_UID), { mentorId: MENTOR_UID }));
+  await check('a student CAN self-assign a mentorId pointing at a real Mentor ("add a mentor later")', async () => {
+    await assertSucceeds(updateDoc(doc(otherStudent, 'users', OTHER_STUDENT_UID), { mentorId: MENTOR_UID }));
+  });
+
+  await check('a student CAN change their self-assigned mentorId to a different real Mentor', async () => {
+    await assertSucceeds(updateDoc(doc(otherStudent, 'users', OTHER_STUDENT_UID), { mentorId: OTHER_MENTOR_UID }));
+  });
+
+  await check('a student CAN clear their own mentorId (unassign)', async () => {
+    await assertSucceeds(updateDoc(doc(otherStudent, 'users', OTHER_STUDENT_UID), { mentorId: null }));
+  });
+
+  await check('a student CANNOT self-assign a mentorId pointing at a non-Mentor account', async () => {
+    await assertFails(updateDoc(doc(otherStudent, 'users', OTHER_STUDENT_UID), { mentorId: STUDENT_UID }));
+  });
+
+  await check('a student CANNOT self-assign a mentorId pointing at a nonexistent uid', async () => {
+    await assertFails(updateDoc(doc(otherStudent, 'users', OTHER_STUDENT_UID), { mentorId: 'no-such-user' }));
+  });
+
+  await check('a student CANNOT self-assign someone else\'s mentorId (only their own doc)', async () => {
+    await assertFails(updateDoc(doc(otherStudent, 'users', STUDENT_UID), { mentorId: MENTOR_UID }));
   });
 
   await check('a student CAN update their own name (unrelated field)', async () => {

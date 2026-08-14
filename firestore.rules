@@ -102,14 +102,31 @@ service cloud.firestore {
 
     // True when `ownerId` (the userId field on the document being read) is a
     // student who was actually assigned to the requesting mentor — assigned
-    // via users/{studentId}.mentorId, set only by an Admin from Users &
-    // Permissions (see the users/{userId} update rule below). A mentor
-    // cannot read a student's data just by being a Mentor; the assignment
-    // has to point at them specifically.
+    // via users/{studentId}.mentorId, set either by an Admin from Users &
+    // Permissions or by the student themselves (see isValidMentorSelfAssign()
+    // and the users/{userId} update rule below). A mentor cannot read a
+    // student's data just by being a Mentor; the assignment has to point at
+    // them specifically, regardless of who set it.
     function isAssignedMentor(ownerId) {
       return isMentor() &&
         exists(/databases/$(database)/documents/users/$(ownerId)) &&
         get(/databases/$(database)/documents/users/$(ownerId)).data.get('mentorId', null) == request.auth.uid;
+    }
+
+    // A student may pick their own mentor (Settings → Mentor) — "add a
+    // mentor later in their journey" — without an Admin doing it for them.
+    // The only real constraint: it has to actually point at a real Mentor-
+    // role account, not an arbitrary uid (which would otherwise let someone
+    // fabricate a fake "assignment" to a non-mentor, though the read grant
+    // it enables is checked independently via isAssignedMentor() anyway, so
+    // this is defense in depth, not the only thing standing between a
+    // student and handing their data to the wrong account). null clears the
+    // assignment (unassigning) and is always allowed.
+    function isValidMentorSelfAssign(newMentorId) {
+      return newMentorId == null || (
+        exists(/databases/$(database)/documents/users/$(newMentorId)) &&
+        get(/databases/$(database)/documents/users/$(newMentorId)).data.role == 'Mentor'
+      );
     }
 
     // Viewer is meant to be genuinely read-only (per Users & Permissions'
@@ -140,16 +157,23 @@ service cloud.firestore {
     }
 
     // A personal referral link: any signed-in user (not just Admin) can
-    // create ONE of these for themselves via Settings → Referrals. Unlike
-    // an Admin-generated invite, it is hard-locked to role: 'Viewer' — the
-    // lowest-privilege role in the app — so there is no privilege an
-    // ordinary user's link could ever hand out, regardless of the
-    // referrer's own role; an Admin still upgrades a referred account
-    // manually afterward, same as any other Viewer. No mentor/group
-    // pre-assignment either. Bounded maxUses/expiry so a leaked personal
-    // link can't be turned into an unbounded standing invite.
+    // create ONE of these for themselves via Settings → Referrals. Hard-
+    // locked to role: 'Student' — a real, usable account (can trade,
+    // journal, everything scoped to their own data) but nothing that
+    // touches anyone else's: no visibility into other users' data, no
+    // admin surface, no ability to grant roles or manage anyone. That's
+    // the actual privilege ceiling here, regardless of the referrer's own
+    // role — Student write access is fully self-scoped throughout
+    // firestore.rules (every owner-write check below is keyed to
+    // request.auth.uid), so this is not an escalation path no matter who
+    // created the link. An Admin can still promote a referred account to
+    // anything afterward. No mentor/group pre-assignment either — a
+    // referred Student picks their own mentor later (see the users update
+    // rule's isValidMentorSelfAssign()), rather than the referrer choosing
+    // one for them. Bounded maxUses/expiry so a leaked personal link can't
+    // be turned into an unbounded standing invite.
     function isValidSelfServiceInvite(data) {
-      return data.role == 'Viewer' &&
+      return data.role == 'Student' &&
         data.get('mentorId', null) == null &&
         data.get('groupId', null) == null &&
         data.createdBy == request.auth.uid &&
@@ -505,22 +529,26 @@ service cloud.firestore {
             get(/databases/$(database)/documents/invites/$(request.resource.data.inviteCode)).data.get('createdByName', null)
         )
       );
-      // After that, role/mentorId/groupId/referredBy/referredByName are
-      // Admin-only to change — this is the actual security boundary for
-      // the app's access model, not just a UI restriction. Without it, any
-      // signed-in user could grant themselves Admin (or assign themselves
-      // a mentor/group, or fake/erase their referral attribution) with a
-      // raw Firestore write, bypassing Users & Permissions entirely. An
-      // owner can still update their own other fields (name/email/status
-      // sync on login, or their own referralCode — see Settings →
-      // Referrals) as long as these five are left unchanged.
+      // After that, role/groupId/referredBy/referredByName are Admin-only
+      // to change — this is the actual security boundary for the app's
+      // access model, not just a UI restriction. Without it, any signed-in
+      // user could grant themselves Admin (or assign themselves a group,
+      // or fake/erase their referral attribution) with a raw Firestore
+      // write, bypassing Users & Permissions entirely. mentorId is the one
+      // exception: an owner may change their own, but only to a real
+      // Mentor-role account (or null) — see isValidMentorSelfAssign() —
+      // "add a mentor later in their journey" without needing an Admin to
+      // do it for them; Admin can still freely reassign it too. An owner
+      // can still update their own other fields (name/email/status sync on
+      // login, or their own referralCode — see Settings → Referrals) as
+      // long as these four stay unchanged.
       allow update: if isAdmin() || (
         isOwner(userId) &&
         request.resource.data.role == resource.data.role &&
-        request.resource.data.get('mentorId', null) == resource.data.get('mentorId', null) &&
         request.resource.data.get('groupId', null) == resource.data.get('groupId', null) &&
         request.resource.data.get('referredBy', null) == resource.data.get('referredBy', null) &&
-        request.resource.data.get('referredByName', null) == resource.data.get('referredByName', null)
+        request.resource.data.get('referredByName', null) == resource.data.get('referredByName', null) &&
+        isValidMentorSelfAssign(request.resource.data.get('mentorId', null))
       );
       allow delete: if isAdmin();
     }
