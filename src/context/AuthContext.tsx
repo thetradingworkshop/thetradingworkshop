@@ -133,14 +133,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   // Creates the Firestore profile doc on first sign-in only. On every
-  // later sign-in this re-syncs just name/email/updatedAt — deliberately
-  // never role/status. firestore.rules now protects role (and mentorId)
-  // from self-modification once the doc exists, so re-including a
-  // hardcoded 'role: Student' default here on every login would either
+  // later sign-in this re-syncs just name/email/updatedAt/lastLoginAt —
+  // deliberately never role/status. firestore.rules now protects role (and
+  // mentorId) from self-modification once the doc exists, so re-including
+  // a hardcoded 'role: Student' default here on every login would either
   // get rejected by the rules for an Admin/Mentor account, or (before
   // that rule existed) silently clobber whatever an Admin had assigned
   // in Users & Permissions back to the default on that person's next
   // sign-in.
+  //
+  // lastLoginAt is deliberately separate from updatedAt: updatedAt also
+  // gets bumped by Admin-driven writes (role change, status toggle, mentor
+  // reassignment in Users & Permissions), so it answers "when did this
+  // profile record last change" — not "when did this person actually last
+  // sign in", which is what Users & Permissions' Last Login column needs.
+  // This function is the only place lastLoginAt is ever written.
   const syncUserDoc = async (user: User, fallbackName: string) => {
     const ref = doc(db, 'users', user.uid);
     const existing = await getDoc(ref);
@@ -150,6 +157,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         name: user.displayName || existing.data().name || fallbackName,
         email: user.email || '',
         updatedAt: serverTimestamp(),
+        lastLoginAt: serverTimestamp(),
       }, { merge: true });
     } else {
       const invite = await lookupInviteGrant();
@@ -160,6 +168,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         role: 'Student', // Default role for a brand-new account, overridden below if invited
         status: 'active',
         updatedAt: serverTimestamp(),
+        lastLoginAt: serverTimestamp(),
         ...invite?.grant,
       }, { merge: true });
       // Only mark the invite used once the account it grants actually

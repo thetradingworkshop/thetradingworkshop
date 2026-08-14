@@ -83,6 +83,7 @@ interface UserData {
   referredBy?: string; // uid of whoever's invite/referral link created this account, if any
   referredByName?: string;
   updatedAt: string; // formatted, or 'Unknown'
+  lastLoginAt: string; // formatted, or 'Never' — see AuthContext.tsx's syncUserDoc, the only writer
 }
 
 // invites/{id} — see firestore.rules' isValidInvite() and
@@ -157,10 +158,10 @@ const ROLE_TEMPLATES: Record<Role, string[]> = {
   Viewer: ['view_own'],
 };
 
-function fmtTimestamp(v: any): string {
-  if (!v) return 'Unknown';
+function fmtTimestamp(v: any, fallback: string = 'Unknown'): string {
+  if (!v) return fallback;
   const d = v.toDate ? v.toDate() : new Date(v);
-  if (isNaN(d.getTime())) return 'Unknown';
+  if (isNaN(d.getTime())) return fallback;
   return d.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
 
@@ -206,6 +207,10 @@ export default function UsersPermissionsScreen() {
           referredBy: data.referredBy || undefined,
           referredByName: data.referredByName || undefined,
           updatedAt: fmtTimestamp(data.updatedAt),
+          // Accounts created by an Admin (invite/manual) but never signed
+          // in yet — or ones that existed before this field started being
+          // written — genuinely have no login to report.
+          lastLoginAt: fmtTimestamp(data.lastLoginAt, 'Never'),
         };
       });
       setUsers(docs);
@@ -509,6 +514,9 @@ export default function UsersPermissionsScreen() {
             {user.role}
           </Badge>
         </TableCell>
+        <TableCell className={cn("text-xs font-medium", user.lastLoginAt === 'Never' ? "text-muted-foreground/50 italic" : "text-muted-foreground")}>
+          {user.lastLoginAt}
+        </TableCell>
         <TableCell className="text-muted-foreground text-xs font-medium">{user.updatedAt}</TableCell>
         <TableCell>
           <div className="flex items-center space-x-2">
@@ -560,6 +568,7 @@ export default function UsersPermissionsScreen() {
             <TableRow>
               <TableHead>User Profile</TableHead>
               <TableHead>Role</TableHead>
+              <TableHead>Last Login</TableHead>
               <TableHead>Last Updated</TableHead>
               <TableHead>Status</TableHead>
               <TableHead className="text-right"></TableHead>
@@ -932,9 +941,17 @@ export default function UsersPermissionsScreen() {
             </div>
 
             <div className="flex-1 overflow-y-auto p-8 space-y-10 no-scrollbar">
-              <section className="space-y-1.5">
-                <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Last Updated</label>
-                <p className="text-sm font-medium text-foreground">{selectedUser.updatedAt}</p>
+              <section className="grid grid-cols-2 gap-6">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Last Login</label>
+                  <p className={cn("text-sm font-medium", selectedUser.lastLoginAt === 'Never' ? "text-muted-foreground italic" : "text-foreground")}>
+                    {selectedUser.lastLoginAt}
+                  </p>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Last Updated</label>
+                  <p className="text-sm font-medium text-foreground">{selectedUser.updatedAt}</p>
+                </div>
               </section>
 
               {selectedUser.referredBy && (
