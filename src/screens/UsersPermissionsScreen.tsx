@@ -7,6 +7,8 @@ import {
 import { db } from '../firebase';
 import { useAuth } from '../context/AuthContext';
 import { generateInviteCode } from '../lib/inviteCode';
+import { useUnreadSupportCount } from '../hooks/useSupportChat';
+import SupportInboxTab from './SupportInboxTab';
 import {
   SectionHeader,
   Card,
@@ -42,6 +44,7 @@ import {
   Layers,
   Plus,
   Mail,
+  MessageSquare,
 } from 'lucide-react';
 
 // This screen used to run entirely on a hardcoded array of five fake
@@ -163,6 +166,10 @@ function fmtTimestamp(v: any): string {
 
 export default function UsersPermissionsScreen() {
   const { user: currentUser } = useAuth();
+  // This screen is only ever reached by Admin (see AppShell's nav roles),
+  // so the count is always live here — just reusing the same hook the
+  // header Bell badge uses.
+  const unreadSupportCount = useUnreadSupportCount(true);
   const [activeTab, setActiveTab] = useState('users');
   const [users, setUsers] = useState<UserData[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
@@ -871,6 +878,7 @@ export default function UsersPermissionsScreen() {
           { id: 'users', label: 'Users', icon: Users },
           { id: 'invites', label: 'Invites', icon: Mail },
           { id: 'groups', label: 'Groups', icon: Layers },
+          { id: 'support', label: 'Support', icon: MessageSquare },
           { id: 'roles', label: 'Role Templates', icon: Shield },
           { id: 'access rules', label: 'Access Rules', icon: Lock },
           { id: 'audit log', label: 'Audit Log', icon: History },
@@ -885,6 +893,11 @@ export default function UsersPermissionsScreen() {
           >
             <tab.icon className={cn("w-4 h-4 transition-transform", activeTab === tab.id && "scale-110")} />
             <span>{tab.label}</span>
+            {tab.id === 'support' && unreadSupportCount > 0 && (
+              <span className="min-w-[16px] h-[16px] px-1 rounded-full bg-rose-500 text-white text-[9px] font-bold flex items-center justify-center">
+                {unreadSupportCount > 9 ? '9+' : unreadSupportCount}
+              </span>
+            )}
             {activeTab === tab.id && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-t-full" />}
           </button>
         ))}
@@ -894,6 +907,7 @@ export default function UsersPermissionsScreen() {
         {activeTab === 'users' && renderUsersTab()}
         {activeTab === 'invites' && renderInvitesTab()}
         {activeTab === 'groups' && renderGroupsTab()}
+        {activeTab === 'support' && <SupportInboxTab />}
         {activeTab === 'roles' && renderRolesTab()}
         {activeTab === 'access rules' && renderAccessRulesTab()}
         {activeTab === 'audit log' && renderAuditLogTab()}

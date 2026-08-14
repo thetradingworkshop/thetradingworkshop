@@ -288,6 +288,37 @@ service cloud.firestore {
              data.createdAt is timestamp;
     }
 
+    // support_threads/{userId} — the summary doc behind the floating
+    // support chat widget and the Admin inbox (Users & Permissions →
+    // Support). One thread per user, keyed by their own uid — same
+    // "doc ID doubles as the access key" pattern as everywhere else in
+    // this file. `writerIsOwner` picks which of the two directions is
+    // being validated: the thread's owner sending a message always marks
+    // it unread-for-Admin and leaves unread-for-user alone (they obviously
+    // already know about their own message); Admin's own writes are
+    // validated by the same shape but not constrained by this function —
+    // isAdmin() already covers that branch.
+    function isValidSupportThread(data, writerIsOwner) {
+      return data.userId is string &&
+             data.userName is string &&
+             data.userEmail is string &&
+             data.lastMessageText is string &&
+             data.lastMessageAt is timestamp &&
+             data.lastMessageBy in ['user', 'admin'] &&
+             data.unreadByAdmin is bool &&
+             data.unreadByUser is bool &&
+             (!writerIsOwner || (data.lastMessageBy == 'user' && data.unreadByAdmin == true));
+    }
+
+    function isValidSupportMessage(data) {
+      return data.senderId is string &&
+             data.senderName is string &&
+             data.senderRole in ['user', 'admin'] &&
+             data.text is string &&
+             data.text.size() > 0 && data.text.size() <= 2000 &&
+             data.createdAt is timestamp;
+    }
+
     // Connection Test
     match /test/connection {
       allow read: if true;
@@ -469,6 +500,42 @@ service cloud.firestore {
       allow read: if isAdmin();
       allow create: if isAuthenticated() && isAdmin();
       allow update, delete: if false;
+    }
+
+    // Support chat — the floating widget (any signed-in user) and the
+    // Admin inbox it feeds (Users & Permissions → Support). `get` is open
+    // to the thread's own owner or any Admin so a user can read their own
+    // thread by its known id (their own uid); `list` (browsing every
+    // thread that exists — the inbox view) is Admin-only, same isolation
+    // as invites' bearer-token design elsewhere in this file. The thread
+    // doc itself is written by whichever side just sent a message — the
+    // owner via the constrained isValidSupportThread() branch, Admin
+    // unconstrained (they're also who clears unreadByAdmin after reading).
+    match /support_threads/{userId} {
+      allow get: if isAuthenticated() && (isOwner(userId) || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isAuthenticated() && (
+        (isOwner(userId) && request.resource.data.userId == userId && isValidSupportThread(request.resource.data, true)) ||
+        (isAdmin() && isValidSupportThread(request.resource.data, false))
+      );
+      allow update: if isAuthenticated() && (
+        (isOwner(userId) && isValidSupportThread(request.resource.data, true)) ||
+        (isAdmin() && isValidSupportThread(request.resource.data, false))
+      );
+      allow delete: if isAdmin();
+
+      // Append-only, same immutability as journals/{id}/mentorComments —
+      // no editing or deleting your own message after sending, only Admin
+      // can moderate (delete) one.
+      match /messages/{messageId} {
+        allow read: if isAuthenticated() && (isOwner(userId) || isAdmin());
+        allow create: if isAuthenticated() && isValidSupportMessage(request.resource.data) && (
+          (isOwner(userId) && request.resource.data.senderId == request.auth.uid && request.resource.data.senderRole == 'user') ||
+          (isAdmin() && request.resource.data.senderRole == 'admin')
+        );
+        allow update: if false;
+        allow delete: if isAdmin();
+      }
     }
 
     // Users

@@ -659,6 +659,39 @@ export interface MentorComment {
   createdAt: string; // ISO string once read back from Firestore's Timestamp
 }
 
+// support_threads/{userId} — one thread per user, behind the floating
+// support chat widget (any signed-in role) and the Admin inbox (Users &
+// Permissions → Support). unreadByAdmin is the real notification signal
+// ("notify admin if any user submits a message") — it's what the header
+// Bell badge and the inbox's unread sort are driven by, cleared only when
+// an Admin opens the thread. unreadByUser exists in the schema (set true
+// whenever Admin replies) but nothing clears it back to false yet — the
+// widget's own "have I seen the latest reply" badge is tracked locally
+// (per-browser) instead, not through this field; treat it as informational
+// only, not a reliable read receipt.
+export interface SupportThread {
+  id: string; // == userId
+  userId: string;
+  userName: string;
+  userEmail: string;
+  lastMessageText: string;
+  lastMessageAt: string;
+  lastMessageBy: 'user' | 'admin';
+  unreadByAdmin: boolean;
+  unreadByUser: boolean;
+}
+
+// support_threads/{userId}/messages/{messageId} — append-only, same
+// immutability pattern as MentorComment above.
+export interface SupportMessage {
+  id: string;
+  senderId: string;
+  senderName: string;
+  senderRole: 'user' | 'admin';
+  text: string;
+  createdAt: string;
+}
+
 // invites/{inviteId} — a bearer token an Admin generates (Users &
 // Permissions → Invites) that lets a brand-new sign-in arrive with a role
 // other than the app's hardcoded 'Student' default, and optionally a

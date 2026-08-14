@@ -592,6 +592,104 @@ async function main() {
     await assertFails(updateDoc(doc(otherStudent, 'invites', 'other-persons-ref'), { revoked: true }));
   });
 
+  console.log('\nsupport chat — floating widget + Admin inbox\n');
+
+  const threadPayload = (overrides = {}) => ({
+    userId: overrides.userId,
+    userName: overrides.userName ?? 'Student One',
+    userEmail: overrides.userEmail ?? 'student1@example.com',
+    lastMessageText: overrides.lastMessageText ?? 'Hi, I have a question.',
+    lastMessageAt: overrides.lastMessageAt ?? new Date(),
+    lastMessageBy: overrides.lastMessageBy ?? 'user',
+    unreadByAdmin: overrides.unreadByAdmin ?? true,
+    unreadByUser: overrides.unreadByUser ?? false,
+  });
+  const supportMsgPayload = (overrides = {}) => ({
+    senderId: overrides.senderId,
+    senderName: overrides.senderName ?? 'Student One',
+    senderRole: overrides.senderRole ?? 'user',
+    text: overrides.text ?? 'Hi, I have a question.',
+    createdAt: overrides.createdAt ?? new Date(),
+  });
+
+  await check('a user CAN create their own support thread by sending the first message', async () => {
+    await assertSucceeds(setDoc(doc(student, 'support_threads', STUDENT_UID), threadPayload({ userId: STUDENT_UID })));
+  });
+
+  await check('a user CAN post a message to their own thread', async () => {
+    await assertSucceeds(setDoc(
+      doc(student, 'support_threads', STUDENT_UID, 'messages', 'msg-1'),
+      supportMsgPayload({ senderId: STUDENT_UID })
+    ));
+  });
+
+  await check('a user CANNOT create a thread for someone else', async () => {
+    await assertFails(setDoc(doc(student, 'support_threads', OTHER_STUDENT_UID), threadPayload({ userId: OTHER_STUDENT_UID })));
+  });
+
+  await check('a user CANNOT post a message pretending to be from Admin', async () => {
+    await assertFails(setDoc(
+      doc(student, 'support_threads', STUDENT_UID, 'messages', 'msg-fake-admin'),
+      supportMsgPayload({ senderId: STUDENT_UID, senderRole: 'admin' })
+    ));
+  });
+
+  await check('a user CANNOT create their own thread already marked read by Admin', async () => {
+    await assertFails(setDoc(
+      doc(otherStudent, 'support_threads', OTHER_STUDENT_UID),
+      threadPayload({ userId: OTHER_STUDENT_UID, unreadByAdmin: false })
+    ));
+  });
+
+  await check('a different user CANNOT read someone else\'s support thread', async () => {
+    await assertFails(getDoc(doc(otherStudent, 'support_threads', STUDENT_UID)));
+  });
+
+  await check('a different user CANNOT read someone else\'s support messages', async () => {
+    await assertFails(getDoc(doc(otherStudent, 'support_threads', STUDENT_UID, 'messages', 'msg-1')));
+  });
+
+  await check('a different user CANNOT post into someone else\'s thread', async () => {
+    await assertFails(setDoc(
+      doc(otherStudent, 'support_threads', STUDENT_UID, 'messages', 'msg-intrude'),
+      supportMsgPayload({ senderId: OTHER_STUDENT_UID })
+    ));
+  });
+
+  await check('a non-Admin CANNOT list/enumerate all support threads (inbox is Admin-only)', async () => {
+    await assertFails(getDocs(collection(student, 'support_threads')));
+  });
+
+  await check('Admin CAN read any support thread', async () => {
+    await assertSucceeds(getDoc(doc(admin, 'support_threads', STUDENT_UID)));
+  });
+
+  await check('Admin CAN list all support threads (inbox)', async () => {
+    await assertSucceeds(getDocs(collection(admin, 'support_threads')));
+  });
+
+  await check('Admin CAN reply on a user\'s thread', async () => {
+    await assertSucceeds(setDoc(
+      doc(admin, 'support_threads', STUDENT_UID, 'messages', 'msg-2'),
+      supportMsgPayload({ senderId: ADMIN_UID, senderName: 'Admin One', senderRole: 'admin', text: 'Sure, how can I help?' })
+    ));
+  });
+
+  await check('Admin CAN mark a thread read (update unreadByAdmin/unreadByUser)', async () => {
+    await assertSucceeds(setDoc(
+      doc(admin, 'support_threads', STUDENT_UID),
+      threadPayload({ userId: STUDENT_UID, lastMessageBy: 'admin', lastMessageText: 'Sure, how can I help?', unreadByAdmin: false, unreadByUser: true })
+    ));
+  });
+
+  await check('a user CANNOT edit a message after sending (append-only)', async () => {
+    await assertFails(updateDoc(doc(student, 'support_threads', STUDENT_UID, 'messages', 'msg-1'), { text: 'Edited.' }));
+  });
+
+  await check('Admin CAN delete a message (moderation)', async () => {
+    await assertSucceeds(deleteDoc(doc(admin, 'support_threads', STUDENT_UID, 'messages', 'msg-1')));
+  });
+
   console.log('\nusers/{userId} — role self-write protection, mentorId self-assign\n');
 
   await check('a student CANNOT self-promote their own role to Admin', async () => {

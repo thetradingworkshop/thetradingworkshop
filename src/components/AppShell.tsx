@@ -26,6 +26,8 @@ import { useTheme } from './ThemeProvider';
 import { Sun, Moon, Bell, User } from 'lucide-react';
 import { Toast, Button } from './Shared';
 import { LogIntentModal } from './LogIntentModal';
+import { SupportChatWidget } from './SupportChatWidget';
+import { useUnreadSupportCount } from '../hooks/useSupportChat';
 
 // Exported so App.tsx can enforce the same role list at the route level —
 // this list used to only ever filter the sidebar, which hid pages from the
@@ -79,6 +81,7 @@ export function AppShell({
   const { filters, setFilters, filterOptions, accountOptions, accountFilter, setAccountFilter } = useTrades();
   const { user, logout } = useAuth();
   const showTradeControls = TRADE_SCOPED_PAGES.includes(activePage);
+  const unreadSupportCount = useUnreadSupportCount(userRole === 'Admin');
 
   // This used to be a hardcoded "Jean Paul" regardless of who was actually
   // signed in — real name/initials from the authenticated Firebase user.
@@ -188,17 +191,32 @@ export function AppShell({
               {theme === 'dark' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
             </button>
  
-            {/* No real notification system exists yet — disabled rather
-                than faking a click response, and the unread dot (which
-                used to show unconditionally) is gone since there's no
-                real unread count behind it. */}
-            <button
-              disabled
-              title="Notifications aren't built yet"
-              className="w-10 h-10 rounded-xl border border-border flex items-center justify-center text-muted-foreground/40 cursor-not-allowed"
-            >
-              <Bell className="w-5 h-5" />
-            </button>
+            {/* Real for Admin only so far: live unread count from
+                support_threads (see Users & Permissions → Support).
+                Everyone else still gets the disabled placeholder — no
+                notification surface exists for them yet. */}
+            {userRole === 'Admin' ? (
+              <button
+                onClick={() => setActivePage('admin')}
+                title={unreadSupportCount > 0 ? `${unreadSupportCount} unread support message${unreadSupportCount === 1 ? '' : 's'}` : 'No unread support messages'}
+                className="relative w-10 h-10 rounded-xl border border-border flex items-center justify-center hover:bg-accent transition-colors"
+              >
+                <Bell className="w-5 h-5" />
+                {unreadSupportCount > 0 && (
+                  <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center">
+                    {unreadSupportCount > 9 ? '9+' : unreadSupportCount}
+                  </span>
+                )}
+              </button>
+            ) : (
+              <button
+                disabled
+                title="Notifications aren't built yet"
+                className="w-10 h-10 rounded-xl border border-border flex items-center justify-center text-muted-foreground/40 cursor-not-allowed"
+              >
+                <Bell className="w-5 h-5" />
+              </button>
+            )}
 
             <button
               onClick={() => setActivePage('settings')}
@@ -232,6 +250,10 @@ export function AppShell({
           setToast({ message: 'Setup logged — it will auto-match to your next trade on that symbol.', type: 'success' });
         }}
       />
+
+      {/* Admin gets the inbox (Users & Permissions → Support) instead of a
+          widget that would just be them messaging themselves. */}
+      {userRole !== 'Admin' && <SupportChatWidget />}
     </div>
   );
 }
