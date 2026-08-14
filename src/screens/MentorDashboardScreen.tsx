@@ -3,13 +3,16 @@ import { cn, gradeBadgeVariant } from '@/src/utils';
 import { collection, query, where, orderBy, limit, onSnapshot } from 'firebase/firestore';
 import { format, subDays, isWithinInterval } from 'date-fns';
 import { db } from '../firebase';
-import { SectionHeader, Card, Badge, Button, Modal, Table, TableHeader, TableRow, TableHead, TableCell } from '../components/Shared';
+import { SectionHeader, Card, Badge, Button, Table, TableHeader, TableRow, TableHead, TableCell } from '../components/Shared';
 import { stripHtml } from '../components/RichTextEditor';
-import { Users, TrendingUp, AlertCircle, FileText, User, CheckCircle2, Trophy, ArrowUpRight, ArrowDownRight, Target, BrainCircuit, ChevronRight, ChevronLeft, BarChart3, BookOpen, Loader2, Send } from 'lucide-react';
+import { Users, TrendingUp, AlertCircle, FileText, User, CheckCircle2, Trophy, ArrowUpRight, ArrowDownRight, Target, BrainCircuit, ChevronRight, ChevronLeft, BarChart3, BookOpen, LineChart, Star, Loader2, Send } from 'lucide-react';
 import { computeDisciplineScore, computeConsistencyScore } from '../services/analyticsService';
 import { useAuth } from '../context/AuthContext';
 import { useMentorComments, postMentorComment, fmtCommentTimestamp } from '../hooks/useMentorComments';
-import { Trade, JournalEntry } from '../types';
+import { Trade, JournalEntry, ChartDrawing } from '../types';
+import { TradeCandleChart } from '../components/TradeCandleChart';
+import { RunningPnlChart } from '../components/RunningPnlChart';
+import { useMarketBars } from '../hooks/useMarketBars';
 
 // This screen used to genuinely query real students, then read
 // `s.discipline`/`s.consistency`/`s.lastSession`/`s.trend` — fields nothing
@@ -113,6 +116,19 @@ function NoteCommentThread({ journalId, authorId, authorName, authorRole }: {
   );
 }
 
+// Same label/value row TradePerformanceLog's own Trade Details drawer uses
+// for its stats panel — kept a plain read-only display here (no
+// EditableStatRow equivalent) since a mentor never has write access to a
+// student's trade.
+function StatRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between py-2.5 border-b border-border/40 last:border-b-0">
+      <span className="text-xs font-medium text-muted-foreground">{label}</span>
+      <span className="text-sm font-bold font-mono text-right">{children}</span>
+    </div>
+  );
+}
+
 function buildStudentRow(base: { id: string; name?: string; email?: string; status?: string }, trades: Trade[]): StudentRow {
   if (trades.length === 0) {
     return { id: base.id, name: base.name || base.email || 'Student', email: base.email, status: base.status, discipline: 0, consistency: 0, lastSession: 'No trades yet', trend: 'flat', improvementPts: 0, totalTrades: 0 };
@@ -167,6 +183,13 @@ export default function MentorDashboardScreen() {
   const [selectedTradeId, setSelectedTradeId] = useState<string | null>(null);
   const [tradeNote, setTradeNote] = useState<JournalEntry[] | null>(null);
   const [tradeNoteLoading, setTradeNoteLoading] = useState(false);
+
+  // Trade Detail's own chart controls — same shape as TradePerformanceLog's,
+  // but chart edits here are session-local only (see localDrawings' own
+  // comment further down) rather than saved back to the student's trade.
+  const [rightTab, setRightTab] = useState<'chart' | 'notes' | 'pnl'>('chart');
+  const [chartTimeframe, setChartTimeframe] = useState<string | undefined>(undefined);
+  const [localDrawings, setLocalDrawings] = useState<ChartDrawing[]>([]);
 
   useEffect(() => {
     if (!selectedStudentId) { setStudentNotes(null); setNotesError(null); return; }
@@ -289,6 +312,28 @@ export default function MentorDashboardScreen() {
   const openStudent = (id: string) => { setSelectedStudentId(id); setDetailTab('trades'); setSelectedTradeId(null); };
   const closeStudent = () => { setSelectedStudentId(null); setSelectedTradeId(null); };
 
+  // Real intraday candles for the drilled-into trade's own window, same
+  // hook TradePerformanceLog uses — pure trade-scoped market data, no
+  // per-user subscription, so it's exactly as safe to reuse here as it is
+  // there (falls back to fills-based/synthetic bars if the market fetch
+  // comes back empty — see TradeCandleChart).
+  const { market, isLoading: isLoadingMarket } = useMarketBars(selectedTrade, chartTimeframe);
+
+  // Seeds the chart with whatever the trader already drew on this trade
+  // (real context for the mentor to review), but edits from here never
+  // write back — a mentor is read-only on trades/trade_reviews per
+  // firestore.rules, and TradeCandleChart's own save path
+  // (updateTradeFields({ drawings })) is exactly the kind of student-owned
+  // write that would be silently rejected. Kept local/session-only instead
+  // of wiring onDrawingsChange to a no-op that drops edits on the floor —
+  // this way a mentor can still sketch while reviewing, it just resets the
+  // next time they open a trade.
+  useEffect(() => {
+    setLocalDrawings(selectedTrade?.drawings || []);
+    setRightTab('chart');
+    setChartTimeframe(undefined);
+  }, [selectedTradeId]);
+
   const activeStudents = studentRows.filter(s => s.totalTrades > 0);
   const avgDiscipline = activeStudents.length ? Math.round(activeStudents.reduce((s, r) => s + r.discipline, 0) / activeStudents.length) : 0;
   const avgConsistency = activeStudents.length ? Math.round(activeStudents.reduce((s, r) => s + r.consistency, 0) / activeStudents.length) : 0;
@@ -317,6 +362,346 @@ export default function MentorDashboardScreen() {
     if (score >= 75) return "bg-amber-500/10 border-amber-500/20";
     return "bg-rose-500/10 border-rose-500/20";
   };
+
+  // Trade Detail — a real full page (was a small modal), reusing
+  // TradeCandleChart / RunningPnlChart / useMarketBars for genuine visual
+  // parity with TradePerformanceLog's own Trade Details view — not the
+  // shared component itself: that one is wired to the CURRENT signed-in
+  // user (subscribeStrategies(user.uid, ...), tagCategories where
+  // userId==user.uid, writes scoped to request.auth.uid), so pointing it
+  // at a student's trade would mix in the mentor's own tag/strategy
+  // library and attempt writes firestore.rules already blocks (mentors
+  // are read-only on trades). Review fields (tags/verdict/lessonLearned/
+  // starRating/behaviorFlags) are mirrored onto the trade doc itself by
+  // TradePerformanceLog's saveReview(), so they're readable straight off
+  // `selectedTrade` here with no separate trade_reviews read needed —
+  // useful since trade_reviews' own rule doesn't even grant mentors read
+  // access, only owner or Admin.
+  if (selectedTradeId && selectedTrade && selectedStudent) {
+    const starRating = selectedTrade.starRating || 0;
+    const hasReview = !!(starRating || (selectedTrade.tags && selectedTrade.tags.length > 0) ||
+      (selectedTrade.behaviorFlags && selectedTrade.behaviorFlags.length > 0) || selectedTrade.verdict || selectedTrade.lessonLearned);
+    return (
+      <div className="space-y-6 pb-20">
+        <button
+          onClick={() => setSelectedTradeId(null)}
+          className="flex items-center gap-1.5 text-xs font-bold text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <ChevronLeft className="w-4 h-4" /> Back to {selectedStudent.name.split(' ')[0]}'s trades
+        </button>
+
+        <Card noPadding className="overflow-hidden border-border/50">
+          <div className="p-6 border-b border-border flex items-center justify-between gap-4 flex-wrap">
+            <div>
+              <div className="flex items-center gap-2.5 flex-wrap">
+                <h2 className="text-xl font-black tracking-tight">{selectedTrade.symbol}</h2>
+                <span className={cn(
+                  "text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md",
+                  selectedTrade.direction === 'LONG' ? "text-emerald-600 bg-emerald-500/10" : "text-rose-600 bg-rose-500/10"
+                )}>
+                  {selectedTrade.direction}
+                </span>
+                {selectedTrade.tradeGrade && <Badge variant={gradeBadgeVariant(selectedTrade.tradeGrade)}>{selectedTrade.tradeGrade}</Badge>}
+                {selectedTrade.isManualEntry && <Badge variant="warning" className="text-[10px]">Manually entered</Badge>}
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                {fmtTradeDate(selectedTrade.entryTime)} · Reconstructed from {selectedTrade.fills?.length ?? 0} execution fills
+              </p>
+            </div>
+            <p className={cn("text-2xl font-black", selectedTrade.pnlCurrency >= 0 ? "text-emerald-500" : "text-rose-500")}>
+              {selectedTrade.pnlCurrency >= 0 ? '+' : ''}${selectedTrade.pnlCurrency.toFixed(2)}
+            </p>
+          </div>
+
+          <div className="flex flex-col lg:flex-row">
+            {/* Left: read-only stats + review */}
+            <div className="lg:w-[380px] shrink-0 lg:border-r border-border p-6 space-y-6">
+              <div>
+                <StatRow label="Entry">{selectedTrade.avgEntryPrice}</StatRow>
+                <StatRow label="Exit">{selectedTrade.avgExitPrice}</StatRow>
+                <StatRow label="Quantity">{selectedTrade.totalQuantity}</StatRow>
+                <StatRow label="Points">{selectedTrade.pnlPoints >= 0 ? '+' : ''}{selectedTrade.pnlPoints}</StatRow>
+                <StatRow label="Hold Time">
+                  {selectedTrade.holdTimeSeconds >= 60 ? `${Math.round(selectedTrade.holdTimeSeconds / 60)}m` : `${selectedTrade.holdTimeSeconds}s`}
+                </StatRow>
+                {selectedTrade.riskRewardRatio != null && (
+                  <StatRow label="Risk/Reward">1 : {selectedTrade.riskRewardRatio.toFixed(2)}</StatRow>
+                )}
+                {selectedTrade.totalCommission != null && (
+                  <StatRow label="Commission">${selectedTrade.totalCommission.toFixed(2)}</StatRow>
+                )}
+                {selectedTrade.strategy && <StatRow label="Strategy">{selectedTrade.strategy}</StatRow>}
+              </div>
+
+              {hasReview && (
+                <div className="pt-5 border-t border-border/40 space-y-3">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Trade Review</p>
+                  {starRating > 0 && (
+                    <div className="flex items-center gap-0.5">
+                      {Array.from({ length: 5 }).map((_, i) => (
+                        <Star key={i} className={cn("w-3.5 h-3.5", i < starRating ? "fill-amber-400 text-amber-400" : "text-muted-foreground/25")} />
+                      ))}
+                    </div>
+                  )}
+                  {selectedTrade.tags && selectedTrade.tags.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {selectedTrade.tags.map(tag => <Badge key={tag} variant="neutral" className="text-[9px]">{tag}</Badge>)}
+                    </div>
+                  )}
+                  {selectedTrade.behaviorFlags && selectedTrade.behaviorFlags.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {selectedTrade.behaviorFlags.map(flag => <Badge key={flag} variant="negative" className="text-[9px]">{flag}</Badge>)}
+                    </div>
+                  )}
+                  {selectedTrade.verdict && (
+                    <p className="text-xs text-muted-foreground leading-relaxed">
+                      <span className="font-bold text-foreground">Verdict — </span>{selectedTrade.verdict}
+                    </p>
+                  )}
+                  {selectedTrade.lessonLearned && (
+                    <p className="text-xs text-muted-foreground leading-relaxed">
+                      <span className="font-bold text-foreground">Lesson — </span>{selectedTrade.lessonLearned}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Right: Chart / Notes / Running P&L */}
+            <div className="flex-1 min-w-0 flex flex-col">
+              <div className="flex items-center gap-1 p-4 border-b border-border">
+                {([
+                  { id: 'chart' as const, label: 'Chart', icon: BarChart3 },
+                  { id: 'notes' as const, label: 'Notes', icon: BookOpen },
+                  { id: 'pnl' as const, label: 'Running P&L', icon: LineChart },
+                ]).map(tab => {
+                  const Icon = tab.icon;
+                  return (
+                    <button
+                      key={tab.id}
+                      onClick={() => setRightTab(tab.id)}
+                      className={cn(
+                        "flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold transition-all",
+                        rightTab === tab.id ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent/40"
+                      )}
+                    >
+                      <Icon className="w-4 h-4" />
+                      <span>{tab.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="p-6">
+                {rightTab === 'chart' && (
+                  <div className="h-[420px]">
+                    <TradeCandleChart
+                      trade={selectedTrade}
+                      market={market}
+                      isLoadingMarket={isLoadingMarket}
+                      timeframe={chartTimeframe}
+                      onTimeframeChange={setChartTimeframe}
+                      drawings={localDrawings}
+                      onDrawingsChange={setLocalDrawings}
+                    />
+                  </div>
+                )}
+
+                {rightTab === 'pnl' && <RunningPnlChart trade={selectedTrade} />}
+
+                {rightTab === 'notes' && (
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground mb-2">Linked Note</p>
+                    {tradeNoteLoading ? (
+                      <div className="flex items-center justify-center py-10">
+                        <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+                      </div>
+                    ) : !tradeNote || tradeNote.length === 0 ? (
+                      <div className="text-center py-8 text-muted-foreground italic text-sm bg-muted/20 rounded-2xl border border-border/40">
+                        No notes for this trade yet.
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {tradeNote.map(note => (
+                          <div key={note.id} className="p-4 bg-muted/30 rounded-2xl border border-border/40">
+                            <div className="flex items-center justify-between gap-3 mb-1.5">
+                              <h4 className="font-bold text-sm text-foreground">{note.title || 'Untitled'}</h4>
+                              <span className="text-[10px] text-muted-foreground shrink-0">{note.date}</span>
+                            </div>
+                            {note.content && (
+                              <div
+                                className="text-xs text-muted-foreground leading-relaxed prose-sm max-w-none"
+                                dangerouslySetInnerHTML={{ __html: note.content }}
+                              />
+                            )}
+                            {note.tags && note.tags.length > 0 && (
+                              <div className="flex flex-wrap gap-1.5 mt-2">
+                                {note.tags.map(tag => <Badge key={tag} variant="neutral" className="text-[9px]">{tag}</Badge>)}
+                              </div>
+                            )}
+                            {user && (role === 'Mentor' || role === 'Admin') && (
+                              <NoteCommentThread
+                                journalId={note.id}
+                                authorId={user.uid}
+                                authorName={user.displayName || user.email || 'Mentor'}
+                                authorRole={role}
+                              />
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
+  // Student Detail — also a real full page now (was a modal). Trades
+  // reuses the per-student data already loaded for the roster
+  // table/leaderboard below; Notes is a small on-demand fetch (see the
+  // effect near the top of this component) so we're not holding open a
+  // live journals listener for every student just because the roster
+  // loaded.
+  if (selectedStudentId && selectedStudent) {
+    return (
+      <div className="space-y-6 pb-20">
+        <button
+          onClick={closeStudent}
+          className="flex items-center gap-1.5 text-xs font-bold text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <ChevronLeft className="w-4 h-4" /> Back to Mentor Dashboard
+        </button>
+
+        <div>
+          <h2 className="text-2xl font-bold tracking-tight">{selectedStudent.name}</h2>
+          <div className="flex items-center gap-6 text-xs text-muted-foreground mt-1">
+            {selectedStudent.email && <span>{selectedStudent.email}</span>}
+            <span>Last session: {selectedStudent.lastSession}</span>
+          </div>
+        </div>
+
+        <div className="flex gap-2 border-b border-border/60">
+          <button
+            onClick={() => setDetailTab('trades')}
+            className={cn(
+              "flex items-center gap-2 px-4 py-2.5 text-sm font-bold border-b-2 -mb-px transition-colors",
+              detailTab === 'trades' ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <BarChart3 className="w-4 h-4" /> Trades ({selectedStudent.totalTrades})
+          </button>
+          <button
+            onClick={() => setDetailTab('notes')}
+            className={cn(
+              "flex items-center gap-2 px-4 py-2.5 text-sm font-bold border-b-2 -mb-px transition-colors",
+              detailTab === 'notes' ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <BookOpen className="w-4 h-4" /> Notes{studentNotes ? ` (${studentNotes.length})` : ''}
+          </button>
+        </div>
+
+        {detailTab === 'trades' && (
+          selectedStudentTrades.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground italic text-sm">No trades logged yet.</div>
+          ) : (
+            <Card noPadding>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Symbol</TableHead>
+                    <TableHead>Side</TableHead>
+                    <TableHead className="text-right">Net P&L</TableHead>
+                    <TableHead className="text-right">Grade</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <tbody>
+                  {selectedStudentTrades.slice(0, 100).map(t => (
+                    <TableRow
+                      key={t.id}
+                      onClick={() => setSelectedTradeId(t.id)}
+                      className="cursor-pointer hover:bg-accent/20 transition-colors"
+                    >
+                      <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                        {fmtTradeDate(t.entryTime)}
+                      </TableCell>
+                      <TableCell className="font-bold text-sm">{t.symbol}</TableCell>
+                      <TableCell>
+                        <span className={cn(
+                          "text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md",
+                          t.direction === 'LONG' ? "text-emerald-600 bg-emerald-500/10" : "text-rose-600 bg-rose-500/10"
+                        )}>
+                          {t.direction}
+                        </span>
+                      </TableCell>
+                      <TableCell className={cn("text-right font-bold text-sm", t.pnlCurrency >= 0 ? "text-emerald-500" : "text-rose-500")}>
+                        {t.pnlCurrency >= 0 ? '+' : ''}${t.pnlCurrency.toFixed(2)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {t.tradeGrade ? <Badge variant={gradeBadgeVariant(t.tradeGrade)}>{t.tradeGrade}</Badge> : <span className="text-xs text-muted-foreground">—</span>}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </tbody>
+              </Table>
+              {selectedStudentTrades.length > 100 && (
+                <p className="text-center text-[11px] text-muted-foreground italic p-3">
+                  Showing the 100 most recent of {selectedStudentTrades.length} trades.
+                </p>
+              )}
+            </Card>
+          )
+        )}
+
+        {detailTab === 'notes' && (
+          <div className="space-y-3">
+            {notesLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : notesError ? (
+              <div className="text-center py-12 text-rose-500 text-sm">{notesError}</div>
+            ) : !studentNotes || studentNotes.length === 0 ? (
+              <div className="text-center py-12 text-muted-foreground italic text-sm">No notes yet.</div>
+            ) : (
+              studentNotes.map(note => (
+                <div key={note.id} className="p-4 bg-muted/30 rounded-2xl border border-border/40">
+                  <div className="flex items-center justify-between gap-3 mb-1.5">
+                    <h4 className="font-bold text-sm text-foreground">{note.title || 'Untitled'}</h4>
+                    <span className="text-[10px] text-muted-foreground shrink-0">{note.date}</span>
+                  </div>
+                  {note.content && (
+                    <p className="text-xs text-muted-foreground leading-relaxed line-clamp-3">
+                      {stripHtml(note.content).slice(0, 220)}
+                    </p>
+                  )}
+                  {note.tags && note.tags.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mt-2">
+                      {note.tags.map(tag => <Badge key={tag} variant="neutral" className="text-[9px]">{tag}</Badge>)}
+                    </div>
+                  )}
+                  {user && (role === 'Mentor' || role === 'Admin') && (
+                    <NoteCommentThread
+                      journalId={note.id}
+                      authorId={user.uid}
+                      authorName={user.displayName || user.email || 'Mentor'}
+                      authorRole={role}
+                    />
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8 pb-20">
@@ -654,240 +1039,6 @@ export default function MentorDashboardScreen() {
           </div>
         </div>
       </Card>
-
-      {/* Student drill-down — Trades reuses the per-student data already
-          loaded for the table/leaderboard above; Notes is a small
-          on-demand fetch (see the effect near the top of this component)
-          so we're not holding open a live journals listener for every
-          student just because the roster loaded. */}
-      <Modal
-        isOpen={!!selectedStudent}
-        onClose={closeStudent}
-        title={selectedStudent?.name || 'Student'}
-        maxWidth="2xl"
-      >
-        {selectedStudent && (
-          <div className="space-y-6">
-            <div className="flex items-center gap-6 text-xs text-muted-foreground">
-              {selectedStudent.email && <span>{selectedStudent.email}</span>}
-              <span>Last session: {selectedStudent.lastSession}</span>
-            </div>
-
-            {selectedTrade ? (
-              <div className="space-y-5">
-                <button
-                  onClick={() => setSelectedTradeId(null)}
-                  className="flex items-center gap-1.5 text-xs font-bold text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  <ChevronLeft className="w-4 h-4" /> Back to {selectedStudent.name.split(' ')[0]}'s trades
-                </button>
-
-                <div className="flex items-start justify-between gap-4 flex-wrap">
-                  <div>
-                    <div className="flex items-center gap-2.5">
-                      <h3 className="text-xl font-black">{selectedTrade.symbol}</h3>
-                      <span className={cn(
-                        "text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md",
-                        selectedTrade.direction === 'LONG' ? "text-emerald-600 bg-emerald-500/10" : "text-rose-600 bg-rose-500/10"
-                      )}>
-                        {selectedTrade.direction}
-                      </span>
-                      {selectedTrade.tradeGrade && <Badge variant={gradeBadgeVariant(selectedTrade.tradeGrade)}>{selectedTrade.tradeGrade}</Badge>}
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-1">{fmtTradeDate(selectedTrade.entryTime)}</p>
-                  </div>
-                  <p className={cn("text-2xl font-black", selectedTrade.pnlCurrency >= 0 ? "text-emerald-500" : "text-rose-500")}>
-                    {selectedTrade.pnlCurrency >= 0 ? '+' : ''}${selectedTrade.pnlCurrency.toFixed(2)}
-                  </p>
-                </div>
-
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  <div className="p-3 bg-muted/30 rounded-xl border border-border/40">
-                    <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground mb-1">Entry</p>
-                    <p className="text-sm font-bold">{selectedTrade.avgEntryPrice}</p>
-                  </div>
-                  <div className="p-3 bg-muted/30 rounded-xl border border-border/40">
-                    <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground mb-1">Exit</p>
-                    <p className="text-sm font-bold">{selectedTrade.avgExitPrice}</p>
-                  </div>
-                  <div className="p-3 bg-muted/30 rounded-xl border border-border/40">
-                    <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground mb-1">Points</p>
-                    <p className="text-sm font-bold">{selectedTrade.pnlPoints >= 0 ? '+' : ''}{selectedTrade.pnlPoints}</p>
-                  </div>
-                  <div className="p-3 bg-muted/30 rounded-xl border border-border/40">
-                    <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground mb-1">Hold Time</p>
-                    <p className="text-sm font-bold">
-                      {selectedTrade.holdTimeSeconds >= 60
-                        ? `${Math.round(selectedTrade.holdTimeSeconds / 60)}m`
-                        : `${selectedTrade.holdTimeSeconds}s`}
-                    </p>
-                  </div>
-                </div>
-
-                <div>
-                  <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground mb-2">Linked Note</p>
-                  {tradeNoteLoading ? (
-                    <div className="flex items-center justify-center py-10">
-                      <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
-                    </div>
-                  ) : !tradeNote || tradeNote.length === 0 ? (
-                    <div className="text-center py-8 text-muted-foreground italic text-sm bg-muted/20 rounded-2xl border border-border/40">
-                      No notes for this trade yet.
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      {tradeNote.map(note => (
-                        <div key={note.id} className="p-4 bg-muted/30 rounded-2xl border border-border/40">
-                          <div className="flex items-center justify-between gap-3 mb-1.5">
-                            <h4 className="font-bold text-sm text-foreground">{note.title || 'Untitled'}</h4>
-                            <span className="text-[10px] text-muted-foreground shrink-0">{note.date}</span>
-                          </div>
-                          {note.content && (
-                            <div
-                              className="text-xs text-muted-foreground leading-relaxed prose-sm max-w-none"
-                              dangerouslySetInnerHTML={{ __html: note.content }}
-                            />
-                          )}
-                          {note.tags && note.tags.length > 0 && (
-                            <div className="flex flex-wrap gap-1.5 mt-2">
-                              {note.tags.map(tag => <Badge key={tag} variant="neutral" className="text-[9px]">{tag}</Badge>)}
-                            </div>
-                          )}
-                          {user && (role === 'Mentor' || role === 'Admin') && (
-                            <NoteCommentThread
-                              journalId={note.id}
-                              authorId={user.uid}
-                              authorName={user.displayName || user.email || 'Mentor'}
-                              authorRole={role}
-                            />
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            ) : (
-              <>
-                <div className="flex gap-2 border-b border-border/60">
-                  <button
-                    onClick={() => setDetailTab('trades')}
-                    className={cn(
-                      "flex items-center gap-2 px-4 py-2.5 text-sm font-bold border-b-2 -mb-px transition-colors",
-                      detailTab === 'trades' ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
-                    )}
-                  >
-                    <BarChart3 className="w-4 h-4" /> Trades ({selectedStudent.totalTrades})
-                  </button>
-                  <button
-                    onClick={() => setDetailTab('notes')}
-                    className={cn(
-                      "flex items-center gap-2 px-4 py-2.5 text-sm font-bold border-b-2 -mb-px transition-colors",
-                      detailTab === 'notes' ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
-                    )}
-                  >
-                    <BookOpen className="w-4 h-4" /> Notes{studentNotes ? ` (${studentNotes.length})` : ''}
-                  </button>
-                </div>
-
-                {detailTab === 'trades' && (
-                  selectedStudentTrades.length === 0 ? (
-                    <div className="text-center py-12 text-muted-foreground italic text-sm">No trades logged yet.</div>
-                  ) : (
-                    <div className="max-h-[50vh] overflow-y-auto">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Date</TableHead>
-                            <TableHead>Symbol</TableHead>
-                            <TableHead>Side</TableHead>
-                            <TableHead className="text-right">Net P&L</TableHead>
-                            <TableHead className="text-right">Grade</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <tbody>
-                          {selectedStudentTrades.slice(0, 25).map(t => (
-                            <TableRow
-                              key={t.id}
-                              onClick={() => setSelectedTradeId(t.id)}
-                              className="cursor-pointer hover:bg-accent/20 transition-colors"
-                            >
-                              <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
-                                {fmtTradeDate(t.entryTime)}
-                              </TableCell>
-                              <TableCell className="font-bold text-sm">{t.symbol}</TableCell>
-                              <TableCell>
-                                <span className={cn(
-                                  "text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md",
-                                  t.direction === 'LONG' ? "text-emerald-600 bg-emerald-500/10" : "text-rose-600 bg-rose-500/10"
-                                )}>
-                                  {t.direction}
-                                </span>
-                              </TableCell>
-                              <TableCell className={cn("text-right font-bold text-sm", t.pnlCurrency >= 0 ? "text-emerald-500" : "text-rose-500")}>
-                                {t.pnlCurrency >= 0 ? '+' : ''}${t.pnlCurrency.toFixed(2)}
-                              </TableCell>
-                              <TableCell className="text-right">
-                                {t.tradeGrade ? <Badge variant={gradeBadgeVariant(t.tradeGrade)}>{t.tradeGrade}</Badge> : <span className="text-xs text-muted-foreground">—</span>}
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </tbody>
-                      </Table>
-                      {selectedStudentTrades.length > 25 && (
-                        <p className="text-center text-[11px] text-muted-foreground italic pt-3">
-                          Showing the 25 most recent of {selectedStudentTrades.length} trades.
-                        </p>
-                      )}
-                    </div>
-                  )
-                )}
-
-                {detailTab === 'notes' && (
-                  <div className="max-h-[50vh] overflow-y-auto space-y-3">
-                    {notesLoading ? (
-                      <div className="flex items-center justify-center py-12">
-                        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-                      </div>
-                    ) : notesError ? (
-                      <div className="text-center py-12 text-rose-500 text-sm">{notesError}</div>
-                    ) : !studentNotes || studentNotes.length === 0 ? (
-                      <div className="text-center py-12 text-muted-foreground italic text-sm">No notes yet.</div>
-                    ) : (
-                      studentNotes.map(note => (
-                        <div key={note.id} className="p-4 bg-muted/30 rounded-2xl border border-border/40">
-                          <div className="flex items-center justify-between gap-3 mb-1.5">
-                            <h4 className="font-bold text-sm text-foreground">{note.title || 'Untitled'}</h4>
-                            <span className="text-[10px] text-muted-foreground shrink-0">{note.date}</span>
-                          </div>
-                          {note.content && (
-                            <p className="text-xs text-muted-foreground leading-relaxed line-clamp-3">
-                              {stripHtml(note.content).slice(0, 220)}
-                            </p>
-                          )}
-                          {note.tags && note.tags.length > 0 && (
-                            <div className="flex flex-wrap gap-1.5 mt-2">
-                              {note.tags.map(tag => <Badge key={tag} variant="neutral" className="text-[9px]">{tag}</Badge>)}
-                            </div>
-                          )}
-                          {user && (role === 'Mentor' || role === 'Admin') && (
-                            <NoteCommentThread
-                              journalId={note.id}
-                              authorId={user.uid}
-                              authorName={user.displayName || user.email || 'Mentor'}
-                              authorRole={role}
-                            />
-                          )}
-                        </div>
-                      ))
-                    )}
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        )}
-      </Modal>
     </div>
   );
 }
