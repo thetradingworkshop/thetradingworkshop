@@ -370,6 +370,21 @@ export interface DrawingTemplate {
   style: DrawingTemplateStyle;
 }
 
+// A reusable journal-entry layout — same shape as journals/{id}.content
+// (RichTextEditor's own HTML string), just saved on its own rather than
+// tied to any one entry, and offered back from the "Insert Template"
+// button on RichTextEditor's toolbar when composing a new note. Global to
+// the user's account, same "collection keyed by userId" pattern as
+// DrawingTemplate above.
+export interface JournalTemplate {
+  id: string;
+  userId: string;
+  name: string;
+  content: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // The trade chart's own appearance — candle colors, canvas background/grid,
 // volume visibility. Global to the user's account (users/{uid}.chartSettings),
 // same as drawingDefaults, so it applies to every trade's chart.

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Bold, Italic, Underline, List, ListOrdered, ListChecks, Minus, Image as ImageIcon, Loader2 } from 'lucide-react';
+import { Bold, Italic, Underline, List, ListOrdered, ListChecks, Minus, LayoutTemplate, Image as ImageIcon, Loader2 } from 'lucide-react';
 import { cn } from '@/src/utils';
 import { processImageFile } from '@/src/lib/imageProcessing';
 import { DictationButton } from './DictationButton';
@@ -23,13 +23,19 @@ interface RichTextEditorProps {
   onChange: (html: string) => void;
   placeholder?: string;
   minHeightClass?: string;
+  // Optional so every other caller of this component (MentorComments'
+  // reply box aside, everywhere else that uses RichTextEditor) is
+  // unaffected — the "Insert Template" toolbar button only appears when a
+  // caller actually has a template library to offer (JournalScreen).
+  templates?: { id: string; name: string; content: string }[];
 }
 
-export function RichTextEditor({ initialValue, onChange, placeholder, minHeightClass }: RichTextEditorProps) {
+export function RichTextEditor({ initialValue, onChange, placeholder, minHeightClass, templates }: RichTextEditorProps) {
   const editorRef = useRef<HTMLDivElement>(null);
   const [isEmpty, setIsEmpty] = useState(isContentEmpty(initialValue));
   const [isProcessingImage, setIsProcessingImage] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isTemplatePickerOpen, setIsTemplatePickerOpen] = useState(false);
 
   // Uncontrolled by design: contentEditable + a controlled `value` prop fight
   // over the cursor position on every keystroke. The parent remounts this
@@ -137,6 +143,19 @@ export function RichTextEditor({ initialValue, onChange, placeholder, minHeightC
     document.execCommand('insertHTML', false, `<hr><div class="${marker}"><br></div>`);
     placeCaretIn(marker, true);
     emitChange();
+  };
+
+  // Inserts a saved template's HTML at the current cursor — same
+  // execCommand('insertHTML') every other toolbar insert uses, so it plays
+  // by the same caret rules (e.g. splicing into an in-progress checklist
+  // row nests rather than sitting after it, exactly like insertChecklistItem
+  // above). Templates are meant to be dropped into a blank or
+  // just-started note, so that edge case isn't worth guarding against here.
+  const applyTemplate = (content: string) => {
+    editorRef.current?.focus();
+    document.execCommand('insertHTML', false, content);
+    emitChange();
+    setIsTemplatePickerOpen(false);
   };
 
   // A checkbox's `checked` HTML attribute only reflects its *initial*
@@ -262,6 +281,33 @@ export function RichTextEditor({ initialValue, onChange, placeholder, minHeightC
         <ToolbarButton icon={ListChecks} label="Checklist item" onClick={insertChecklistItem} />
         <div className="w-px h-4 bg-border mx-1" />
         <ToolbarButton icon={Minus} label="Divider" onClick={insertDivider} />
+        {templates && templates.length > 0 && (
+          <>
+            <div className="w-px h-4 bg-border mx-1" />
+            <div className="relative">
+              <ToolbarButton
+                icon={LayoutTemplate}
+                label="Insert template"
+                onClick={() => setIsTemplatePickerOpen(o => !o)}
+              />
+              {isTemplatePickerOpen && (
+                <div className="absolute z-20 top-full left-0 mt-1 w-56 rounded-xl border border-border bg-card shadow-lg overflow-hidden max-h-64 overflow-y-auto">
+                  {templates.map(t => (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => applyTemplate(t.content)}
+                      className="w-full flex items-center gap-2 px-3 py-2.5 text-xs font-bold text-left hover:bg-accent transition-colors truncate"
+                    >
+                      {t.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </>
+        )}
         <div className="w-px h-4 bg-border mx-1" />
         <label
           className="cursor-pointer p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"

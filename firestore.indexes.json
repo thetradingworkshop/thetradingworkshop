@@ -35,6 +35,7 @@
   ],
   "fieldOverrides": [
     { "collectionGroup": "journals", "fieldPath": "content", "indexes": [] },
+    { "collectionGroup": "journal_templates", "fieldPath": "content", "indexes": [] },
     { "collectionGroup": "trades", "fieldPath": "verdict", "indexes": [] },
     { "collectionGroup": "trades", "fieldPath": "lessonLearned", "indexes": [] },
     { "collectionGroup": "trades", "fieldPath": "attachments", "indexes": [] },

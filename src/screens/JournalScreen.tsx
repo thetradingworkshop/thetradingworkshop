@@ -1,15 +1,16 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { cn, omitUndefined } from '@/src/utils';
 import { SectionHeader, Card, Button, Badge, Toast, Modal, Input } from '../components/Shared';
-import { Search, Plus, Calendar, Share2, MessageSquare, ExternalLink, RotateCcw, Trash2, BookOpen, Edit3, Link as LinkIcon, Zap, X, TrendingUp, TrendingDown, BrainCircuit, Save, Loader2, Star, FileText, BarChart3, FileBarChart, ChevronRight, Send } from 'lucide-react';
+import { Search, Plus, Calendar, Share2, MessageSquare, ExternalLink, RotateCcw, Trash2, BookOpen, Edit3, Link as LinkIcon, Zap, X, TrendingUp, TrendingDown, BrainCircuit, Save, Loader2, Star, FileText, BarChart3, FileBarChart, ChevronRight, Send, LayoutTemplate } from 'lucide-react';
 import { collection, query, where, onSnapshot, orderBy, addDoc, updateDoc, deleteDoc, deleteField, doc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useTrades } from '../context/TradeContext';
 import { useAuth } from '../context/AuthContext';
 import { useDateRange } from '../context/DateContext';
-import { JournalEntry, Trade } from '../types';
+import { JournalEntry, JournalTemplate, Trade } from '../types';
 import { RichTextEditor, isContentEmpty, stripHtml } from '../components/RichTextEditor';
 import { useMentorComments, postMentorComment, markMentorCommentsRead, fmtCommentTimestamp } from '../hooks/useMentorComments';
+import { subscribeJournalTemplates, createJournalTemplate, updateJournalTemplate, deleteJournalTemplate } from '../lib/journalTemplates';
 import { DictationTextarea } from '../components/DictationTextarea';
 import { TradePickerModal } from '../components/TradePickerModal';
 import { RecapEquityChart } from '../components/RecapEquityChart';
@@ -209,9 +210,61 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
   const [isSavingRecap, setIsSavingRecap] = useState(false);
   const [isStatsExpanded, setIsStatsExpanded] = useState(false);
 
+  // Reusable layouts, offered back from the "Insert Template" button on
+  // the note editor's own toolbar (see RichTextEditor's optional
+  // `templates` prop) — a separate accordion section below the note
+  // categories above, not a NoteCategory itself, since templates aren't
+  // journal entries.
+  const [templates, setTemplates] = useState<JournalTemplate[]>([]);
+  const [isTemplatesExpanded, setIsTemplatesExpanded] = useState(false);
+  const [templateDraft, setTemplateDraft] = useState<{ id?: string; name: string; content: string } | null>(null);
+  const [isSavingTemplate, setIsSavingTemplate] = useState(false);
+  const [pendingDeleteTemplateId, setPendingDeleteTemplateId] = useState<string | null>(null);
+
   useEffect(() => {
     setIsStatsExpanded(false);
   }, [selectedJournal?.id]);
+
+  useEffect(() => {
+    if (!user) { setTemplates([]); return; }
+    return subscribeJournalTemplates(user.uid, setTemplates);
+  }, [user]);
+
+  const openNewTemplate = () => setTemplateDraft({ name: '', content: '' });
+  const openEditTemplate = (t: JournalTemplate) => setTemplateDraft({ id: t.id, name: t.name, content: t.content });
+  const closeTemplateDraft = () => setTemplateDraft(null);
+
+  const saveTemplateDraft = async () => {
+    if (!user || !templateDraft || !templateDraft.name.trim()) return;
+    setIsSavingTemplate(true);
+    try {
+      if (templateDraft.id) {
+        await updateJournalTemplate(templateDraft.id, { name: templateDraft.name.trim(), content: templateDraft.content });
+      } else {
+        await createJournalTemplate(user.uid, templateDraft.name.trim(), templateDraft.content);
+      }
+      setTemplateDraft(null);
+      setToast({ message: 'Template saved', type: 'success' });
+    } catch (err) {
+      console.error('Failed to save template:', err);
+      setToast({ message: 'Failed to save template', type: 'error' });
+    } finally {
+      setIsSavingTemplate(false);
+    }
+  };
+
+  const confirmDeleteTemplate = async () => {
+    if (!pendingDeleteTemplateId) return;
+    try {
+      await deleteJournalTemplate(pendingDeleteTemplateId);
+      setToast({ message: 'Template deleted', type: 'success' });
+    } catch (err) {
+      console.error('Failed to delete template:', err);
+      setToast({ message: 'Failed to delete template', type: 'error' });
+    } finally {
+      setPendingDeleteTemplateId(null);
+    }
+  };
 
   // Same stats box as a Sessions Recap, but for a single Daily Journal
   // entry — computed live from that day's trades rather than a date range.
@@ -648,6 +701,7 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
                   onClick={() => {
                     setActiveCategory(cat.id);
                     setExpandedCategory(prev => prev === cat.id ? null : cat.id);
+                    setIsTemplatesExpanded(false);
                   }}
                   className={cn(
                     "w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-medium transition-colors",
@@ -749,6 +803,89 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
               </div>
             );
           })}
+
+          {/* Templates — a personal library of reusable layouts, not a
+              NoteCategory (they aren't journal entries), so it's a
+              sibling accordion row rather than another entry in the loop
+              above. Picking one up applies it via the "Insert Template"
+              button on the note editor's own toolbar (see the Content
+              RichTextEditor below, and RichTextEditor's `templates` prop). */}
+          <div>
+            <button
+              onClick={() => {
+                setIsTemplatesExpanded(prev => !prev);
+                setExpandedCategory(null);
+              }}
+              className={cn(
+                "w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-medium transition-colors",
+                isTemplatesExpanded ? "bg-primary text-primary-foreground" : "hover:bg-accent text-foreground"
+              )}
+            >
+              <span className="flex items-center gap-2.5">
+                <LayoutTemplate className="w-4 h-4" />
+                Templates
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className={cn("text-xs font-bold", isTemplatesExpanded ? "text-primary-foreground/80" : "text-muted-foreground")}>
+                  {templates.length}
+                </span>
+                <ChevronRight className={cn(
+                  "w-3.5 h-3.5 transition-transform",
+                  isTemplatesExpanded && "rotate-90",
+                  isTemplatesExpanded ? "text-primary-foreground/80" : "text-muted-foreground"
+                )} />
+              </span>
+            </button>
+
+            {isTemplatesExpanded && (
+              <div className="pt-2 pb-1 px-1 space-y-2">
+                <Button
+                  variant="primary"
+                  icon={Plus}
+                  className="w-full px-2.5 py-1.5 h-auto text-xs"
+                  onClick={openNewTemplate}
+                >
+                  New Template
+                </Button>
+
+                <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
+                  {templates.length > 0 ? templates.map(t => (
+                    <div
+                      key={t.id}
+                      className="w-full text-left p-3 rounded-xl border bg-card border-border hover:bg-accent transition-all group"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <h4 className="font-bold text-sm truncate">{t.name}</h4>
+                        <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button
+                            onClick={() => openEditTemplate(t)}
+                            className="p-1 rounded-md hover:bg-background text-muted-foreground hover:text-foreground"
+                            title="Edit template"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => setPendingDeleteTemplateId(t.id)}
+                            className="p-1 rounded-md hover:bg-background text-muted-foreground hover:text-rose-500"
+                            title="Delete template"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                      <p className="text-xs text-muted-foreground truncate mt-1">
+                        {t.content ? (stripHtml(t.content).slice(0, 80) || 'Empty layout') : 'Empty layout'}
+                      </p>
+                    </div>
+                  )) : (
+                    <div className="text-center py-6 text-muted-foreground italic text-xs">
+                      No templates yet — create one to reuse a layout across notes.
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
         </Card>
       </div>
 
@@ -1191,6 +1328,7 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
                 onChange={(html) => setDraft(prev => prev && ({ ...prev, content: html }))}
                 placeholder="Write your notes..."
                 minHeightClass="min-h-[160px]"
+                templates={templates}
               />
             </div>
 
@@ -1335,6 +1473,68 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
         }
       >
         <p className="text-sm text-muted-foreground">This journal entry will be permanently deleted. This can't be undone.</p>
+      </Modal>
+
+      {/* Create/Edit Template Modal — deliberately just a name + a
+          RichTextEditor, none of a journal entry's other fields (date,
+          mood, "did you follow your plan", etc.), since a template is a
+          layout to drop into a note, not a note of its own. */}
+      <Modal
+        isOpen={templateDraft !== null}
+        onClose={closeTemplateDraft}
+        title={templateDraft?.id ? 'Edit Template' : 'New Template'}
+        maxWidth="full"
+        footer={
+          <>
+            <Button variant="outline" onClick={closeTemplateDraft} disabled={isSavingTemplate}>Cancel</Button>
+            <Button
+              variant="primary"
+              icon={isSavingTemplate ? Loader2 : Save}
+              onClick={saveTemplateDraft}
+              disabled={isSavingTemplate || !templateDraft?.name.trim()}
+            >
+              {isSavingTemplate ? 'Saving...' : 'Save Template'}
+            </Button>
+          </>
+        }
+      >
+        {templateDraft && (
+          <div className="space-y-5">
+            <div className="space-y-2">
+              <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Name</label>
+              <Input
+                value={templateDraft.name}
+                onChange={(e) => setTemplateDraft(prev => prev && ({ ...prev, name: e.target.value }))}
+                placeholder="e.g. Pre-Trade Checklist"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Layout</label>
+              <RichTextEditor
+                key={templateDraft.id || 'new'}
+                initialValue={templateDraft.content}
+                onChange={(html) => setTemplateDraft(prev => prev && ({ ...prev, content: html }))}
+                placeholder="Build the layout you want to reuse — headings, a checklist, a divider between sections..."
+                minHeightClass="min-h-[220px]"
+              />
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Delete Template Confirmation Modal */}
+      <Modal
+        isOpen={pendingDeleteTemplateId !== null}
+        onClose={() => setPendingDeleteTemplateId(null)}
+        title="Delete Template"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setPendingDeleteTemplateId(null)}>Cancel</Button>
+            <Button variant="destructive" icon={Trash2} onClick={confirmDeleteTemplate}>Delete</Button>
+          </>
+        }
+      >
+        <p className="text-sm text-muted-foreground">This template will be permanently deleted. Notes already created from it are unaffected. This can't be undone.</p>
       </Modal>
     </div>
   );

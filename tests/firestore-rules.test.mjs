@@ -106,6 +106,9 @@ async function main() {
     await setDoc(doc(db, 'strategies', 'strategy-2'), { userId: OTHER_STUDENT_UID, name: 'VWAP Fade', status: 'active', categories: [] });
     await setDoc(doc(db, 'trade_reviews', 'trade-1'), { userId: STUDENT_UID, tradeId: 'trade-1', attachments: ['data:image/png;base64,x'] });
     await setDoc(doc(db, 'trade_reviews', 'trade-2'), { userId: OTHER_STUDENT_UID, tradeId: 'trade-2', attachments: [] });
+    await setDoc(doc(db, 'journal_templates', 'template-1'), {
+      userId: STUDENT_UID, name: 'Pre-Trade Checklist', content: '<p>Checklist</p>', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    });
 
     // Invites + groups fixtures
     await setDoc(doc(db, 'groups', 'group-1'), {
@@ -218,6 +221,45 @@ async function main() {
 
   await check('assigned mentor CANNOT update the student\'s trade review (read-only)', async () => {
     await assertFails(updateDoc(doc(mentor, 'trade_reviews', 'trade-1'), { verdict: 'edited' }));
+  });
+
+  console.log('\njournal_templates — owner-only (Journal screen\'s Templates tab)\n');
+
+  await check('owner CAN create their own template', async () => {
+    await assertSucceeds(setDoc(doc(student, 'journal_templates', 'template-new'), {
+      userId: STUDENT_UID, name: 'Daily Recap', content: '<p>Recap</p>', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    }));
+  });
+
+  await check('owner CANNOT create a template with an empty name', async () => {
+    await assertFails(setDoc(doc(student, 'journal_templates', 'template-bad'), {
+      userId: STUDENT_UID, name: '', content: '<p>x</p>', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    }));
+  });
+
+  await check('owner CAN read their own template', async () => {
+    await assertSucceeds(getDoc(doc(student, 'journal_templates', 'template-1')));
+  });
+
+  await check('owner CAN update their own template', async () => {
+    await assertSucceeds(updateDoc(doc(student, 'journal_templates', 'template-1'), { name: 'Renamed', updatedAt: new Date().toISOString() }));
+  });
+
+  await check('a different user CANNOT read someone else\'s template', async () => {
+    await assertFails(getDoc(doc(otherStudent, 'journal_templates', 'template-1')));
+  });
+
+  await check('assigned mentor CANNOT read their student\'s template (personal library, not shared)', async () => {
+    await assertFails(getDoc(doc(mentor, 'journal_templates', 'template-1')));
+  });
+
+  await check('Admin CAN read any template', async () => {
+    await assertSucceeds(getDoc(doc(admin, 'journal_templates', 'template-1')));
+  });
+
+  // Destructive — must run last among tests that depend on template-1 existing.
+  await check('owner CAN delete their own template', async () => {
+    await assertSucceeds(deleteDoc(doc(student, 'journal_templates', 'template-1')));
   });
 
   console.log('\njournals — mentor scoping\n');

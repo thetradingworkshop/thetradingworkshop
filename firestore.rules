@@ -242,6 +242,19 @@ service cloud.firestore {
              data.createdAt is timestamp;
     }
 
+    function isValidJournalTemplate(data) {
+      // createdAt/updatedAt are ISO strings here (not Firestore timestamps)
+      // to match JournalTemplate's own type and journalTemplates.ts, which
+      // follow the rest of the Journal feature's string-date convention
+      // rather than drawing_templates' serverTimestamp() convention.
+      return data.userId is string &&
+             data.name is string &&
+             data.name.size() > 0 && data.name.size() <= 100 &&
+             data.content is string &&
+             data.createdAt is string &&
+             data.updatedAt is string;
+    }
+
     function isValidTradeReview(data) {
       return data.userId is string &&
              data.tradeId is string &&
@@ -438,6 +451,18 @@ service cloud.firestore {
       allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
       allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid && canWriteOwnData() && isValidDrawingTemplate(request.resource.data);
       allow update: if isAuthenticated() && ((resource.data.userId == request.auth.uid && canWriteOwnData()) || isAdmin()) && isValidDrawingTemplate(request.resource.data);
+      allow delete: if isAuthenticated() && ((resource.data.userId == request.auth.uid && canWriteOwnData()) || isAdmin());
+    }
+
+    // Reusable journal-entry layouts (the Journal screen's Templates tab)
+    // — owner-only, same shape/rules as drawing_templates above. Not
+    // shared with mentors/Admin the way journals themselves are: a
+    // template is a personal library, not something a student's coach
+    // needs visibility into.
+    match /journal_templates/{templateId} {
+      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid && canWriteOwnData() && isValidJournalTemplate(request.resource.data);
+      allow update: if isAuthenticated() && ((resource.data.userId == request.auth.uid && canWriteOwnData()) || isAdmin()) && isValidJournalTemplate(request.resource.data);
       allow delete: if isAuthenticated() && ((resource.data.userId == request.auth.uid && canWriteOwnData()) || isAdmin());
     }
 
