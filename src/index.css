@@ -121,5 +121,28 @@ body {
 .rich-content a {
   text-decoration: underline;
 }
+.rich-content hr {
+  border: none;
+  border-top: 2px solid var(--border);
+  margin: 1em 0;
+}
+.rich-content .checklist-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5em;
+  margin: 0.3em 0;
+}
+.rich-content .checklist-item input[type="checkbox"] {
+  margin-top: 0.2em;
+  width: 1em;
+  height: 1em;
+  flex-shrink: 0;
+  cursor: pointer;
+  accent-color: var(--primary);
+}
+.rich-content .checklist-item input[type="checkbox"]:checked + span {
+  text-decoration: line-through;
+  color: var(--muted-foreground);
+}
 
 
