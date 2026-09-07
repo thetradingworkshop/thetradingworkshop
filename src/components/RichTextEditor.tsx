@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Bold, Italic, Underline, List, ListOrdered, ListChecks, Minus, LayoutTemplate, Image as ImageIcon, Loader2 } from 'lucide-react';
+import { Bold, Italic, Underline, List, ListOrdered, ListChecks, Minus, IndentDecrease, IndentIncrease, LayoutTemplate, Image as ImageIcon, Loader2 } from 'lucide-react';
 import { cn } from '@/src/utils';
 import { processImageFile } from '@/src/lib/imageProcessing';
 import { DictationButton } from './DictationButton';
@@ -145,6 +145,45 @@ export function RichTextEditor({ initialValue, onChange, placeholder, minHeightC
     emitChange();
   };
 
+  // Plain browser execCommand('indent')/('outdent') work fine on ordinary
+  // lines and on real <ul>/<ol> list items, but corrupt a checklist row:
+  // confirmed by hand that indenting inside one splits the row's single
+  // `.checklist-item` div into two separate ones — the checkbox left
+  // behind in place, the label span wrapped alone in a new blockquote —
+  // unlinking the checkbox from its own text. So a checklist row gets its
+  // indentation applied directly as margin-left on the row itself instead
+  // of going through execCommand at all; everything else still uses the
+  // browser's own indent/outdent (list nesting for real lists, blockquote
+  // margin for plain lines).
+  const CHECKLIST_INDENT_STEP_PX = 24;
+  const CHECKLIST_MAX_INDENT = 4;
+
+  const checklistIndentLevel = (item: HTMLElement): number =>
+    Math.round(parseInt(item.style.marginLeft || '0', 10) / CHECKLIST_INDENT_STEP_PX) || 0;
+
+  const indentBlock = () => {
+    const item = currentChecklistItem() as HTMLElement | null;
+    if (item) {
+      const level = Math.min(checklistIndentLevel(item) + 1, CHECKLIST_MAX_INDENT);
+      item.style.marginLeft = `${level * CHECKLIST_INDENT_STEP_PX}px`;
+      emitChange();
+      return;
+    }
+    exec('indent');
+  };
+
+  const outdentBlock = () => {
+    const item = currentChecklistItem() as HTMLElement | null;
+    if (item) {
+      const level = Math.max(checklistIndentLevel(item) - 1, 0);
+      if (level === 0) item.style.removeProperty('margin-left');
+      else item.style.marginLeft = `${level * CHECKLIST_INDENT_STEP_PX}px`;
+      emitChange();
+      return;
+    }
+    exec('outdent');
+  };
+
   // Inserts a saved template's HTML at the current cursor — same
   // execCommand('insertHTML') every other toolbar insert uses, so it plays
   // by the same caret rules (e.g. splicing into an in-progress checklist
@@ -279,6 +318,9 @@ export function RichTextEditor({ initialValue, onChange, placeholder, minHeightC
         <ToolbarButton icon={List} label="Bullet list" onClick={() => exec('insertUnorderedList')} />
         <ToolbarButton icon={ListOrdered} label="Numbered list" onClick={() => exec('insertOrderedList')} />
         <ToolbarButton icon={ListChecks} label="Checklist item" onClick={insertChecklistItem} />
+        <div className="w-px h-4 bg-border mx-1" />
+        <ToolbarButton icon={IndentDecrease} label="Decrease indent" onClick={outdentBlock} />
+        <ToolbarButton icon={IndentIncrease} label="Increase indent" onClick={indentBlock} />
         <div className="w-px h-4 bg-border mx-1" />
         <ToolbarButton icon={Minus} label="Divider" onClick={insertDivider} />
         {templates && templates.length > 0 && (
