@@ -18,6 +18,26 @@ function stripHtml(html?: string): string {
   return tmp.textContent || tmp.innerText || '';
 }
 
+// Real font stacks (not just a bare name) so the choice still renders
+// sensibly if the named face isn't installed/loaded wherever the HTML ends
+// up rendered — the live editor here, but also every read-only
+// `.rich-content` render elsewhere (Mentor Dashboard's linked-note view,
+// public preview, TradePerformanceLog's feedback modal, etc.).
+const FONT_FAMILIES: { label: string; value: string }[] = [
+  { label: 'Default', value: '' },
+  { label: 'Serif', value: 'Georgia, Cambria, "Times New Roman", serif' },
+  { label: 'Monospace', value: '"SF Mono", ui-monospace, Menlo, Consolas, monospace' },
+  { label: 'Rounded', value: '"Trebuchet MS", Verdana, sans-serif' },
+];
+
+const FONT_SIZES: { label: string; px: number }[] = [
+  { label: 'S', px: 12 },
+  { label: 'M', px: 14 },
+  { label: 'L', px: 18 },
+  { label: 'XL', px: 24 },
+];
+const DEFAULT_FONT_SIZE_PX = 14; // matches the editor's own text-sm base
+
 interface RichTextEditorProps {
   initialValue: string;
   onChange: (html: string) => void;
@@ -48,8 +68,37 @@ export function RichTextEditor({ initialValue, onChange, placeholder, minHeightC
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Set by applyFontSize below, consumed by the sweep in emitChange. Needed
+  // for the collapsed-caret case: with nothing selected, execCommand
+  // ('fontSize') doesn't create a <font size="7"> element to rewrite right
+  // away — the browser only materializes one once the *next* character is
+  // actually typed, which happens well after applyFontSize has already
+  // returned (confirmed by hand: the immediately-following font[size="7"]
+  // query finds nothing yet). Stays set across keystrokes until an element
+  // actually shows up to fix, same as the browser's own "pending typing
+  // style" carries forward across intervening toolbar clicks.
+  const pendingFontSizePx = useRef<number | null>(null);
+
+  // Legacy `<font size="7">` tags left behind by applyFontSize — whether
+  // created immediately (a selection existed) or only once typing catches
+  // up to a collapsed caret — get rewritten into a real inline px value
+  // here so nothing ever reaches Firestore (or any other .rich-content
+  // render) still carrying the meaningless legacy 1–7 scale.
+  const sweepPendingFontSize = () => {
+    if (pendingFontSizePx.current == null || !editorRef.current) return;
+    const found = editorRef.current.querySelectorAll('font[size="7"]');
+    if (found.length === 0) return;
+    const px = pendingFontSizePx.current;
+    found.forEach((el) => {
+      el.removeAttribute('size');
+      (el as HTMLElement).style.fontSize = `${px}px`;
+    });
+    pendingFontSizePx.current = null;
+  };
+
   const emitChange = () => {
     if (!editorRef.current) return;
+    sweepPendingFontSize();
     const html = editorRef.current.innerHTML;
     onChange(html);
     setIsEmpty(isContentEmpty(html));
@@ -64,6 +113,30 @@ export function RichTextEditor({ initialValue, onChange, placeholder, minHeightC
   const insertImageDataUrl = (dataUrl: string) => {
     editorRef.current?.focus();
     document.execCommand('insertImage', false, dataUrl);
+    emitChange();
+  };
+
+  // execCommand('fontName') wraps the selection (or, with no selection,
+  // sets the caret's "typing style" so it applies going forward) in
+  // <font face="...">, which browsers still render correctly — no special
+  // handling needed the way checklist/divider inserts required.
+  const applyFontFamily = (fontFamily: string) => {
+    editorRef.current?.focus();
+    document.execCommand('fontName', false, fontFamily || 'inherit');
+    emitChange();
+  };
+
+  // execCommand('fontSize') only understands the legacy 1–7 HTML scale, not
+  // a real pixel value — the standard workaround is to apply an otherwise-
+  // unused legacy size (7) and rewrite whatever <font size="7"> it created
+  // into an inline font-size instead. sweepPendingFontSize (run from
+  // emitChange) does the actual rewriting, since with a selection the
+  // element exists immediately but with a collapsed caret it doesn't show
+  // up until the next keystroke's input event.
+  const applyFontSize = (px: number) => {
+    editorRef.current?.focus();
+    pendingFontSizePx.current = px;
+    document.execCommand('fontSize', false, '7');
     emitChange();
   };
 
@@ -311,6 +384,28 @@ export function RichTextEditor({ initialValue, onChange, placeholder, minHeightC
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-1 flex-wrap p-1 bg-accent/30 border border-border rounded-lg w-fit">
+        <select
+          defaultValue=""
+          onChange={(e) => { applyFontFamily(e.target.value); e.target.value = ''; }}
+          onMouseDown={(e) => e.stopPropagation()}
+          title="Font"
+          aria-label="Font"
+          className="h-6 rounded-md border border-border bg-background px-1 text-[11px] text-muted-foreground hover:text-foreground focus:outline-none"
+        >
+          {FONT_FAMILIES.map(f => <option key={f.label} value={f.value}>{f.label}</option>)}
+        </select>
+        <select
+          defaultValue=""
+          onChange={(e) => { applyFontSize(Number(e.target.value) || DEFAULT_FONT_SIZE_PX); e.target.value = ''; }}
+          onMouseDown={(e) => e.stopPropagation()}
+          title="Font size"
+          aria-label="Font size"
+          className="h-6 rounded-md border border-border bg-background px-1 text-[11px] text-muted-foreground hover:text-foreground focus:outline-none"
+        >
+          <option value="" disabled>Size</option>
+          {FONT_SIZES.map(s => <option key={s.label} value={s.px}>{s.label}</option>)}
+        </select>
+        <div className="w-px h-4 bg-border mx-1" />
         <ToolbarButton icon={Bold} label="Bold" onClick={() => exec('bold')} />
         <ToolbarButton icon={Italic} label="Italic" onClick={() => exec('italic')} />
         <ToolbarButton icon={Underline} label="Underline" onClick={() => exec('underline')} />
