@@ -153,23 +153,47 @@ export function RichTextEditor({ initialValue, onChange, placeholder, minHeightC
     }
   };
 
+  // A row with nothing typed into it yet (still just the zero-width
+  // placeholder from checklistItemHtml, or emptied back out by hand) and
+  // no image either — the signal that the user is done with the
+  // checklist rather than adding another real item to it.
+  const isChecklistItemEmpty = (item: Element): boolean => {
+    const span = item.querySelector('span');
+    if (!span) return true;
+    const text = span.textContent?.replace(/​/g, '').trim();
+    return !text && !span.querySelector('img');
+  };
+
   // Same reasoning as insertChecklistItem above, for the other way a new
   // row gets started: pressing Enter while inside one. Default Enter
   // behavior in contentEditable splits the nearest block ancestor — here
   // that's the checklist row itself, which wraps inline content rather
   // than being a paragraph, so the split doesn't reliably happen. Handling
   // Enter explicitly both avoids that and makes it continue the checklist,
-  // same as most task-list UIs.
+  // same as most task-list UIs — including the other half of that
+  // convention: Enter on a row left empty (i.e. two Enters in a row with
+  // nothing typed in between) exits the checklist instead of piling up
+  // blank checkboxes forever, which is what was actually happening
+  // before — nothing ever turned the checklist "off".
   const handleContentKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (e.key !== 'Enter' || e.shiftKey) return;
     const currentItem = currentChecklistItem();
     if (!currentItem) return;
     e.preventDefault();
-    const marker = `_checklist_caret_${Date.now()}`;
-    const template = document.createElement('div');
-    template.innerHTML = checklistItemHtml(marker);
-    currentItem.after(template.firstElementChild!);
-    placeCaretIn(marker, false);
+    if (isChecklistItemEmpty(currentItem)) {
+      const marker = `_exit_caret_${Date.now()}`;
+      const exitLine = document.createElement('div');
+      exitLine.className = marker;
+      exitLine.innerHTML = '<br>';
+      currentItem.replaceWith(exitLine);
+      placeCaretIn(marker, true);
+    } else {
+      const marker = `_checklist_caret_${Date.now()}`;
+      const template = document.createElement('div');
+      template.innerHTML = checklistItemHtml(marker);
+      currentItem.after(template.firstElementChild!);
+      placeCaretIn(marker, false);
+    }
     emitChange();
   };
 
