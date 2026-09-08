@@ -20,7 +20,7 @@ import {
   assertFails,
 } from '@firebase/rules-unit-testing';
 import {
-  doc, getDoc, setDoc, updateDoc, deleteDoc, collection, getDocs,
+  doc, getDoc, setDoc, updateDoc, deleteDoc, collection, getDocs, query, where,
 } from 'firebase/firestore';
 
 // A comment payload matching isValidMentorComment(), with one field overridable per-test.
@@ -110,6 +110,19 @@ async function main() {
       userId: STUDENT_UID, name: 'Pre-Trade Checklist', content: '<p>Checklist</p>', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     });
 
+    // Share links fixtures — a shared trade/journal (publicly readable via
+    // 'shared', including by a fully unauthenticated context), a private
+    // pair (not), and one already-revoked link.
+    await setDoc(doc(db, 'trades', 'shared-trade-1'), { userId: STUDENT_UID, symbol: 'MNQ', status: 'shared' });
+    await setDoc(doc(db, 'journals', 'shared-journal-1'), { userId: STUDENT_UID, title: 'Public note', status: 'shared' });
+    await setDoc(doc(db, 'journals', 'shared-trade-note-1'), { userId: STUDENT_UID, title: 'Trade note', tradeId: 'shared-trade-1', status: 'shared' });
+    await setDoc(doc(db, 'share_links', 'valid-token-1'), {
+      userId: STUDENT_UID, resourceType: 'journal', resourceId: 'shared-journal-1', createdAt: new Date().toISOString(), revoked: false,
+    });
+    await setDoc(doc(db, 'share_links', 'revoked-token-1'), {
+      userId: STUDENT_UID, resourceType: 'journal', resourceId: 'journal-1', createdAt: new Date().toISOString(), revoked: true,
+    });
+
     // Invites + groups fixtures
     await setDoc(doc(db, 'groups', 'group-1'), {
       name: 'Test Cohort', mentorId: MENTOR_UID, createdBy: ADMIN_UID, createdAt: new Date(),
@@ -160,6 +173,10 @@ async function main() {
   const student = testEnv.authenticatedContext(STUDENT_UID).firestore();
   const otherStudent = testEnv.authenticatedContext(OTHER_STUDENT_UID).firestore();
   const viewer = testEnv.authenticatedContext(VIEWER_UID).firestore();
+  // No request.auth at all — the /share/{token} public page's own access
+  // level, and the only context share_links' `allow get: if true` and the
+  // 'shared' branches on trades/journals actually need to prove out.
+  const unauth = testEnv.unauthenticatedContext().firestore();
 
   console.log('\ntrades — mentor scoping\n');
 
@@ -587,6 +604,88 @@ async function main() {
 
   await check('the owner CAN dismiss a pending setup they decided not to take', async () => {
     await assertSucceeds(updateDoc(doc(student, 'trade_intents', 'intent-2'), { status: 'dismissed' }));
+  });
+
+  console.log('\nshare_links — public links (Share Panel on a Journal note or Trade)\n');
+
+  function shareLinkPayload(overrides = {}) {
+    return {
+      userId: overrides.userId,
+      resourceType: overrides.resourceType ?? 'journal',
+      resourceId: overrides.resourceId ?? 'shared-journal-1',
+      createdAt: overrides.createdAt ?? new Date().toISOString(),
+      revoked: overrides.revoked ?? false,
+    };
+  }
+
+  await check('the owner CAN create a share link for their own note', async () => {
+    await assertSucceeds(setDoc(doc(student, 'share_links', 'new-token-1'), shareLinkPayload({ userId: STUDENT_UID })));
+  });
+
+  await check('a user CANNOT create a share link claiming someone else as owner', async () => {
+    await assertFails(setDoc(doc(student, 'share_links', 'new-token-2'), shareLinkPayload({ userId: OTHER_STUDENT_UID })));
+  });
+
+  await check('a user CANNOT create a share link with an invalid resourceType', async () => {
+    await assertFails(setDoc(doc(student, 'share_links', 'new-token-3'), shareLinkPayload({ userId: STUDENT_UID, resourceType: 'session' })));
+  });
+
+  await check('a Viewer CANNOT create a share link (read-only)', async () => {
+    await assertFails(setDoc(doc(viewer, 'share_links', 'new-token-4'), shareLinkPayload({ userId: VIEWER_UID })));
+  });
+
+  await check('ANYONE (fully unauthenticated) CAN get a share link by its exact token', async () => {
+    await assertSucceeds(getDoc(doc(unauth, 'share_links', 'valid-token-1')));
+  });
+
+  await check('a fully unauthenticated context CANNOT list share_links (no enumeration)', async () => {
+    await assertFails(getDocs(query(collection(unauth, 'share_links'), where('resourceId', '==', 'shared-journal-1'))));
+  });
+
+  await check('a different (signed-in) user CANNOT list someone else\'s share links', async () => {
+    await assertFails(getDocs(query(collection(otherStudent, 'share_links'), where('userId', '==', STUDENT_UID))));
+  });
+
+  await check('the owner CAN list their own share links', async () => {
+    await assertSucceeds(getDocs(query(collection(student, 'share_links'), where('userId', '==', STUDENT_UID))));
+  });
+
+  await check('the owner CAN revoke their own link (flip revoked false→true, nothing else)', async () => {
+    await assertSucceeds(updateDoc(doc(student, 'share_links', 'valid-token-1'), { revoked: true }));
+  });
+
+  await check('the owner CANNOT change a share link\'s resourceId', async () => {
+    await assertFails(updateDoc(doc(student, 'share_links', 'valid-token-1'), { resourceId: 'shared-trade-1' }));
+  });
+
+  await check('a different user CANNOT revoke someone else\'s share link', async () => {
+    await assertFails(updateDoc(doc(otherStudent, 'share_links', 'valid-token-1'), { revoked: true }));
+  });
+
+  console.log('\ntrades/journals — public read via an active share link (status: shared)\n');
+
+  await check('ANYONE (fully unauthenticated) CAN read a trade with status shared', async () => {
+    await assertSucceeds(getDoc(doc(unauth, 'trades', 'shared-trade-1')));
+  });
+
+  await check('ANYONE (fully unauthenticated) CAN read a journal note with status shared', async () => {
+    await assertSucceeds(getDoc(doc(unauth, 'journals', 'shared-journal-1')));
+  });
+
+  await check('ANYONE (fully unauthenticated) CAN query a shared trade\'s linked, shared note by tradeId', async () => {
+    await assertSucceeds(getDocs(query(
+      collection(unauth, 'journals'),
+      where('tradeId', '==', 'shared-trade-1'),
+      where('status', '==', 'shared')
+    )));
+  });
+
+  await check('a fully unauthenticated context CANNOT read a private trade', async () => {
+    await assertFails(getDoc(doc(unauth, 'trades', 'trade-1')));
+  });
+
+  await check('a fully unauthenticated context CANNOT read a private journal note', async () => {
+    await assertFails(getDoc(doc(unauth, 'journals', 'journal-1')));
   });
 
   console.log('\npersonal referral links — self-service invites, hard-capped to Student\n');

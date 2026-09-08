@@ -223,7 +223,11 @@ service cloud.firestore {
              data.realizedPnL is number &&
              data.maxPositionSize is number &&
              (!('diagnostics' in data) || isValidDiagnostics(data.diagnostics)) &&
-             (!('modelValidation' in data) || isValidModelValidation(data.modelValidation));
+             (!('modelValidation' in data) || isValidModelValidation(data.modelValidation)) &&
+             // 'shared' is what the trades/{tradeId} read rule below checks
+             // for public (unauthenticated) access via a share link — see
+             // share_links.
+             (!('status' in data) || data.status in ['private', 'shared']);
     }
 
     function isValidTagCategory(data) {
@@ -290,6 +294,22 @@ service cloud.firestore {
              (!('strategyId' in data) || data.strategyId is string) &&
              (!('strategyName' in data) || data.strategyName is string) &&
              (!('tradeId' in data) || data.tradeId is string);
+    }
+
+    // A share link's doc ID *is* the token — an unguessable random string
+    // the client generates (see src/lib/shareLinks.ts), never enumerable
+    // (allow list is owner-only below), so knowing it is the only way in.
+    // The actual content stays gated by the resource's own `status` field
+    // (checked directly in trades/{tradeId} and journals/{journalId}
+    // above) — this doc only has to prove the token is real and not
+    // revoked; resourceId/resourceType tell the public page what to fetch
+    // next.
+    function isValidShareLink(data) {
+      return data.userId is string &&
+             data.resourceType in ['journal', 'trade'] &&
+             data.resourceId is string &&
+             data.createdAt is string &&
+             data.revoked is bool;
     }
 
     function isValidMentorComment(data) {
@@ -375,7 +395,14 @@ service cloud.firestore {
       // this is a coaching view, not a management one, so update/delete
       // stay owner-or-Admin only (a mentor can't edit or delete a
       // student's trade record).
-      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin() || isAssignedMentor(resource.data.userId));
+      //
+      // The `resource.data.status == 'shared'` branch is this app's only
+      // truly public (no request.auth at all) read path — it's what lets
+      // the unauthenticated /share/{token} page load a trade someone
+      // deliberately shared. See share_links below for how that gets
+      // turned on/off; this rule doesn't need to know about tokens at all,
+      // only the boolean the owner already controls via the Share Panel.
+      allow read: if (isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin() || isAssignedMentor(resource.data.userId))) || resource.data.status == 'shared';
       allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid && canWriteOwnData() && isValidTrade(request.resource.data);
       allow update: if isAuthenticated() && ((resource.data.userId == request.auth.uid && canWriteOwnData()) || isAdmin()) && isValidTrade(request.resource.data);
       allow delete: if isAuthenticated() && ((resource.data.userId == request.auth.uid && canWriteOwnData()) || isAdmin());
@@ -504,10 +531,39 @@ service cloud.firestore {
       allow delete: if isAuthenticated() && ((isDocOwner() && canWriteOwnData()) || isAdmin());
     }
 
+    // Share links — the app's only truly public (no request.auth at all)
+    // surface, powering the "Share Panel" on a Journal note or Trade.
+    // Deliberately unlike invites' bearer-token design above (which still
+    // requires signing in first): a share link has to work for someone
+    // with no account at all, so `get` genuinely allows everyone — the
+    // random unguessable token is the entire credential, same model as a
+    // Google Docs or Stripe payment link. `list` stays owner-only so the
+    // Share Panel can find "the current link for this note/trade" without
+    // making the whole collection enumerable to the public.
+    match /share_links/{token} {
+      allow get: if true;
+      allow list: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid && canWriteOwnData() && isValidShareLink(request.resource.data);
+      // Update is narrowed to exactly one transition — the owner flipping
+      // their own not-yet-revoked link to revoked ("Revoke" in the Share
+      // Panel) — everything else about a link is immutable after create;
+      // sharing again issues a brand new token/doc instead.
+      allow update: if isAuthenticated() && resource.data.userId == request.auth.uid && canWriteOwnData() &&
+        request.resource.data.userId == resource.data.userId &&
+        request.resource.data.resourceType == resource.data.resourceType &&
+        request.resource.data.resourceId == resource.data.resourceId &&
+        request.resource.data.createdAt == resource.data.createdAt &&
+        resource.data.revoked == false && request.resource.data.revoked == true;
+      allow delete: if isAuthenticated() && ((resource.data.userId == request.auth.uid && canWriteOwnData()) || isAdmin());
+    }
+
     // Journals
     match /journals/{journalId} {
       // Same read-only mentor access as trades — see isAssignedMentor().
-      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin() || isAssignedMentor(resource.data.userId));
+      // The `resource.data.status == 'shared'` branch is the same public
+      // (unauthenticated) share-link path as trades/{tradeId} above — see
+      // share_links below.
+      allow read: if (isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin() || isAssignedMentor(resource.data.userId))) || resource.data.status == 'shared';
       allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid && canWriteOwnData();
       allow update: if isAuthenticated() && (
         (resource.data.userId == request.auth.uid && canWriteOwnData()) ||

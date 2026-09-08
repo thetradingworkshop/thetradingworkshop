@@ -7,10 +7,11 @@ import { db } from '../firebase';
 import { useTrades } from '../context/TradeContext';
 import { useAuth } from '../context/AuthContext';
 import { useDateRange } from '../context/DateContext';
-import { JournalEntry, JournalTemplate, Trade } from '../types';
+import { JournalEntry, JournalTemplate, Trade, ShareLink } from '../types';
 import { RichTextEditor, isContentEmpty, stripHtml } from '../components/RichTextEditor';
 import { useMentorComments, postMentorComment, markMentorCommentsRead, fmtCommentTimestamp } from '../hooks/useMentorComments';
 import { subscribeJournalTemplates, createJournalTemplate, updateJournalTemplate, deleteJournalTemplate } from '../lib/journalTemplates';
+import { subscribeShareLink, createShareLink, revokeShareLink, shareUrl } from '../lib/shareLinks';
 import { DictationTextarea } from '../components/DictationTextarea';
 import { TradePickerModal } from '../components/TradePickerModal';
 import { RecapEquityChart } from '../components/RecapEquityChart';
@@ -169,6 +170,50 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
     if (selectedJournal?.id) markMentorCommentsRead(selectedJournal.id, 'Student');
   }, [selectedJournal?.id]);
 
+  // The Share Panel's live state — whether this note currently has an
+  // active (non-revoked) public link, and what its token is.
+  useEffect(() => {
+    if (!user || !selectedJournal?.id) { setActiveShareLink(null); return; }
+    return subscribeShareLink(user.uid, 'journal', selectedJournal.id, setActiveShareLink);
+  }, [user?.uid, selectedJournal?.id]);
+
+  const handleShareNote = async () => {
+    if (!user || !selectedJournal) return;
+    setIsShareBusy(true);
+    try {
+      await createShareLink(user.uid, 'journal', selectedJournal.id);
+      setToast({ message: 'Note shared', type: 'success' });
+    } catch (err) {
+      console.error('Failed to share note:', err);
+      setToast({ message: 'Failed to share note', type: 'error' });
+    } finally {
+      setIsShareBusy(false);
+      setTimeout(() => setToast(null), 3000);
+    }
+  };
+
+  const handleRevokeShare = async () => {
+    if (!activeShareLink) return;
+    setIsShareBusy(true);
+    try {
+      await revokeShareLink(activeShareLink);
+      setToast({ message: 'Link revoked — note is private again', type: 'success' });
+    } catch (err) {
+      console.error('Failed to revoke share link:', err);
+      setToast({ message: 'Failed to revoke link', type: 'error' });
+    } finally {
+      setIsShareBusy(false);
+      setTimeout(() => setToast(null), 3000);
+    }
+  };
+
+  const handleCopyShareLink = () => {
+    if (!activeShareLink) return;
+    navigator.clipboard.writeText(shareUrl(activeShareLink.id));
+    setToast({ message: 'Link copied', type: 'success' });
+    setTimeout(() => setToast(null), 3000);
+  };
+
   const postReply = async () => {
     if (!user || !selectedJournal || !commentDraft.trim()) return;
     setIsPostingComment(true);
@@ -199,7 +244,8 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
   // pointing at a trade that no longer exists.
   const [isRelinkOpen, setIsRelinkOpen] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
-  const [isPublicPreview, setIsPublicPreview] = useState(false);
+  const [activeShareLink, setActiveShareLink] = useState<ShareLink | null>(null);
+  const [isShareBusy, setIsShareBusy] = useState(false);
   const [activeCategory, setActiveCategory] = useState<NoteCategory>('all');
   // Which category's note list is expanded, if any — separate from
   // activeCategory (which still drives filtering/the "New" button) so the
@@ -527,161 +573,6 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
       setTimeout(() => setToast(null), 3000);
     }
   };
-
-  if (isPublicPreview && selectedJournal) {
-    return (
-      <div className="fixed inset-0 z-50 bg-muted overflow-y-auto p-4 md:p-12">
-        <div className="max-w-4xl mx-auto space-y-12">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-200">
-                <Zap className="w-6 h-6 text-white" />
-              </div>
-              <span className="text-xl font-black tracking-tighter text-foreground uppercase">Trading Workshop OS</span>
-            </div>
-            <Button variant="outline" icon={X} onClick={() => setIsPublicPreview(false)}>Close Preview</Button>
-          </div>
-
-          <div className="space-y-8">
-            <div className="space-y-4">
-              <h1 className="text-5xl font-black tracking-tight text-foreground leading-tight">{selectedJournal.title}</h1>
-              <div className="flex items-center space-x-4 text-sm font-bold text-muted-foreground uppercase tracking-widest">
-                <div className="flex items-center">
-                  <Calendar className="w-4 h-4 mr-2" />
-                  {selectedJournal.date}
-                </div>
-                <div className="w-1.5 h-1.5 rounded-full bg-muted" />
-                <div className="flex items-center">
-                  <BookOpen className="w-4 h-4 mr-2" />
-                  Trade Analysis
-                </div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="p-6 rounded-3xl bg-card border border-border shadow-sm">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">Session PnL</p>
-                <p className={cn("text-2xl font-black", (selectedJournal.pnl || 0) >= 0 ? "text-emerald-500" : "text-rose-500")}>
-                  {(selectedJournal.pnl || 0) >= 0 ? '+' : ''}${Math.abs(selectedJournal.pnl || 0).toLocaleString()}
-                </p>
-              </div>
-              <div className="p-6 rounded-3xl bg-card border border-border shadow-sm">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">Trades Analyzed</p>
-                <p className="text-2xl font-black text-foreground">{selectedJournal.tradesCount || 0}</p>
-              </div>
-              <div className="p-6 rounded-3xl bg-card border border-border shadow-sm">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">Execution Grade</p>
-                <p className="text-2xl font-black text-indigo-600">{selectedJournal.grade || 'N/A'}</p>
-              </div>
-            </div>
-
-            <div className="p-10 rounded-[40px] bg-card border border-border shadow-xl space-y-8">
-              <div className="max-w-none">
-                {selectedJournal.content ? (
-                  <div
-                    className="rich-content text-lg leading-relaxed text-foreground font-medium"
-                    dangerouslySetInnerHTML={{ __html: selectedJournal.content }}
-                  />
-                ) : (
-                  <p className="text-lg leading-relaxed text-foreground font-medium">No content provided.</p>
-                )}
-              </div>
-
-              {selectedJournal.linkedTrades && selectedJournal.linkedTrades.length > 0 && (
-                <div className="pt-10 border-t border-border">
-                  <h4 className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-6">Key Trades from this Session</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {selectedJournal.linkedTrades.map((t: any, idx: number) => (
-                      <div key={idx} className="p-4 rounded-2xl bg-muted border border-border flex items-center justify-between">
-                        <div className="flex items-center space-x-4">
-                          <div className={cn(
-                            "w-10 h-10 rounded-xl flex items-center justify-center",
-                            t.pnl >= 0 ? "bg-emerald-500/10" : "bg-rose-500/10"
-                          )}>
-                            {t.pnl >= 0 ? <TrendingUp className="w-5 h-5 text-emerald-600" /> : <TrendingDown className="w-5 h-5 text-rose-600" />}
-                          </div>
-                          <div>
-                            <p className="text-sm font-bold text-foreground">{t.symbol} {t.direction} @ {t.price}</p>
-                            <p className={cn("text-[10px] font-bold uppercase tracking-widest", t.pnl >= 0 ? "text-emerald-600" : "text-rose-600")}>
-                              {t.pnl >= 0 ? '+' : ''}${Math.abs(t.pnl).toLocaleString()}
-                            </p>
-                          </div>
-                        </div>
-                        <Button variant="ghost" icon={ExternalLink} className="h-8 w-8 p-0" />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="p-8 rounded-[40px] bg-card border border-border shadow-sm space-y-4">
-                <div className="flex items-center space-x-3 mb-2">
-                  <BrainCircuit className="w-5 h-5 text-indigo-500" />
-                  <h4 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Behavioral Insights</h4>
-                </div>
-                <ul className="space-y-3">
-                  {selectedJournal.insights && selectedJournal.insights.length > 0 ? selectedJournal.insights.map((insight: string, idx: number) => (
-                    <li key={idx} className="flex items-center text-sm font-bold text-foreground">
-                      <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 mr-3" />
-                      {insight}
-                    </li>
-                  )) : (
-                    <li className="text-sm text-muted-foreground italic">No insights recorded</li>
-                  )}
-                </ul>
-              </div>
-              <div className="p-8 rounded-[40px] bg-card border border-border shadow-sm space-y-4">
-                <div className="flex items-center space-x-3 mb-2">
-                  <Zap className="w-5 h-5 text-emerald-500" />
-                  <h4 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Action Summary</h4>
-                </div>
-                <ul className="space-y-3">
-                  {selectedJournal.actions && selectedJournal.actions.length > 0 ? selectedJournal.actions.map((action: string, idx: number) => (
-                    <li key={idx} className="flex items-center text-sm font-bold text-foreground">
-                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-3" />
-                      {action}
-                    </li>
-                  )) : (
-                    <li className="text-sm text-muted-foreground italic">No actions recorded</li>
-                  )}
-                </ul>
-              </div>
-            </div>
-
-            <div className="p-10 rounded-[40px] bg-indigo-600 text-white space-y-6">
-              <div className="flex items-center space-x-3">
-                <MessageSquare className="w-6 h-6" />
-                <h3 className="text-xl font-bold">Mentor Feedback</h3>
-              </div>
-              <div className="space-y-4">
-                {mentorComments && mentorComments.length > 0 ? mentorComments.map((comment) => (
-                  <div key={comment.id} className="p-6 bg-white/10 rounded-3xl backdrop-blur-sm border border-white/10">
-                    <div className="flex items-center justify-between mb-4 gap-3">
-                      <span className="text-sm font-bold">{comment.authorName}</span>
-                      <span className="text-xs opacity-60 shrink-0">{fmtCommentTimestamp(comment.createdAt)}</span>
-                    </div>
-                    <p className="text-lg font-medium leading-relaxed whitespace-pre-wrap">
-                      {comment.text}
-                    </p>
-                  </div>
-                )) : (
-                  <div className="p-6 bg-white/10 rounded-3xl backdrop-blur-sm border border-white/10 text-center">
-                    <p className="text-sm opacity-60 italic">No mentor feedback yet.</p>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-
-          <div className="text-center py-12">
-            <p className="text-sm font-bold text-muted-foreground uppercase tracking-widest">Shared via Trading Workshop OS</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="flex flex-col h-[calc(100vh-120px)] gap-6">
@@ -1145,40 +1036,38 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
                     <Share2 className="w-5 h-5 text-primary" />
                     <h3 className="font-bold">Share Panel</h3>
                   </div>
-                  <Badge variant={selectedJournal.status === 'shared' ? 'positive' : 'neutral'}>
-                    {selectedJournal.status === 'shared' ? 'Publicly Shared' : 'Private'}
+                  <Badge variant={activeShareLink ? 'positive' : 'neutral'}>
+                    {activeShareLink ? 'Publicly Shared' : 'Private'}
                   </Badge>
                 </div>
 
                 <div className="space-y-4">
-                  {/* Real public link sharing isn't built — the app has no
-                      unauthenticated route, so a generated link would just
-                      hit the login wall. "Preview Public Page" below is
-                      real (it renders the same read-only layout locally);
-                      the rest is disabled rather than faking a working
-                      link, view count, and copy/revoke flow. */}
-                  <div className="p-4 bg-accent/30 rounded-2xl space-y-3">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-muted-foreground">Share Link</span>
-                      <span className="text-xs text-muted-foreground italic">Not available yet</span>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <input
-                        readOnly
-                        disabled
-                        value="Public sharing isn't built yet"
-                        className="flex-1 bg-background border border-border rounded-lg px-3 py-1.5 text-xs font-mono text-muted-foreground cursor-not-allowed"
-                      />
-                      <Button variant="outline" className="h-auto py-1.5 text-xs" disabled>Copy</Button>
-                    </div>
-                  </div>
-                  <div className="flex flex-col gap-3">
-                    <Button variant="primary" className="w-full" icon={ExternalLink} onClick={() => setIsPublicPreview(true)}>Preview Public Page</Button>
-                    <div className="flex gap-3">
-                      <Button variant="outline" className="flex-1" icon={LinkIcon} disabled title="Public sharing isn't built yet">New Link</Button>
-                      <Button variant="outline" className="flex-1 text-rose-500" disabled title="Public sharing isn't built yet">Revoke</Button>
-                    </div>
-                  </div>
+                  {activeShareLink ? (
+                    <>
+                      <div className="p-4 bg-accent/30 rounded-2xl space-y-3">
+                        <span className="text-xs text-muted-foreground">Anyone with this link can view this note — no account needed.</span>
+                        <div className="flex items-center space-x-2">
+                          <input
+                            readOnly
+                            value={shareUrl(activeShareLink.id)}
+                            onFocus={(e) => e.target.select()}
+                            className="flex-1 bg-background border border-border rounded-lg px-3 py-1.5 text-xs font-mono"
+                          />
+                          <Button variant="outline" className="h-auto py-1.5 text-xs" onClick={handleCopyShareLink}>Copy</Button>
+                        </div>
+                      </div>
+                      <div className="flex gap-3">
+                        <Button variant="outline" className="flex-1" icon={ExternalLink} onClick={() => window.open(shareUrl(activeShareLink.id), '_blank')}>Open</Button>
+                        <Button variant="outline" className="flex-1 text-rose-500" icon={LinkIcon} onClick={handleRevokeShare} disabled={isShareBusy}>
+                          {isShareBusy ? 'Revoking...' : 'Revoke'}
+                        </Button>
+                      </div>
+                    </>
+                  ) : (
+                    <Button variant="primary" className="w-full" icon={Share2} onClick={handleShareNote} disabled={isShareBusy}>
+                      {isShareBusy ? 'Sharing...' : 'Share This Note'}
+                    </Button>
+                  )}
                 </div>
               </Card>
 

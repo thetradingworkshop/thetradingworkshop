@@ -27,9 +27,11 @@ import {
   LineChart,
   Link2,
   Rocket,
-  ChevronDown
+  ChevronDown,
+  Share2,
+  ExternalLink
 } from 'lucide-react';
-import { Trade, TradeReview, TagCategory, Strategy, JournalEntry } from '../types';
+import { Trade, TradeReview, TagCategory, Strategy, JournalEntry, ShareLink } from '../types';
 import { doc, getDoc, getDocs, addDoc, setDoc, serverTimestamp, collection, query, where, onSnapshot, deleteField, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../context/AuthContext';
@@ -44,6 +46,7 @@ import { LinkTradeModal } from './LinkTradeModal';
 import { NoteCommentThread } from './NoteCommentThread';
 import { useMarketBars } from '../hooks/useMarketBars';
 import { getPointValue } from '../contractSpecs';
+import { subscribeShareLink, createShareLink, revokeShareLink, shareUrl } from '../lib/shareLinks';
 import { MessageCircle } from 'lucide-react';
 
 interface TradePerformanceLogProps {
@@ -392,6 +395,53 @@ export function TradePerformanceLog({ trades, title, subtitle, readOnly, ownerId
       setShowFeedbackModal(false);
     }
   }, [selectedTrade?.id]);
+
+  // Share Panel state — owner-only (a mentor's readOnly view of a
+  // student's trade shouldn't offer to share it). Live, same pattern as
+  // JournalScreen's own Share Panel.
+  const [activeShareLink, setActiveShareLink] = useState<ShareLink | null>(null);
+  const [isShareBusy, setIsShareBusy] = useState(false);
+  useEffect(() => {
+    if (readOnly || !user || !selectedTrade?.id) { setActiveShareLink(null); return; }
+    return subscribeShareLink(user.uid, 'trade', selectedTrade.id, setActiveShareLink);
+  }, [readOnly, user?.uid, selectedTrade?.id]);
+
+  const handleShareTrade = async () => {
+    if (!user || !selectedTrade) return;
+    setIsShareBusy(true);
+    try {
+      await createShareLink(user.uid, 'trade', selectedTrade.id);
+      setToast({ message: 'Trade shared', type: 'success' });
+    } catch (err) {
+      console.error('Failed to share trade:', err);
+      setToast({ message: 'Failed to share trade', type: 'error' });
+    } finally {
+      setIsShareBusy(false);
+      setTimeout(() => setToast(null), 3000);
+    }
+  };
+
+  const handleRevokeTradeShare = async () => {
+    if (!activeShareLink) return;
+    setIsShareBusy(true);
+    try {
+      await revokeShareLink(activeShareLink);
+      setToast({ message: 'Link revoked — trade is private again', type: 'success' });
+    } catch (err) {
+      console.error('Failed to revoke share link:', err);
+      setToast({ message: 'Failed to revoke link', type: 'error' });
+    } finally {
+      setIsShareBusy(false);
+      setTimeout(() => setToast(null), 3000);
+    }
+  };
+
+  const handleCopyTradeShareLink = () => {
+    if (!activeShareLink) return;
+    navigator.clipboard.writeText(shareUrl(activeShareLink.id));
+    setToast({ message: 'Link copied', type: 'success' });
+    setTimeout(() => setToast(null), 3000);
+  };
 
   // Keeps this trade's Verdict/Summary and Lesson Learned in sync with a
   // tradeId-linked entry in the `journals` collection, so they show up as a
@@ -1347,6 +1397,46 @@ export function TradePerformanceLog({ trades, title, subtitle, readOnly, ownerId
                             )}
                           </div>
                         </div>
+
+                        {!readOnly && selectedTrade && (
+                          <div className="p-4 rounded-2xl bg-accent/10 border border-border/50 space-y-4">
+                            <div className="flex items-center justify-between">
+                              <h3 className="text-sm font-bold flex items-center space-x-2">
+                                <Share2 className="w-4 h-4 text-indigo-500" />
+                                <span>Share Panel</span>
+                              </h3>
+                              <Badge variant={activeShareLink ? 'positive' : 'neutral'}>
+                                {activeShareLink ? 'Publicly Shared' : 'Private'}
+                              </Badge>
+                            </div>
+                            {activeShareLink ? (
+                              <>
+                                <p className="text-[11px] text-muted-foreground">
+                                  Anyone with this link can view this trade and any note linked to it — no account needed.
+                                </p>
+                                <div className="flex items-center space-x-2">
+                                  <input
+                                    readOnly
+                                    value={shareUrl(activeShareLink.id)}
+                                    onFocus={(e) => e.target.select()}
+                                    className="flex-1 bg-background border border-border rounded-lg px-3 py-1.5 text-xs font-mono"
+                                  />
+                                  <Button variant="outline" className="h-auto py-1.5 text-xs" onClick={handleCopyTradeShareLink}>Copy</Button>
+                                </div>
+                                <div className="flex gap-3">
+                                  <Button variant="outline" className="flex-1" icon={ExternalLink} onClick={() => window.open(shareUrl(activeShareLink.id), '_blank')}>Open</Button>
+                                  <Button variant="outline" className="flex-1 text-rose-500" icon={Link2} onClick={handleRevokeTradeShare} disabled={isShareBusy}>
+                                    {isShareBusy ? 'Revoking...' : 'Revoke'}
+                                  </Button>
+                                </div>
+                              </>
+                            ) : (
+                              <Button variant="primary" className="w-full" icon={Share2} onClick={handleShareTrade} disabled={isShareBusy}>
+                                {isShareBusy ? 'Sharing...' : 'Share This Trade'}
+                              </Button>
+                            )}
+                          </div>
+                        )}
                       </section>
                     </>
                   )}

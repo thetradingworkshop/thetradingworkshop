@@ -235,6 +235,11 @@ export interface TradeTruth {
   // imported. Not derived from `fills[].source`, which reconstructTrades()
   // always overwrites to 'csv' regardless of the input orders' own source.
   isManualEntry?: boolean;
+
+  // Same field/semantics as JournalEntry.status — 'shared' is what the
+  // trades/{tradeId} Firestore rule checks for public (unauthenticated)
+  // read access via a share link. See src/lib/shareLinks.ts.
+  status?: 'private' | 'shared';
 }
 
 export interface TradeDerivedMetrics {
@@ -849,6 +854,23 @@ export interface TradeIntent {
   // list without pretending it became a trade.
   status: 'pending' | 'matched' | 'dismissed';
   tradeId?: string;
+}
+
+// A public, unauthenticated link to one Journal note or Trade — the app's
+// only surface that works for someone with no account at all. `id` (the
+// Firestore doc ID) IS the token embedded in the share URL
+// (/share/{token}); knowing it is the entire credential (see
+// src/lib/shareLinks.ts and share_links in firestore.rules), so it's a
+// random string, never derived from resourceId. The actual content read is
+// gated separately, by the resource's own `status: 'shared'` field — this
+// doc only has to prove the link is real and not revoked.
+export interface ShareLink {
+  id: string;
+  userId: string;
+  resourceType: 'journal' | 'trade';
+  resourceId: string;
+  createdAt: string;
+  revoked: boolean;
 }
 
 export interface ParseResult {

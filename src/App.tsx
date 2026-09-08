@@ -21,6 +21,20 @@ import { DateProvider } from './context/DateContext';
 import { Loader2, LogIn } from 'lucide-react';
 import { Button } from './components/Shared';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { SharePage } from './components/SharePage';
+
+// This app otherwise has no path-based routing at all — every other screen
+// is client-side tab state (`activePage`), gated behind AuthProvider's sign-
+// in wall. A share link has to work for someone with no account, so it's
+// checked here, before any of that — matched purely on window.location,
+// bypassing AuthProvider/TradeProvider/etc. entirely rather than teaching
+// them about an unauthenticated case. (The production server's catch-all —
+// server.ts's `app.get("*", ...)` — already serves index.html for any path,
+// so /share/xyz reaches this same bundle same as every other URL does.)
+function shareTokenFromPath(): string | null {
+  const match = window.location.pathname.match(/^\/share\/([^/]+)\/?$/);
+  return match ? match[1] : null;
+}
 
 function AppContent() {
   const [activePage, setActivePage] = useState('dashboard');
@@ -138,6 +152,15 @@ function AppContent() {
 }
 
 export default function App() {
+  const shareToken = shareTokenFromPath();
+  if (shareToken) {
+    return (
+      <ThemeProvider>
+        <SharePage token={shareToken} />
+      </ThemeProvider>
+    );
+  }
+
   return (
     <ThemeProvider>
       <AuthProvider>
