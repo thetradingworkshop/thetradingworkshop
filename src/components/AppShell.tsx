@@ -265,7 +265,7 @@ export function AppShell({
         onClose={() => setIsLogIntentOpen(false)}
         onSuccess={() => {
           setIsLogIntentOpen(false);
-          setToast({ message: 'Setup logged — it will auto-match to your next trade on that symbol.', type: 'success' });
+          setToast({ message: 'Setup logged — find it under Pending Setups on the Trades screen once you\'ve taken it.', type: 'success' });
         }}
       />
 

@@ -585,6 +585,10 @@ async function main() {
     await assertFails(updateDoc(doc(otherStudent, 'trade_intents', 'intent-1'), { status: 'matched' }));
   });
 
+  await check('the owner CAN dismiss a pending setup they decided not to take', async () => {
+    await assertSucceeds(updateDoc(doc(student, 'trade_intents', 'intent-2'), { status: 'dismissed' }));
+  });
+
   console.log('\npersonal referral links — self-service invites, hard-capped to Student\n');
 
   const future90 = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);

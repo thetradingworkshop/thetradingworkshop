@@ -1289,9 +1289,9 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
               )}
             </div>
 
-            {(draft.tradeId || draft.sessionId) && (
+            {draft.noteType !== 'session_recap' && (
               <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
-                {draft.tradeId && (
+                {draft.tradeId ? (
                   <>
                     <Badge
                       variant={trades.some(t => t.id === draft.tradeId) ? 'neutral' : 'negative'}
@@ -1315,6 +1315,20 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
                       Unlink
                     </button>
                   </>
+                ) : (
+                  // Previously the ONLY way a fresh draft ever got a tradeId
+                  // was a cross-screen "open Journal for this trade" request
+                  // (selectedTradeForJournal) that nothing in the UI actually
+                  // triggered — so a new note had no way to ever land in the
+                  // Trade Notes category at all. This is that missing entry
+                  // point: pick a trade right from the note itself.
+                  <button
+                    type="button"
+                    onClick={() => setIsRelinkOpen(true)}
+                    className="text-primary hover:underline font-bold"
+                  >
+                    + Link a Trade
+                  </button>
                 )}
                 {draft.sessionId && <Badge variant="neutral" className="font-mono">Session: {draft.sessionId}</Badge>}
               </div>
@@ -1395,7 +1409,7 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
         isOpen={isRelinkOpen}
         onClose={() => setIsRelinkOpen(false)}
         trades={trades}
-        title="Relink to a trade"
+        title={draft?.tradeId ? 'Relink to a trade' : 'Link a trade'}
         onSelect={(trade) => setDraft(prev => prev && ({ ...prev, tradeId: trade.id }))}
       />
 

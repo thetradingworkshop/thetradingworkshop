@@ -840,7 +840,14 @@ export interface TradeIntent {
   isValidSetup: boolean;
   overrideUsed: boolean;
   confirmedAt: string;
-  status: 'pending' | 'matched';
+  // 'matched' means a real Trade now exists for this — either SessionBuilder's
+  // in-memory 5-minute auto-match (see SessionBuilder.ts, session-scoped only,
+  // never persisted back here) or, more reliably, the user manually
+  // completing it into a trade from the Trades screen's "Pending Setups" list
+  // (AddTradeModal's `prefill` prop), which DOES persist tradeId here.
+  // 'dismissed' is a setup the user decided not to take — removed from that
+  // list without pretending it became a trade.
+  status: 'pending' | 'matched' | 'dismissed';
   tradeId?: string;
 }
 

@@ -283,7 +283,7 @@ service cloud.firestore {
              data.isValidSetup is bool &&
              data.overrideUsed is bool &&
              data.confirmedAt is string &&
-             data.status in ['pending', 'matched', 'expired'] &&
+             data.status in ['pending', 'matched', 'expired', 'dismissed'] &&
              (!('plannedEntry' in data) || data.plannedEntry is number) &&
              (!('plannedExit' in data) || data.plannedExit is number) &&
              (!('stopLoss' in data) || data.stopLoss is number) &&

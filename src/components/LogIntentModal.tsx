@@ -19,14 +19,17 @@ function parseNum(v: string): number | undefined {
   return v.trim() !== '' && !isNaN(n) ? n : undefined;
 }
 
-// Logs a TradeIntent *before* the trade itself exists — SessionBuilder later
-// auto-matches it to whichever trade lands on the same symbol within 5
-// minutes of this confirmation (see the matching logic in SessionBuilder.ts),
-// which is what populates a trade's wasValidAtEntry/wasForced/isViolation
-// fields and the "Rule Followed" / "Rule Violated" badges already shown in
-// TradePerformanceLog and SessionDetailScreen. Without logging an intent
-// first, a trade is simply left "unconfirmed" — this modal is the only
-// place that gap gets closed.
+// Logs a TradeIntent *before* the trade itself exists. Two ways it later
+// connects to a real trade and populates wasValidAtEntry/wasForced/
+// isViolation (the "Rule Followed" / "Rule Violated" badges in
+// TradePerformanceLog and SessionDetailScreen): SessionBuilder's in-memory
+// auto-match, which only fires for a broker-synced/imported trade landing on
+// the same symbol within 5 minutes of this confirmation and — critically —
+// never persists the match (see SessionBuilder.ts); or, reliably for manual/
+// demo trading too, the user completing it into a trade themselves from the
+// Trades screen's Pending Setups list (see AddTradeModal's `prefill` prop),
+// which does persist it. Without either, the intent just sits pending —
+// visible in that list, but never a trade, and so never journalable.
 //
 // Deliberately carries no rule checklist of its own (an earlier version had
 // a hardcoded 4-item Displacement/Reversal/Imbalance/Pullback checklist —
@@ -133,7 +136,8 @@ export function LogIntentModal({ isOpen, onClose, onSuccess }: LogIntentModalPro
     <Modal isOpen={isOpen} onClose={handleClose} title="Log Trade Setup" maxWidth="sm">
       <div className="space-y-5">
         <p className="text-xs text-muted-foreground -mt-2">
-          Confirm your plan before you enter — this gets auto-matched to whichever trade you place on this symbol in the next 5 minutes, so it can be graded against what you actually planned going in.
+          Confirm your plan before you enter. It'll appear under Pending Setups on the Trades screen, where you can log
+          the actual result once you've taken it — that's what gets it graded against what you planned going in.
         </p>
 
         <div className="grid grid-cols-3 gap-3">
