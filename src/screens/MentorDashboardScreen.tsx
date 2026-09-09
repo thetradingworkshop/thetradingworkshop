@@ -11,6 +11,7 @@ import { useAuth } from '../context/AuthContext';
 import { Trade, JournalEntry } from '../types';
 import { TradePerformanceLog } from '../components/TradePerformanceLog';
 import { NoteCommentThread } from '../components/NoteCommentThread';
+import { GenerateReportModal } from '../components/GenerateReportModal';
 
 // This screen used to genuinely query real students, then read
 // `s.discipline`/`s.consistency`/`s.lastSession`/`s.trend` — fields nothing
@@ -94,6 +95,7 @@ export default function MentorDashboardScreen() {
   const [studentNotes, setStudentNotes] = useState<JournalEntry[] | null>(null);
   const [notesLoading, setNotesLoading] = useState(false);
   const [notesError, setNotesError] = useState<string | null>(null);
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
 
   useEffect(() => {
     if (!selectedStudentId) { setStudentNotes(null); setNotesError(null); return; }
@@ -348,7 +350,7 @@ export default function MentorDashboardScreen() {
         rightElement={
           <div className="flex flex-wrap items-center gap-3">
             <Button variant="outline" size="sm" disabled title="Multi-group filtering isn't built yet">Filter Group</Button>
-            <Button variant="primary" size="sm" disabled title="Automated weekly reports aren't built yet — see the Weekly Coaching Report card below">Weekly Report</Button>
+            <Button variant="primary" size="sm" icon={FileText} onClick={() => setIsReportModalOpen(true)} disabled={studentRows.length === 0}>Weekly Report</Button>
           </div>
         }
       />
@@ -624,14 +626,16 @@ export default function MentorDashboardScreen() {
               <h3 className="font-bold text-sm">Weekly Coaching Report</h3>
             </div>
             <p className="text-xs text-primary-foreground/80 mb-8 leading-relaxed">
-              Automated per-student report generation isn't built yet — this button doesn't send anything.
+              Pick a student and a week — real stats plus a mentor-feedback narrative, saved straight to that
+              student's own Weekly Reports page.
             </p>
           </div>
           <Button
-            className="w-full bg-primary-foreground/40 text-primary-foreground/70 border-none font-bold py-6 relative z-10 cursor-not-allowed"
-            disabled
+            className="w-full bg-primary-foreground/15 hover:bg-primary-foreground/25 text-primary-foreground border-none font-bold py-6 relative z-10"
+            onClick={() => setIsReportModalOpen(true)}
+            disabled={studentRows.length === 0}
           >
-            Coming Soon
+            Generate Report
           </Button>
         </Card>
       </div>
@@ -676,6 +680,16 @@ export default function MentorDashboardScreen() {
           </div>
         </div>
       </Card>
+
+      {user && (
+        <GenerateReportModal
+          isOpen={isReportModalOpen}
+          onClose={() => setIsReportModalOpen(false)}
+          mentorId={user.uid}
+          students={studentRows.map(s => ({ id: s.id, name: s.name }))}
+          studentTrades={studentTrades}
+        />
+      )}
     </div>
   );
 }

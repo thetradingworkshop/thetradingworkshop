@@ -21,7 +21,7 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "userId", "order": "ASCENDING" },
-        { "fieldPath": "week", "order": "DESCENDING" }
+        { "fieldPath": "weekStart", "order": "DESCENDING" }
       ]
     },
     {
@@ -34,6 +34,7 @@
     }
   ],
   "fieldOverrides": [
+    { "collectionGroup": "reports", "fieldPath": "insight", "indexes": [] },
     { "collectionGroup": "journals", "fieldPath": "content", "indexes": [] },
     { "collectionGroup": "journal_templates", "fieldPath": "content", "indexes": [] },
     { "collectionGroup": "trades", "fieldPath": "verdict", "indexes": [] },

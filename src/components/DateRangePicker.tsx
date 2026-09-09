@@ -317,9 +317,14 @@ export function GlobalDateRangePicker() {
 
 // --- Week Picker for Reports ---
 
-export function WeekPicker({ selectedDate, onChange }: { selectedDate: Date, onChange: (date: Date) => void }) {
-  const weekStart = startOfWeek(selectedDate);
-  const weekEnd = endOfWeek(selectedDate);
+// weekStartsOn defaults to Monday (1) — WeeklyReportsScreen's own trade
+// filter has always anchored the week that way (startOfWeek(...,
+// { weekStartsOn: 1 })), but this component's default here used to be
+// date-fns' own default (Sunday), so the picker's displayed "Aug 10 - Aug
+// 16" label didn't actually match the Mon-Sun range being filtered.
+export function WeekPicker({ selectedDate, onChange, weekStartsOn = 1 }: { selectedDate: Date, onChange: (date: Date) => void, weekStartsOn?: 0 | 1 }) {
+  const weekStart = startOfWeek(selectedDate, { weekStartsOn });
+  const weekEnd = endOfWeek(selectedDate, { weekStartsOn });
 
   return (
     <div className="flex items-center gap-2 bg-accent/30 p-1 rounded-xl border border-border/40">

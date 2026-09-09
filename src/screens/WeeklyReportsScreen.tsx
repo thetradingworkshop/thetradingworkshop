@@ -1,21 +1,21 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { cn } from '@/src/utils';
 import { SectionHeader, Card, Button } from '../components/Shared';
-import { FileText, Download, Share2, Eye, User } from 'lucide-react';
+import { FileText, Download, Eye, Share2, User } from 'lucide-react';
 
-import { collection, query, where, onSnapshot, orderBy } from 'firebase/firestore';
-import { db } from '../firebase';
-import { WeekPicker } from '../components/DateRangePicker';
 import { useDateRange } from '../context/DateContext';
 import { useTrades } from '../context/TradeContext';
 import { isWithinInterval, startOfWeek, endOfWeek } from 'date-fns';
 import { TradePerformanceLog } from '../components/TradePerformanceLog';
 import { useAuth } from '../context/AuthContext';
+import { subscribeReports, downloadReportAsText, WeeklyReport } from '../lib/weeklyReports';
+import { WeeklyReportViewer } from '../components/WeeklyReportViewer';
+import { WeekPicker } from '../components/DateRangePicker';
 
 export default function WeeklyReportsScreen() {
   const { user } = useAuth();
-  const [reports, setReports] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [reports, setReports] = useState<WeeklyReport[]>([]);
+  const [viewingReport, setViewingReport] = useState<WeeklyReport | null>(null);
   const { getEffectiveRange, setPageOverride } = useDateRange();
   // filteredTrades (not the raw, all-accounts/all-symbols `trades`) so the
   // weekly log respects the header's Filters/Account selection, same as
@@ -42,28 +42,18 @@ export default function WeeklyReportsScreen() {
   };
 
   useEffect(() => {
-    if (!user) return;
-    const userId = user.uid;
-    const unsubscribe = onSnapshot(
-      query(collection(db, 'reports'), where('userId', '==', userId), orderBy('week', 'desc')),
-      (snapshot) => {
-        const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        setReports(docs);
-        setIsLoading(false);
-      }
-    );
-    return () => unsubscribe();
-  }, [user]);
+    if (!user) { setReports([]); return; }
+    return subscribeReports(user.uid, setReports);
+  }, [user?.uid]);
 
   return (
     <div className="space-y-6">
-      <SectionHeader 
-        title="Weekly Reports" 
+      <SectionHeader
+        title="Weekly Reports"
         subtitle="Performance summaries and behavioral analysis reports"
         rightElement={
           <div className="flex flex-wrap items-center gap-4">
             <WeekPicker selectedDate={effectiveRange.from} onChange={handleWeekChange} />
-            <Button variant="primary" disabled title="Automated report generation isn't built yet">Generate New Report</Button>
           </div>
         }
       />
@@ -93,19 +83,19 @@ export default function WeeklyReportsScreen() {
                 </div>
                 <div className="text-right">
                   <p className="text-[10px] font-bold uppercase text-muted-foreground">Win Rate</p>
-                  <p className="text-sm font-bold">{report.winRate}%</p>
+                  <p className="text-sm font-bold">{report.winRate.toFixed(1)}%</p>
                 </div>
                 <div className="flex items-center space-x-2">
-                  <Button variant="ghost" icon={Eye} className="p-2 h-auto" disabled title="Report viewer isn't built yet" />
-                  <Button variant="ghost" icon={Download} className="p-2 h-auto" disabled title="Report download isn't built yet" />
-                  <Button variant="ghost" icon={Share2} className="p-2 h-auto" disabled title="Report sharing isn't built yet" />
+                  <Button variant="ghost" icon={Eye} className="p-2 h-auto" onClick={() => setViewingReport(report)} title="View report" />
+                  <Button variant="ghost" icon={Download} className="p-2 h-auto" onClick={() => downloadReportAsText(report)} title="Download report" />
+                  <Button variant="ghost" icon={Share2} className="p-2 h-auto" disabled title="A shareable link for reports isn't built yet — notes and trades already have one" />
                 </div>
               </div>
             </div>
           </Card>
         )) : (
           <Card className="p-12 text-center text-muted-foreground italic">
-            No reports generated for this period.
+            No reports yet — your mentor generates these from your Mentor Dashboard.
           </Card>
         )}
       </div>
@@ -115,6 +105,8 @@ export default function WeeklyReportsScreen() {
         title="Weekly Performance Logs"
         subtitle="Detailed trade audit for the selected week"
       />
+
+      <WeeklyReportViewer report={viewingReport} onClose={() => setViewingReport(null)} />
     </div>
   );
 }

@@ -688,6 +688,78 @@ async function main() {
     await assertFails(getDoc(doc(unauth, 'journals', 'journal-1')));
   });
 
+  console.log('\nreports — Weekly Coaching Reports (mentor-generated, v1)\n');
+
+  function reportPayload(overrides = {}) {
+    return {
+      userId: overrides.userId,
+      mentorId: overrides.mentorId ?? MENTOR_UID,
+      weekStart: overrides.weekStart ?? '2026-08-10',
+      weekEnd: overrides.weekEnd ?? '2026-08-16',
+      week: overrides.week ?? 'Aug 10 - Aug 16, 2026',
+      student: overrides.student ?? 'Student One',
+      pnl: overrides.pnl ?? 125.5,
+      winRate: overrides.winRate ?? 60,
+      totalTrades: overrides.totalTrades ?? 4,
+      disciplineScore: overrides.disciplineScore ?? 80,
+      consistencyScore: overrides.consistencyScore ?? 70,
+      insight: overrides.insight ?? {
+        sessionSummary: 'Test summary', whatWorked: [], whatHurt: [],
+        coreProblem: 'Test', executionVsStrategy: 'Test', actionPlan: [],
+      },
+      createdAt: overrides.createdAt ?? new Date().toISOString(),
+    };
+  }
+
+  await check('the assigned mentor CAN generate a report for their own student', async () => {
+    await assertSucceeds(setDoc(doc(mentor, 'reports', 'report-1'), reportPayload({ userId: STUDENT_UID })));
+  });
+
+  await check('a mentor CANNOT generate a report for a student not assigned to them', async () => {
+    await assertFails(setDoc(doc(otherMentor, 'reports', 'report-bad-1'), reportPayload({ userId: STUDENT_UID, mentorId: OTHER_MENTOR_UID })));
+  });
+
+  await check('a mentor CANNOT generate a report claiming a different mentorId than themselves', async () => {
+    await assertFails(setDoc(doc(mentor, 'reports', 'report-bad-2'), reportPayload({ userId: STUDENT_UID, mentorId: OTHER_MENTOR_UID })));
+  });
+
+  await check('a student CANNOT generate their own report (mentor-only in v1)', async () => {
+    await assertFails(setDoc(doc(student, 'reports', 'report-bad-3'), reportPayload({ userId: STUDENT_UID, mentorId: STUDENT_UID })));
+  });
+
+  await check('Admin CAN generate a report for any student', async () => {
+    await assertSucceeds(setDoc(doc(admin, 'reports', 'report-2'), reportPayload({ userId: OTHER_STUDENT_UID, mentorId: ADMIN_UID, student: 'Student Two' })));
+  });
+
+  await check('the student CAN read their own report', async () => {
+    await assertSucceeds(getDoc(doc(student, 'reports', 'report-1')));
+  });
+
+  await check('a different student CANNOT read someone else\'s report', async () => {
+    await assertFails(getDoc(doc(otherStudent, 'reports', 'report-1')));
+  });
+
+  await check('the assigned mentor CAN read a report they generated', async () => {
+    await assertSucceeds(getDoc(doc(mentor, 'reports', 'report-1')));
+  });
+
+  await check('Admin CAN read any report', async () => {
+    await assertSucceeds(getDoc(doc(admin, 'reports', 'report-1')));
+  });
+
+  await check('the assigned mentor CAN regenerate (overwrite) the same report', async () => {
+    await assertSucceeds(updateDoc(doc(mentor, 'reports', 'report-1'), reportPayload({ userId: STUDENT_UID, pnl: 200 })));
+  });
+
+  await check('a different mentor CANNOT update someone else\'s student report', async () => {
+    await assertFails(updateDoc(doc(otherMentor, 'reports', 'report-1'), reportPayload({ userId: STUDENT_UID, pnl: -50 })));
+  });
+
+  // Destructive — must run last among tests that depend on report-1 existing.
+  await check('the assigned mentor CAN delete a report they generated', async () => {
+    await assertSucceeds(deleteDoc(doc(mentor, 'reports', 'report-1')));
+  });
+
   console.log('\npersonal referral links — self-service invites, hard-capped to Student\n');
 
   const future90 = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);

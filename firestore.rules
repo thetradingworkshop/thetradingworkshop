@@ -312,6 +312,28 @@ service cloud.firestore {
              data.revoked is bool;
     }
 
+    // A mentor-generated Weekly Coaching Report (Mentor Dashboard → "Weekly
+    // Coaching Report" → Generate). `insight` is a StructuredInsight (see
+    // src/services/mentorService.ts) stored as a map — loosely typed here
+    // since its exact shape belongs to that TS interface, not the rules
+    // layer; the numeric/string fields around it are what both the mentor's
+    // trigger and the student's Weekly Reports list actually key off.
+    function isValidWeeklyReport(data) {
+      return data.userId is string &&
+             data.mentorId is string &&
+             data.weekStart is string &&
+             data.weekEnd is string &&
+             data.week is string &&
+             data.student is string &&
+             data.pnl is number &&
+             data.winRate is number &&
+             data.totalTrades is number &&
+             data.disciplineScore is number &&
+             data.consistencyScore is number &&
+             data.insight is map &&
+             data.createdAt is string;
+    }
+
     function isValidMentorComment(data) {
       return data.authorId is string &&
              data.authorName is string &&
@@ -450,6 +472,24 @@ service cloud.firestore {
       allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid && canWriteOwnData();
       allow update: if isAuthenticated() && ((resource.data.userId == request.auth.uid && canWriteOwnData()) || isAdmin());
       allow delete: if isAdmin();
+    }
+
+    // Weekly Coaching Reports (Mentor Dashboard → Weekly Coaching Report,
+    // read by the student on their own Weekly Reports page). Deliberately
+    // mentor/Admin-only to write — v1 is "mentor clicks Generate for one of
+    // their students," not student self-service — and doc IDs are
+    // `${studentUid}_${weekStart}` (set client-side, see
+    // src/lib/weeklyReports.ts) so regenerating the same student+week
+    // overwrites in place instead of piling up duplicates.
+    match /reports/{reportId} {
+      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin() || isAssignedMentor(resource.data.userId));
+      allow create: if isAuthenticated() && request.resource.data.mentorId == request.auth.uid && canWriteOwnData() &&
+        (isAssignedMentor(request.resource.data.userId) || isAdmin()) && isValidWeeklyReport(request.resource.data);
+      allow update: if isAuthenticated() &&
+        ((resource.data.mentorId == request.auth.uid && canWriteOwnData() && isAssignedMentor(resource.data.userId)) || isAdmin()) &&
+        isValidWeeklyReport(request.resource.data);
+      allow delete: if isAuthenticated() &&
+        ((resource.data.mentorId == request.auth.uid && canWriteOwnData() && isAssignedMentor(resource.data.userId)) || isAdmin());
     }
 
     // Trade Reviews
