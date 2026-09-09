@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, ReactNode, useEffect, useMemo } from 'react';
 import { Trade, ReconstructionStep, BrokerAccount } from '../types';
 import { db, auth } from '../firebase';
-import { collection, query, where, onSnapshot, orderBy, addDoc, serverTimestamp, writeBatch, doc, deleteDoc, getDocFromServer } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, orderBy, addDoc, setDoc, serverTimestamp, writeBatch, doc, deleteDoc, getDocFromServer } from 'firebase/firestore';
 import { useAuth } from './AuthContext';
 
 export interface AccountOption {
@@ -38,6 +38,32 @@ export interface TradeFilterOptions {
 // with no account picked). All three are treated as "Unassigned".
 function isUnassigned(trade: Trade): boolean {
   return !trade.accountId || trade.accountId === 'manual-account' || trade.accountId === 'manual';
+}
+
+// Recursively strips `undefined` and fixes NaN at any depth — unlike
+// addTrades' JSON.parse(JSON.stringify(...)) round-trip, this leaves any
+// non-plain-object value (a Firestore FieldValue sentinel like
+// deleteField(), a Date, etc.) completely untouched rather than trying to
+// recurse into it, so updateTrade's callers (AddTradeModal's edit mode) can
+// still pass one through at the top level to actually clear a field.
+// Confirmed by hand this was a real, blocking bug: reconstructTrades()'s
+// own fresh `fills` array carries optional Order fields (fillId,
+// importRunId) as literal `undefined` rather than omitted, two levels
+// below the top-level fields a shallow-only check would reach — Firestore
+// rejects `undefined` anywhere in the payload, not just at the top.
+function deepCleanTradeField(value: any): any {
+  if (value === undefined) return undefined;
+  if (typeof value === 'number') return isNaN(value) ? 0 : value;
+  if (Array.isArray(value)) return value.map(deepCleanTradeField).filter(v => v !== undefined);
+  if (value !== null && typeof value === 'object' && value.constructor === Object) {
+    const out: Record<string, any> = {};
+    for (const [k, v] of Object.entries(value)) {
+      const cleaned = deepCleanTradeField(v);
+      if (cleaned !== undefined) out[k] = cleaned;
+    }
+    return out;
+  }
+  return value;
 }
 
 enum OperationType {
@@ -110,6 +136,7 @@ interface TradeContextType {
   setFilters: (filters: TradeFilters) => void;
   filterOptions: TradeFilterOptions;
   addTrades: (trades: Trade[], steps?: ReconstructionStep[]) => Promise<void>;
+  updateTrade: (tradeId: string, fields: Record<string, any>) => Promise<void>;
   deleteTrade: (tradeId: string) => Promise<void>;
   deleteTrades: (tradeIds: string[]) => Promise<void>;
   logTradeIntent: (intent: {
@@ -398,6 +425,35 @@ export function TradeProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  // Corrects a trade already on file — a mis-keyed price/quantity from a
+  // broker import, or one entered by hand wrong — without disturbing its
+  // Firestore identity. addTrades() can't be reused for this: it keys each
+  // doc by dedupeHash, which is itself derived from symbol/entryTime/
+  // exitTime, so an edit that touches any of those would just create a
+  // second, orphaned doc instead of correcting the original. `fields` is
+  // expected to already be the fully recomputed trade (see AddTradeModal's
+  // edit mode, which reruns reconstructTrades() on the edited values so
+  // every derived number — P&L, isWinner, holdTimeSeconds, grade, etc. —
+  // stays consistent with the corrected inputs) rather than a partial patch.
+  const updateTrade = async (tradeId: string, fields: Record<string, any>) => {
+    if (!user) return;
+    const { id, ...tradeData } = fields;
+    const sanitizedData: Record<string, any> = {};
+    for (const [key, value] of Object.entries(tradeData)) {
+      const cleaned = deepCleanTradeField(value);
+      if (cleaned !== undefined) sanitizedData[key] = cleaned;
+    }
+    try {
+      await setDoc(doc(db, 'trades', tradeId), {
+        ...sanitizedData,
+        updatedAt: serverTimestamp(),
+      }, { merge: true });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, 'trades');
+      throw err;
+    }
+  };
+
   const deleteTrades = async (tradeIds: string[]) => {
     if (!user) return;
     const uniqueIds = Array.from(new Set(tradeIds)).filter(Boolean);
@@ -498,6 +554,7 @@ export function TradeProvider({ children }: { children: ReactNode }) {
       setFilters,
       filterOptions,
       addTrades,
+      updateTrade,
       deleteTrade,
       deleteTrades,
       logTradeIntent,

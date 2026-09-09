@@ -142,6 +142,7 @@ export default function TradesScreen() {
           overrideUsed: activeIntent.overrideUsed,
           plannedEntry: activeIntent.plannedEntry,
           plannedExit: activeIntent.plannedExit,
+          plannedStopLoss: activeIntent.stopLoss,
         } : undefined}
         onSuccess={() => {
           closeAddTrade();

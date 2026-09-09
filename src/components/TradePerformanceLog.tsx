@@ -29,7 +29,8 @@ import {
   Rocket,
   ChevronDown,
   Share2,
-  ExternalLink
+  ExternalLink,
+  Pencil
 } from 'lucide-react';
 import { Trade, TradeReview, TagCategory, Strategy, JournalEntry, ShareLink } from '../types';
 import { doc, getDoc, getDocs, addDoc, setDoc, serverTimestamp, collection, query, where, onSnapshot, deleteField, deleteDoc } from 'firebase/firestore';
@@ -43,6 +44,7 @@ import { RunningPnlChart } from './RunningPnlChart';
 import { RichTextEditor, stripHtml, isContentEmpty } from './RichTextEditor';
 import { TradeAttachments } from './TradeAttachments';
 import { LinkTradeModal } from './LinkTradeModal';
+import { AddTradeModal } from './AddTradeModal';
 import { NoteCommentThread } from './NoteCommentThread';
 import { useMarketBars } from '../hooks/useMarketBars';
 import { getPointValue } from '../contractSpecs';
@@ -184,6 +186,7 @@ export function TradePerformanceLog({ trades, title, subtitle, readOnly, ownerId
   const [showFilters, setShowFilters] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [isLinkModalOpen, setIsLinkModalOpen] = useState(false);
+  const [isEditTradeOpen, setIsEditTradeOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [pendingDeleteIds, setPendingDeleteIds] = useState<string[] | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -1013,6 +1016,14 @@ export function TradePerformanceLog({ trades, title, subtitle, readOnly, ownerId
                       </button>
                     )}
                     <button
+                      onClick={() => setIsEditTradeOpen(true)}
+                      className="p-2 hover:bg-primary/10 text-muted-foreground hover:text-primary rounded-full transition-colors"
+                      aria-label="Edit trade"
+                      title="Edit trade"
+                    >
+                      <Pencil className="w-5 h-5" />
+                    </button>
+                    <button
                       onClick={(e) => requestDeleteOne(selectedTrade.id, e)}
                       className="p-2 hover:bg-rose-500/10 text-muted-foreground hover:text-rose-600 rounded-full transition-colors"
                       aria-label="Delete trade"
@@ -1224,7 +1235,16 @@ export function TradePerformanceLog({ trades, title, subtitle, readOnly, ownerId
                             <StatRow label="Trade Risk">{selectedTrade.tradeRisk?.toString() ?? '—'}</StatRow>
                           ) : (
                             <EditableStatRow
-                              key={`risk-${selectedTrade.id}`}
+                              // Value included in the key (not just the trade
+                              // id) so this uncontrolled input actually
+                              // resyncs when tradeRisk changes from outside
+                              // this row — confirmed by hand this stayed
+                              // stale showing the old value after clearing
+                              // the stop loss via the Edit Trade modal, since
+                              // an uncontrolled input only re-reads
+                              // defaultValue on remount, and the id alone
+                              // never changes for that edit.
+                              key={`risk-${selectedTrade.id}-${selectedTrade.tradeRisk ?? ''}`}
                               label="Trade Risk" type="number"
                               defaultValue={selectedTrade.tradeRisk?.toString() ?? ''}
                               onCommit={(value) => updateTradeFields({ tradeRisk: value === '' ? undefined : parseFloat(value) })}
@@ -1636,6 +1656,24 @@ export function TradePerformanceLog({ trades, title, subtitle, readOnly, ownerId
           sourceTrade={selectedTrade}
           candidates={trades.filter(t => !t.isManualEntry && t.id !== selectedTrade.id)}
           onConfirm={handleLinkTrade}
+        />
+      )}
+
+      {/* Edit Trade Modal — owner-only (see the readOnly branch above,
+          which doesn't render the Edit button at all); corrects the trade's
+          own core fields (symbol/side/quantity/entry/exit/stop/times)
+          rather than the supplementary review fields EditableStatRow
+          already handles inline. */}
+      {!readOnly && selectedTrade && (
+        <AddTradeModal
+          isOpen={isEditTradeOpen}
+          onClose={() => setIsEditTradeOpen(false)}
+          editingTrade={selectedTrade}
+          onSuccess={() => {
+            setIsEditTradeOpen(false);
+            setToast({ message: 'Trade updated', type: 'success' });
+            setTimeout(() => setToast(null), 3000);
+          }}
         />
       )}
 
