@@ -269,7 +269,25 @@ export function TradeProvider({ children }: { children: ReactNode }) {
       setIsLoading(false);
       setError(null);
     }, (err) => {
-      handleFirestoreError(err, OperationType.GET, 'trades');
+      // handleFirestoreError logs *and throws* — appropriate for a failed
+      // write where the caller awaits and handles the rejection, but this
+      // is an onSnapshot error callback: nothing awaits it, so throwing
+      // here was an uncaught exception that never reset isLoading/error,
+      // leaving the screen stuck on its loading state forever on a real
+      // failure (e.g. a connection that never completes its first
+      // round-trip — see the 2026-09-16 incident, where that looked
+      // identical to a real "0 trades" account instead of a failure).
+      console.error('Firestore Error: ', JSON.stringify({
+        error: err.message,
+        operationType: OperationType.GET,
+        path: 'trades',
+      }));
+      setIsLoading(false);
+      setError(
+        err.message?.includes('client is offline')
+          ? "Couldn't load your trades — you appear to be offline."
+          : "Couldn't load your trades. Please try again."
+      );
     });
 
     return () => unsubscribe();

@@ -18,7 +18,7 @@ import SettingsScreen from './screens/SettingsScreen';
 import UsersPermissionsScreen from './screens/UsersPermissionsScreen';
 import DataConnectionsScreen from './screens/DataConnectionsScreen';
 import { DateProvider } from './context/DateContext';
-import { Loader2, LogIn } from 'lucide-react';
+import { Loader2, LogIn, WifiOff, RotateCcw } from 'lucide-react';
 import { Button } from './components/Shared';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { SharePage } from './components/SharePage';
@@ -40,7 +40,7 @@ function shareTokenFromPath(): string | null {
 function AppContent() {
   const [activePage, setActivePage] = useState('dashboard');
   const [isSigningIn, setIsSigningIn] = useState(false);
-  const { user, role, roleLoading, loading, login, loginAsTestUser, loginError } = useAuth();
+  const { user, role, roleLoading, loading, login, loginAsTestUser, loginError, roleError, retryRole } = useAuth();
 
   const handleLogin = async () => {
     setIsSigningIn(true);
@@ -62,6 +62,24 @@ function AppContent() {
     return (
       <div className="h-screen w-screen flex items-center justify-center bg-slate-950">
         <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
+      </div>
+    );
+  }
+
+  // A connection that never completed its first Firestore round-trip (see
+  // the 2026-09-16 incident: a network that kept killing long-polling
+  // connections made a real Admin account render as a brand-new, roleless
+  // Student one) is NOT the same as a genuinely new account with no
+  // profile doc — only the latter should fall back to Student below.
+  if (user && roleError) {
+    return (
+      <div className="h-screen w-screen flex items-center justify-center bg-slate-950 p-4">
+        <div className="max-w-sm w-full text-center space-y-4">
+          <WifiOff className="w-8 h-8 text-slate-400 mx-auto" />
+          <h1 className="text-lg font-bold text-white">Couldn't verify your account</h1>
+          <p className="text-sm text-slate-400">{roleError}</p>
+          <Button variant="outline" icon={RotateCcw} onClick={retryRole}>Retry</Button>
+        </div>
       </div>
     );
   }

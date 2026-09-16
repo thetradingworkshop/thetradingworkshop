@@ -53,6 +53,16 @@ interface AuthContextType {
   // attempt so a retry doesn't leave a stale message behind.
   loginError: string | null;
   clearLoginError: () => void;
+  // Set when the role listener's error callback fires (e.g. a connection
+  // that never completes its first Firestore round-trip — see the
+  // 2026-09-16 incident where a network that kept killing long-polling
+  // connections made a real Admin account look like a brand-new, roleless
+  // Student one). Distinct from role simply being null for a genuinely new
+  // account with no profile doc yet: that case has no error, this one
+  // does. App.tsx uses this to show a retryable connection-problem screen
+  // instead of silently falling back to the least-privileged role.
+  roleError: string | null;
+  retryRole: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -63,6 +73,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [roleLoading, setRoleLoading] = useState(true);
   const [loading, setLoading] = useState(true);
   const [loginError, setLoginError] = useState<string | null>(null);
+  const [roleError, setRoleError] = useState<string | null>(null);
+  const [roleRetryKey, setRoleRetryKey] = useState(0);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
@@ -73,15 +85,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (!user) { setRole(null); setRoleLoading(false); return; }
+    if (!user) { setRole(null); setRoleLoading(false); setRoleError(null); return; }
     setRoleLoading(true);
+    setRoleError(null);
     const unsubscribe = onSnapshot(
       doc(db, 'users', user.uid),
-      (snap) => { setRole((snap.data()?.role as Role) || null); setRoleLoading(false); },
-      () => { setRole(null); setRoleLoading(false); }
+      (snap) => { setRole((snap.data()?.role as Role) || null); setRoleLoading(false); setRoleError(null); },
+      (err) => {
+        setRole(null);
+        setRoleLoading(false);
+        setRoleError(
+          err.message?.includes('client is offline')
+            ? "Couldn't verify your account — you appear to be offline."
+            : "Couldn't verify your account. Please try again."
+        );
+      }
     );
     return () => unsubscribe();
-  }, [user?.uid]);
+  }, [user?.uid, roleRetryKey]);
 
   // Brand-new-account-only: if an invite code is waiting in sessionStorage
   // (see capturePendingInviteFromUrl above), look it up and fold its
@@ -265,7 +286,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, role, roleLoading, loading, login, loginAsTestUser, logout, loginError, clearLoginError: () => setLoginError(null) }}>
+    <AuthContext.Provider value={{ user, role, roleLoading, loading, login, loginAsTestUser, logout, loginError, clearLoginError: () => setLoginError(null), roleError, retryRole: () => setRoleRetryKey(k => k + 1) }}>
       {children}
     </AuthContext.Provider>
   );
