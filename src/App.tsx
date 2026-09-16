@@ -22,6 +22,7 @@ import { Loader2, LogIn } from 'lucide-react';
 import { Button } from './components/Shared';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { SharePage } from './components/SharePage';
+import { DebugWhoami } from './components/DebugWhoami';
 
 // This app otherwise has no path-based routing at all — every other screen
 // is client-side tab state (`activePage`), gated behind AuthProvider's sign-
@@ -49,6 +50,13 @@ function AppContent() {
       setIsSigningIn(false);
     }
   };
+
+  // Temporary diagnostic for the 2026-09-16 "signed in as a blank Student
+  // profile" incident — see DebugWhoami.tsx. Gated to this one account so
+  // it never appears for anyone else; remove once resolved.
+  if (user && window.location.pathname === '/debug/whoami' && user.email === 'jeanpaultru@gmail.com') {
+    return <DebugWhoami user={user} />;
+  }
 
   if (loading || (user && roleLoading)) {
     return (
