@@ -18,7 +18,7 @@
 // account; remove this file and its App.tsx wiring once the incident is
 // resolved.
 import React, { useEffect, useState } from 'react';
-import { collection, doc, onSnapshot, query, where } from 'firebase/firestore';
+import { collection, doc, limit, onSnapshot, query, where } from 'firebase/firestore';
 import { db } from '../firebase';
 import { User } from 'firebase/auth';
 
@@ -29,11 +29,21 @@ export function DebugWhoami({ user }: { user: User }) {
   const [byEmail, setByEmail] = useState<{ loaded: boolean; docs: any[]; error: string | null }>(
     { loaded: false, docs: [], error: null }
   );
+  // Any 25 trades across the WHOLE collection, not just this uid's own —
+  // relies on firestore.rules' isAdmin() email bypass (independent of the
+  // users/{uid}.role field) to see whether the collection has any data at
+  // all, and whether any of it belongs to a UID other than the one
+  // currently signed in (which would mean an old, orphaned identity still
+  // holds it rather than the data having actually been deleted).
+  const [tradesSample, setTradesSample] = useState<{ loaded: boolean; count: number; distinctUserIds: string[]; error: string | null }>(
+    { loaded: false, count: 0, distinctUserIds: [], error: null }
+  );
   const [retryKey, setRetryKey] = useState(0);
 
   useEffect(() => {
     setOwnDoc({ loaded: false, exists: false, data: null, error: null });
     setByEmail({ loaded: false, docs: [], error: null });
+    setTradesSample({ loaded: false, count: 0, distinctUserIds: [], error: null });
 
     const unsubOwn = onSnapshot(
       doc(db, 'users', user.uid),
@@ -45,7 +55,17 @@ export function DebugWhoami({ user }: { user: User }) {
       (snap) => setByEmail({ loaded: true, docs: snap.docs.map((d) => ({ id: d.id, ...d.data() })), error: null }),
       (err) => setByEmail({ loaded: true, docs: [], error: err.message })
     );
-    return () => { unsubOwn(); unsubEmail(); };
+    const unsubTrades = onSnapshot(
+      query(collection(db, 'trades'), limit(25)),
+      (snap) => setTradesSample({
+        loaded: true,
+        count: snap.size,
+        distinctUserIds: Array.from(new Set(snap.docs.map((d) => (d.data() as any).userId))),
+        error: null,
+      }),
+      (err) => setTradesSample({ loaded: true, count: 0, distinctUserIds: [], error: err.message })
+    );
+    return () => { unsubOwn(); unsubEmail(); unsubTrades(); };
   }, [user.uid, user.email, retryKey]);
 
   const output = JSON.stringify(
@@ -55,6 +75,7 @@ export function DebugWhoami({ user }: { user: User }) {
       authEmailVerified: user.emailVerified,
       ownDoc,
       byEmail,
+      tradesSample,
     },
     null,
     2
