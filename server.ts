@@ -176,6 +176,49 @@ async function startServer() {
     }
   });
 
+  // One-time migration for the same 2026-09-16 incident (see
+  // /api/debug/whoami above): the account's real trade history and
+  // profile doc were found under a different, orphaned UID (its Firebase
+  // Auth user record was apparently deleted at some point, which mints a
+  // brand-new UID on next sign-in rather than reusing the old one). Runs
+  // via the Admin SDK — bypassing firestore.rules and, more importantly,
+  // the browser's own flaky connection to Firestore that made every
+  // client-side attempt at this hang or time out. Gated to the same
+  // single email; remove alongside /api/debug/whoami once resolved.
+  const ORPHANED_UID = "fewZ1V5AoOfT1NG3nvLwT9pXUTk2";
+  app.post("/api/debug/migrate", requireAuth, async (req, res) => {
+    const email = (req as any).email;
+    if (email !== "jeanpaultru@gmail.com") {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    const uid = (req as any).uid;
+    try {
+      const tradesSnap = await db.collection("trades").where("userId", "==", ORPHANED_UID).get();
+      const batchSize = 500;
+      const docs = tradesSnap.docs;
+      for (let i = 0; i < docs.length; i += batchSize) {
+        const batch = db.batch();
+        docs.slice(i, i + batchSize).forEach((d) => batch.update(d.ref, { userId: uid }));
+        await batch.commit();
+      }
+
+      await db.collection("users").doc(uid).set({
+        id: uid,
+        name: "Jean Paul",
+        email,
+        role: "Admin",
+        status: "active",
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        lastLoginAt: admin.firestore.FieldValue.serverTimestamp(),
+      }, { merge: true });
+
+      res.json({ tradesReattached: docs.length, roleSetTo: "Admin", uid });
+    } catch (error: any) {
+      console.error("[debug/migrate] failed:", error);
+      res.status(500).json({ error: error?.message || String(error) });
+    }
+  });
+
   // --- Tradovate OAuth ---
 
   app.get("/api/auth/tradovate/url", requireAuth, async (req, res) => {

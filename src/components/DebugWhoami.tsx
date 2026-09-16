@@ -141,6 +141,28 @@ export function DebugWhoami({ user }: { user: User }) {
     }
   };
 
+  const [serverMigration, setServerMigration] = useState<StepState>(IDLE);
+  const runServerMigration = async () => {
+    const log: string[] = [];
+    const append = (line: string) => { log.push(line); setServerMigration({ running: true, log: [...log] }); };
+    append('Calling server-side migration (Admin SDK, bypasses the browser connection entirely)...');
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch('/api/debug/migrate', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body?.error || `HTTP ${res.status}`);
+      append(`Done. Re-attached ${body.tradesReattached} trade(s), role set to ${body.roleSetTo} for ${body.uid}.`);
+      append('Reload the main app to confirm.');
+      setServerMigration({ running: false, log });
+    } catch (err: any) {
+      append(`ERROR: ${err?.message || String(err)}`);
+      setServerMigration({ running: false, log });
+    }
+  };
+
   useEffect(() => {
     setOwnDoc({ loaded: false, exists: false, data: null, error: null });
     setByEmail({ loaded: false, docs: [], error: null });
@@ -194,6 +216,23 @@ export function DebugWhoami({ user }: { user: User }) {
       >
         Retry
       </button>
+
+      <div className="space-y-2">
+        <button
+          className="px-4 py-2 rounded-lg border border-emerald-700 bg-emerald-950 text-emerald-200 text-sm font-bold hover:bg-emerald-900 disabled:opacity-50"
+          onClick={runServerMigration}
+          disabled={serverMigration.running}
+        >
+          {serverMigration.running ? 'Running server migration...' : 'RECOMMENDED: Run migration server-side (Admin SDK)'}
+        </button>
+        {serverMigration.log.length > 0 && (
+          <pre className="whitespace-pre-wrap text-xs bg-slate-900 p-4 rounded-lg border border-emerald-800 text-emerald-100">
+            {serverMigration.log.join('\n')}
+          </pre>
+        )}
+      </div>
+
+      <p className="text-xs text-slate-500">Below: the old client-side, browser-dependent buttons — kept only as a fallback.</p>
 
       <div className="space-y-2">
         <button
