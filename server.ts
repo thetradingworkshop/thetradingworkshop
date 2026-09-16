@@ -113,6 +113,7 @@ async function requireAuth(req: express.Request, res: express.Response, next: ex
   try {
     const decoded = await admin.auth().verifyIdToken(authHeader.slice("Bearer ".length));
     (req as any).uid = decoded.uid;
+    (req as any).email = decoded.email;
     next();
   } catch (error) {
     return res.status(401).json({ error: "Unauthorized: invalid or expired token" });
@@ -144,6 +145,35 @@ async function startServer() {
   // API Routes
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok" });
+  });
+
+  // Temporary, read-only diagnostic for the 2026-09-16 "signed in as a
+  // blank Student profile" production incident. Uses the Admin SDK
+  // directly (bypassing firestore.rules and any client-side connectivity
+  // issues entirely) rather than the client SDK, since the client-side
+  // /debug/whoami page hit the same recurring "client is offline" quirk
+  // it was built to help diagnose. Gated to a single email; remove this
+  // route and src/components/DebugWhoami.tsx once resolved.
+  app.get("/api/debug/whoami", requireAuth, async (req, res) => {
+    const email = (req as any).email;
+    if (email !== "jeanpaultru@gmail.com") {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    const uid = (req as any).uid;
+    try {
+      const ownDoc = await db.collection("users").doc(uid).get();
+      const byEmail = await db.collection("users").where("email", "==", email).get();
+      res.json({
+        authUid: uid,
+        authEmail: email,
+        ownDocExists: ownDoc.exists,
+        ownDoc: ownDoc.exists ? ownDoc.data() : null,
+        docsMatchingEmail: byEmail.docs.map((d) => ({ id: d.id, ...d.data() })),
+      });
+    } catch (error: any) {
+      console.error("[debug/whoami] failed:", error);
+      res.status(500).json({ error: error?.message || String(error) });
+    }
   });
 
   // --- Tradovate OAuth ---
