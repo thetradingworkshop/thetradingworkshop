@@ -18,7 +18,7 @@
 // account; remove this file and its App.tsx wiring once the incident is
 // resolved.
 import React, { useEffect, useState } from 'react';
-import { collection, doc, getDocs, limit, onSnapshot, query, serverTimestamp, setDoc, updateDoc, where, writeBatch } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, limit, onSnapshot, query, serverTimestamp, setDoc, updateDoc, where, writeBatch } from 'firebase/firestore';
 import { db } from '../firebase';
 import { User } from 'firebase/auth';
 
@@ -28,10 +28,31 @@ import { User } from 'firebase/auth';
 // Auth user record was apparently deleted at some point (likely during
 // whatever set up Admin access), which mints a brand-new UID on the next
 // sign-in rather than reusing the old one, orphaning this account's real
-// data under an ID nothing signs into anymore. One-time migration, run by
-// hand from this page with the account owner's explicit go-ahead — moves
-// their trades to their current UID and creates the missing profile doc.
+// data under an ID nothing signs into anymore.
 const ORPHANED_UID = 'fewZ1V5AoOfT1NG3nvLwT9pXUTk2';
+
+// A write's promise can hang indefinitely under this project's connection
+// flakiness even after the write actually lands server-side (confirmed by
+// hand: a "Migrating..." button stuck for 3 hours while a separate
+// onSnapshot listener on the same doc had already picked up the change).
+// Race every migration step against this instead of awaiting it bare, so
+// the UI always recovers and tells the user to verify via Retry rather
+// than spinning forever.
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`Timed out after ${ms / 1000}s: ${label}. It may still succeed server-side even though this call never confirmed — click Retry above to check before running this again.`)),
+      ms
+    );
+    promise.then(
+      (v) => { clearTimeout(timer); resolve(v); },
+      (e) => { clearTimeout(timer); reject(e); }
+    );
+  });
+}
+
+type StepState = { running: boolean; log: string[] };
+const IDLE: StepState = { running: false, log: [] };
 
 export function DebugWhoami({ user }: { user: User }) {
   const [ownDoc, setOwnDoc] = useState<{ loaded: boolean; exists: boolean; data: any; error: string | null }>(
@@ -40,28 +61,27 @@ export function DebugWhoami({ user }: { user: User }) {
   const [byEmail, setByEmail] = useState<{ loaded: boolean; docs: any[]; error: string | null }>(
     { loaded: false, docs: [], error: null }
   );
-  // Any 25 trades across the WHOLE collection, not just this uid's own —
-  // relies on firestore.rules' isAdmin() email bypass (independent of the
-  // users/{uid}.role field) to see whether the collection has any data at
-  // all, and whether any of it belongs to a UID other than the one
-  // currently signed in (which would mean an old, orphaned identity still
-  // holds it rather than the data having actually been deleted).
   const [tradesSample, setTradesSample] = useState<{ loaded: boolean; count: number; distinctUserIds: string[]; error: string | null }>(
     { loaded: false, count: 0, distinctUserIds: [], error: null }
   );
   const [retryKey, setRetryKey] = useState(0);
-  const [migration, setMigration] = useState<{ running: boolean; log: string[] }>({ running: false, log: [] });
+  const [tradesStep, setTradesStep] = useState<StepState>(IDLE);
+  const [roleStep, setRoleStep] = useState<StepState>(IDLE);
 
-  const runMigration = async () => {
-    setMigration({ running: true, log: ['Starting migration...'] });
+  const reattachTrades = async () => {
     const log: string[] = [];
-    const append = (line: string) => { log.push(line); setMigration({ running: true, log: [...log] }); };
+    const append = (line: string) => { log.push(line); setTradesStep({ running: true, log: [...log] }); };
+    append('Starting...');
     try {
       append(`Fetching trades where userId == ${ORPHANED_UID}...`);
-      const snap = await getDocs(query(collection(db, 'trades'), where('userId', '==', ORPHANED_UID)));
+      const snap = await withTimeout(
+        getDocs(query(collection(db, 'trades'), where('userId', '==', ORPHANED_UID))),
+        20000,
+        'fetching orphaned trades'
+      );
       append(`Found ${snap.size} trade(s) to re-attach.`);
       if (snap.size === 0) {
-        append('WARNING: 0 found — this may be a stale/incomplete read rather than a real answer (the same connectivity quirk seen earlier). Click the button again to retry before trusting this.');
+        append('0 found — either they are all already migrated, or this was a stale read. Click Retry above, then check tradesSample before assuming this is done.');
       }
 
       const docs = snap.docs;
@@ -70,27 +90,54 @@ export function DebugWhoami({ user }: { user: User }) {
         const batch = writeBatch(db);
         const chunk = docs.slice(i, i + batchSize);
         chunk.forEach((d) => batch.update(d.ref, { userId: user.uid }));
-        await batch.commit();
+        await withTimeout(batch.commit(), 20000, `committing trades ${i + 1}-${i + chunk.length}`);
         append(`Re-attached trades ${i + 1}-${i + chunk.length} of ${docs.length}.`);
       }
-
-      append(`Creating profile doc for ${user.uid}...`);
-      await setDoc(doc(db, 'users', user.uid), {
-        id: user.uid,
-        name: user.displayName || 'Jean Paul',
-        email: user.email || '',
-        role: 'Student',
-        status: 'active',
-        updatedAt: serverTimestamp(),
-        lastLoginAt: serverTimestamp(),
-      });
-      append('Profile doc created. Promoting role to Admin...');
-      await updateDoc(doc(db, 'users', user.uid), { role: 'Admin', updatedAt: serverTimestamp() });
-      append('Done. Role set to Admin. Reload the main app to confirm.');
-      setMigration({ running: false, log });
+      append('Done.');
+      setTradesStep({ running: false, log });
     } catch (err: any) {
       append(`ERROR: ${err?.message || String(err)}`);
-      setMigration({ running: false, log });
+      setTradesStep({ running: false, log });
+    }
+  };
+
+  const promoteToAdmin = async () => {
+    const log: string[] = [];
+    const append = (line: string) => { log.push(line); setRoleStep({ running: true, log: [...log] }); };
+    append('Starting...');
+    try {
+      append(`Checking for an existing profile doc at ${user.uid}...`);
+      const existing = await withTimeout(getDoc(doc(db, 'users', user.uid)), 20000, 'checking for existing profile doc');
+      if (!existing.exists()) {
+        append('No profile doc yet — creating one with role: Student first (required by firestore.rules\' create rule; promoted to Admin next).');
+        await withTimeout(
+          setDoc(doc(db, 'users', user.uid), {
+            id: user.uid,
+            name: user.displayName || 'Jean Paul',
+            email: user.email || '',
+            role: 'Student',
+            status: 'active',
+            updatedAt: serverTimestamp(),
+            lastLoginAt: serverTimestamp(),
+          }),
+          20000,
+          'creating profile doc'
+        );
+        append('Profile doc created.');
+      } else {
+        append(`Profile doc already exists (role: ${existing.data()?.role ?? 'unset'}).`);
+      }
+      append('Promoting role to Admin...');
+      await withTimeout(
+        updateDoc(doc(db, 'users', user.uid), { role: 'Admin', updatedAt: serverTimestamp() }),
+        20000,
+        'promoting role to Admin'
+      );
+      append('Done. Role set to Admin — reload the main app to confirm.');
+      setRoleStep({ running: false, log });
+    } catch (err: any) {
+      append(`ERROR: ${err?.message || String(err)}`);
+      setRoleStep({ running: false, log });
     }
   };
 
@@ -141,26 +188,42 @@ export function DebugWhoami({ user }: { user: User }) {
       <pre className="whitespace-pre-wrap text-xs bg-slate-900 p-4 rounded-lg border border-slate-800">
         {output}
       </pre>
-      <div className="flex gap-3">
-        <button
-          className="px-4 py-2 rounded-lg border border-slate-700 text-sm font-bold hover:bg-slate-800"
-          onClick={() => setRetryKey((k) => k + 1)}
-        >
-          Retry
-        </button>
+      <button
+        className="px-4 py-2 rounded-lg border border-slate-700 text-sm font-bold hover:bg-slate-800"
+        onClick={() => setRetryKey((k) => k + 1)}
+      >
+        Retry
+      </button>
+
+      <div className="space-y-2">
         <button
           className="px-4 py-2 rounded-lg border border-amber-700 bg-amber-950 text-amber-200 text-sm font-bold hover:bg-amber-900 disabled:opacity-50"
-          onClick={runMigration}
-          disabled={migration.running}
+          onClick={reattachTrades}
+          disabled={tradesStep.running}
         >
-          {migration.running ? 'Migrating...' : `Migrate data from ${ORPHANED_UID.slice(0, 8)}... to this account`}
+          {tradesStep.running ? 'Re-attaching trades...' : `1. Re-attach trades from ${ORPHANED_UID.slice(0, 8)}...`}
         </button>
+        {tradesStep.log.length > 0 && (
+          <pre className="whitespace-pre-wrap text-xs bg-slate-900 p-4 rounded-lg border border-amber-800 text-amber-100">
+            {tradesStep.log.join('\n')}
+          </pre>
+        )}
       </div>
-      {migration.log.length > 0 && (
-        <pre className="whitespace-pre-wrap text-xs bg-slate-900 p-4 rounded-lg border border-amber-800 text-amber-100">
-          {migration.log.join('\n')}
-        </pre>
-      )}
+
+      <div className="space-y-2">
+        <button
+          className="px-4 py-2 rounded-lg border border-amber-700 bg-amber-950 text-amber-200 text-sm font-bold hover:bg-amber-900 disabled:opacity-50"
+          onClick={promoteToAdmin}
+          disabled={roleStep.running}
+        >
+          {roleStep.running ? 'Setting role...' : '2. Set my role to Admin'}
+        </button>
+        {roleStep.log.length > 0 && (
+          <pre className="whitespace-pre-wrap text-xs bg-slate-900 p-4 rounded-lg border border-amber-800 text-amber-100">
+            {roleStep.log.join('\n')}
+          </pre>
+        )}
+      </div>
     </div>
   );
 }
