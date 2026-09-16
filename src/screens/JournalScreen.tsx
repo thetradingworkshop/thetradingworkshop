@@ -15,6 +15,7 @@ import { subscribeShareLink, createShareLink, revokeShareLink, shareUrl } from '
 import { DictationTextarea } from '../components/DictationTextarea';
 import { TradePickerModal } from '../components/TradePickerModal';
 import { RecapEquityChart } from '../components/RecapEquityChart';
+import { MediaAttachments } from '../components/MediaAttachments';
 import { format } from 'date-fns';
 
 type JournalDraft = Partial<JournalEntry>;
@@ -1009,6 +1010,17 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
                   )}
                 </div>
 
+                {selectedJournal.media && selectedJournal.media.length > 0 && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {selectedJournal.media.map((m) => (
+                      <div key={m.id} className="rounded-xl overflow-hidden border border-border/50 bg-black/40">
+                        <video src={m.url} controls className="w-full aspect-video bg-black" />
+                        <p className="px-2 py-1.5 text-[10px] text-muted-foreground truncate">{m.fileName}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
                 {selectedJournal.tags && selectedJournal.tags.length > 0 && (
                   <div className="flex flex-wrap gap-2">
                     {selectedJournal.tags.map((tag: string) => (
@@ -1267,6 +1279,14 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
                 templates={templates}
               />
             </div>
+
+            {user && (
+              <MediaAttachments
+                media={draft.media || []}
+                onChange={(media) => setDraft(prev => prev && ({ ...prev, media }))}
+                userId={user.uid}
+              />
+            )}
 
             {draft.noteType !== 'session_recap' && (
             <>

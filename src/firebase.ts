@@ -1,6 +1,7 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, connectAuthEmulator } from 'firebase/auth';
 import { initializeFirestore, connectFirestoreEmulator, doc, getDocFromServer } from 'firebase/firestore';
+import { getStorage, connectStorageEmulator } from 'firebase/storage';
 import firebaseConfig from '../firebase-applet-config.json';
 
 // Initialize Firebase SDK
@@ -9,6 +10,7 @@ export const db = initializeFirestore(app, {
   experimentalForceLongPolling: true,
 }, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
+export const storage = getStorage(app);
 
 // Local dev/testing only — never touches production. Opt in with
 // VITE_USE_FIREBASE_EMULATOR=true (set by `npm run dev:emulated`), which
@@ -17,7 +19,8 @@ export const auth = getAuth(app);
 if (import.meta.env.VITE_USE_FIREBASE_EMULATOR === 'true') {
   connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
   connectFirestoreEmulator(db, '127.0.0.1', 8085);
-  console.warn('[firebase] Connected to LOCAL EMULATORS (Auth + Firestore) — not production.');
+  connectStorageEmulator(storage, '127.0.0.1', 9199);
+  console.warn('[firebase] Connected to LOCAL EMULATORS (Auth + Firestore + Storage) — not production.');
 }
 
 // Validate Connection to Firestore

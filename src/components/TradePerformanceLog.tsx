@@ -43,6 +43,7 @@ import { TradeCandleChart } from './TradeCandleChart';
 import { RunningPnlChart } from './RunningPnlChart';
 import { RichTextEditor, stripHtml, isContentEmpty } from './RichTextEditor';
 import { TradeAttachments } from './TradeAttachments';
+import { MediaAttachments } from './MediaAttachments';
 import { LinkTradeModal } from './LinkTradeModal';
 import { AddTradeModal } from './AddTradeModal';
 import { NoteCommentThread } from './NoteCommentThread';
@@ -191,7 +192,7 @@ export function TradePerformanceLog({ trades, title, subtitle, readOnly, ownerId
   const [pendingDeleteIds, setPendingDeleteIds] = useState<string[] | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [tagCategories, setTagCategories] = useState<TagCategory[]>([]);
-  const [leftTab, setLeftTab] = useState<'stats' | 'strategy' | 'executions' | 'attachments'>('stats');
+  const [leftTab, setLeftTab] = useState<'stats' | 'strategy' | 'executions' | 'attachments' | 'media'>('stats');
   const [rightTab, setRightTab] = useState<'chart' | 'notes' | 'pnl'>('chart');
 
   // readOnly-only: a mentor leaving feedback on whichever journal note is
@@ -1050,6 +1051,7 @@ export function TradePerformanceLog({ trades, title, subtitle, readOnly, ownerId
                     { id: 'strategy', label: 'Strategy' },
                     { id: 'executions', label: 'Executions' },
                     { id: 'attachments', label: 'Attachments' },
+                    { id: 'media', label: 'Recordings' },
                   ] as const).map(tab => (
                     <button
                       key={tab.id}
@@ -1533,6 +1535,26 @@ export function TradePerformanceLog({ trades, title, subtitle, readOnly, ownerId
                       <TradeAttachments
                         attachments={review.attachments || []}
                         onChange={(attachments) => setReview(prev => ({ ...prev, attachments }))}
+                      />
+                    )
+                  )}
+
+                  {leftTab === 'media' && (
+                    readOnly ? (
+                      (review.media?.length ?? 0) === 0 ? (
+                        <p className="text-sm text-muted-foreground italic text-center py-8">No recordings on this trade.</p>
+                      ) : (
+                        <div className="grid grid-cols-1 gap-2">
+                          {review.media!.map((m) => (
+                            <video key={m.id} src={m.url} controls className="w-full rounded-lg aspect-video bg-black" />
+                          ))}
+                        </div>
+                      )
+                    ) : user && (
+                      <MediaAttachments
+                        media={review.media || []}
+                        onChange={(media) => setReview(prev => ({ ...prev, media }))}
+                        userId={user.uid}
                       />
                     )
                   )}

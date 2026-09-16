@@ -1,0 +1,60 @@
+rules_version = '2';
+
+// Firebase Storage rules for this app's one use so far: video/clip
+// attachments on trade reviews and journal entries (see MediaAttachment in
+// src/types.ts, uploaded via src/lib/mediaUpload.ts). The file itself lives
+// here, keyed by the uploader's own uid; Firestore only stores the
+// resulting download URL + this same path (so it can be deleted later)
+// inside trade_reviews/{tradeId}.media or journals/{journalId}.media.
+//
+// Mirrors firestore.rules' ownership/mentor-read model as closely as
+// possible, but Storage rules can't call Firestore's own rule functions —
+// each one is re-declared here, reaching into Firestore via firestore.get()/
+// firestore.exists() instead of the bare get()/exists() Firestore rules use.
+// Keep both copies in sync if the access model ever changes.
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (firestore.exists(/databases/(default)/documents/users/$(request.auth.uid)) &&
+         firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role == 'Admin' ||
+         (request.auth.token.email == "jeanpaultru@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function isMentor() {
+      return isAuthenticated() &&
+        firestore.exists(/databases/(default)/documents/users/$(request.auth.uid)) &&
+        firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role == 'Mentor';
+    }
+
+    function isAssignedMentor(ownerId) {
+      return isMentor() &&
+        firestore.exists(/databases/(default)/documents/users/$(ownerId)) &&
+        firestore.get(/databases/(default)/documents/users/$(ownerId)).data.get('mentorId', null) == request.auth.uid;
+    }
+
+    function canWriteOwnData() {
+      return isAuthenticated() &&
+        firestore.exists(/databases/(default)/documents/users/$(request.auth.uid)) &&
+        firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role != 'Viewer';
+    }
+
+    match /media/{userId}/{fileName} {
+      allow read: if isOwner(userId) || isAdmin() || isAssignedMentor(userId);
+      // 250MB cap — generous for a short screen-recorded clip, but still a
+      // real ceiling so a single upload can't blow up storage costs.
+      allow write: if isOwner(userId) && canWriteOwnData() &&
+        request.resource.size < 250 * 1024 * 1024 &&
+        request.resource.contentType.matches('video/.*');
+      allow delete: if isOwner(userId) || isAdmin();
+    }
+  }
+}

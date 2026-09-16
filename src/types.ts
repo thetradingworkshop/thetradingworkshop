@@ -408,6 +408,22 @@ export interface ChartSettings {
   volumeVisible: boolean;
 }
 
+// A video/clip attached to a trade review or journal entry. Unlike
+// `TradeReview.attachments` (screenshots, stored as base64 data URIs
+// directly in the Firestore doc — see src/lib/imageProcessing.ts), a video
+// is too large for that approach, so only the Firebase Storage download
+// URL and enough metadata to render/manage it are stored here; the actual
+// file lives in Storage at `storagePath` (see src/lib/mediaUpload.ts).
+export interface MediaAttachment {
+  id: string;
+  url: string;
+  storagePath: string;
+  contentType: string;
+  fileName: string;
+  size: number;
+  createdAt: string;
+}
+
 export interface TradeReview {
   executionQuality?: number;
   strategyQuality?: number;
@@ -422,6 +438,8 @@ export interface TradeReview {
   // embedded inline in verdict/lessonLearned — same downscaled-JPEG data URI
   // approach (see src/lib/imageProcessing.ts), no Firebase Storage bucket.
   attachments?: string[];
+  // Session recordings/clips — see MediaAttachment above.
+  media?: MediaAttachment[];
   diagnostics?: TradeDiagnostics;
   modelValidation?: ModelValidation;
 
@@ -672,6 +690,9 @@ export interface JournalEntry {
   unreadByMentor?: boolean;
   lastCommentAt?: string;
   lastCommentByRole?: 'Mentor' | 'Student' | 'Admin';
+
+  // Session recordings/clips — see MediaAttachment above.
+  media?: MediaAttachment[];
 }
 
 // journals/{journalId}/mentorComments/{commentId} — a real two-way thread on
