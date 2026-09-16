@@ -38,7 +38,17 @@ function shareTokenFromPath(): string | null {
 
 function AppContent() {
   const [activePage, setActivePage] = useState('dashboard');
-  const { user, role, roleLoading, loading, login, loginAsTestUser } = useAuth();
+  const [isSigningIn, setIsSigningIn] = useState(false);
+  const { user, role, roleLoading, loading, login, loginAsTestUser, loginError } = useAuth();
+
+  const handleLogin = async () => {
+    setIsSigningIn(true);
+    try {
+      await login();
+    } finally {
+      setIsSigningIn(false);
+    }
+  };
 
   if (loading || (user && roleLoading)) {
     return (
@@ -71,12 +81,16 @@ function AppContent() {
               </p>
             )}
           </div>
+          {loginError && (
+            <p className="text-sm text-rose-400 font-medium -mt-2">{loginError}</p>
+          )}
           <Button
             className="w-full h-14 text-lg font-bold rounded-2xl shadow-lg shadow-indigo-500/20"
-            icon={LogIn}
-            onClick={login}
+            icon={isSigningIn ? Loader2 : LogIn}
+            onClick={handleLogin}
+            disabled={isSigningIn}
           >
-            Sign in with Google
+            {isSigningIn ? 'Signing in...' : 'Sign in with Google'}
           </Button>
           {import.meta.env.VITE_USE_FIREBASE_EMULATOR === 'true' && (
             <Button

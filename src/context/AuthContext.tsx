@@ -44,6 +44,15 @@ interface AuthContextType {
   login: () => Promise<void>;
   loginAsTestUser: () => Promise<void>;
   logout: () => Promise<void>;
+  // Set by login() when it actually fails — rendered inline on the sign-in
+  // screen (see App.tsx) instead of the native alert() this used to throw
+  // up, which was both jarring and, for a transient network blip, showed
+  // Firebase's raw internal error text ("Failed to get document because
+  // the client is offline") with no actionable next step. null whenever
+  // there's nothing to show; login() clears it at the start of every
+  // attempt so a retry doesn't leave a stale message behind.
+  loginError: string | null;
+  clearLoginError: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -53,6 +62,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [role, setRole] = useState<Role | null>(null);
   const [roleLoading, setRoleLoading] = useState(true);
   const [loading, setLoading] = useState(true);
+  const [loginError, setLoginError] = useState<string | null>(null);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
@@ -178,6 +188,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const login = async () => {
+    setLoginError(null);
     const provider = new GoogleAuthProvider();
     try {
       const result = await signInWithPopup(auth, provider);
@@ -185,11 +196,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await syncUserDoc(result.user, 'User');
       }
     } catch (error: any) {
+      // Not a real failure — the user just closed the Google popup or
+      // clicked it again before the first one settled. Surfacing "Login
+      // failed" for either one is actively wrong: nothing failed, they
+      // just didn't finish. Silently doing nothing (they're still looking
+      // at the sign-in button) is the correct outcome here.
+      if (error.code === 'auth/popup-closed-by-user' || error.code === 'auth/cancelled-popup-request') {
+        return;
+      }
       console.error("Login failed", error);
       if (error.code === 'auth/popup-blocked') {
-        alert("Sign-in popup was blocked by your browser. Please allow popups for this site and try again.");
+        setLoginError("Sign-in popup was blocked by your browser. Please allow popups for this site and try again.");
+      } else if (error.code === 'auth/network-request-failed' || error.message?.includes('client is offline')) {
+        // The same recurring Firestore/Auth connectivity quirk already
+        // anticipated in firebase.ts/TradeContext.tsx's own connection-test
+        // logging — here it can surface either from the popup sign-in
+        // itself or from syncUserDoc's Firestore write right after it
+        // succeeds. Either way, the fix is the same: check your connection
+        // and try again, not the raw internal error text.
+        setLoginError("You appear to be offline. Check your connection and try again.");
       } else {
-        alert("Login failed: " + error.message);
+        setLoginError("Couldn't sign you in. Please try again.");
       }
     }
   };
@@ -238,7 +265,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, role, roleLoading, loading, login, loginAsTestUser, logout }}>
+    <AuthContext.Provider value={{ user, role, roleLoading, loading, login, loginAsTestUser, logout, loginError, clearLoginError: () => setLoginError(null) }}>
       {children}
     </AuthContext.Provider>
   );
