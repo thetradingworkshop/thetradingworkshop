@@ -26,6 +26,14 @@ export function subscribeJournalTemplates(userId: string, onChange: (templates: 
     // handful of templates per user makes that cheap.
     templates.sort((a, b) => a.name.localeCompare(b.name));
     onChange(templates);
+  }, (error) => {
+    // No error callback here previously meant a failed listener (a
+    // transient "client is offline" — see firebase.ts's own connection-test
+    // logging for this exact recurring Firestore quirk — or anything else)
+    // left the Templates tab silently stuck on whatever it last had,
+    // usually empty, with nothing telling the caller it never loaded.
+    console.error('Failed to load journal templates:', error);
+    onChange([]);
   });
 }
 

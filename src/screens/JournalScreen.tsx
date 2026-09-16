@@ -154,6 +154,16 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
   const [selectedJournal, setSelectedJournal] = useState<any>(null);
   const [journals, setJournals] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  // Set only when the journals listener itself fails (e.g. a transient
+  // "client is offline" — confirmed by hand elsewhere in this codebase,
+  // see firebase.ts/TradeContext.tsx's own connection-test logging for the
+  // same Firestore quirk) — distinct from a genuinely empty notebook.
+  // Without this, a failed *first* snapshot left isLoading stuck true
+  // forever (its setter only ever lived in the success callback), so the
+  // notebook just showed "Loading..." forever with no way out and no
+  // visible explanation — indistinguishable from the page being broken.
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadRetryKey, setLoadRetryKey] = useState(0);
   // Real mentor-feedback thread on the currently-open entry — replaces the
   // fake `.mentorComments` array field the two cards below used to read
   // (nothing ever wrote it). Called unconditionally per Rules of Hooks;
@@ -376,12 +386,15 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
   useEffect(() => {
     if (!user) return;
     const userId = user.uid;
+    setIsLoading(true);
+    setLoadError(null);
     const unsubscribe = onSnapshot(
       query(collection(db, 'journals'), where('userId', '==', userId), orderBy('date', 'desc')),
       (snapshot) => {
         const docs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
         setJournals(docs);
         setIsLoading(false);
+        setLoadError(null);
         setSelectedJournal((prev: any) => {
           if (prev) {
             const stillExists = docs.find(d => d.id === prev.id);
@@ -389,10 +402,23 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
           }
           return docs.length > 0 ? docs[0] : null;
         });
+      },
+      (error) => {
+        console.error('Failed to load journals:', error);
+        setIsLoading(false);
+        setLoadError(
+          error.message?.includes('client is offline')
+            ? "Couldn't load your notebook — you appear to be offline."
+            : "Couldn't load your notebook. Please try again."
+        );
       }
     );
     return () => unsubscribe();
-  }, [user]);
+    // loadRetryKey isn't read in the body — it's just a manual "try again"
+    // trigger (see the error state's Retry button) to force this effect to
+    // re-run and re-subscribe after a transient failure.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, loadRetryKey]);
 
   // Trade note: open the existing note for this trade, or start a new one pre-filled from it.
   // Gated on `!isLoading` (and re-runs on `journals`) because this screen
@@ -637,7 +663,14 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
                     </div>
 
                     <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
-                      {isLoading ? (
+                      {loadError ? (
+                        <div className="text-center py-6 space-y-3">
+                          <p className="text-xs text-rose-500">{loadError}</p>
+                          <Button variant="outline" size="sm" icon={RotateCcw} onClick={() => setLoadRetryKey(k => k + 1)}>
+                            Retry
+                          </Button>
+                        </div>
+                      ) : isLoading ? (
                         <div className="text-center py-6 text-muted-foreground italic text-xs">Loading...</div>
                       ) : categoryFilteredJournals.length > 0 ? categoryFilteredJournals.map((j) => (
                         <button

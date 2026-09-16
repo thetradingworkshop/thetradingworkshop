@@ -10,13 +10,21 @@ import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firesto
 import { db } from '../firebase';
 import { getShareLinkByToken } from '../lib/shareLinks';
 import { JournalEntry, Trade, ShareLink } from '../types';
-import { Card, Badge } from './Shared';
+import { Card, Badge, Button } from './Shared';
 import { cn } from '@/src/utils';
-import { Loader2, Zap, Calendar, TrendingUp, TrendingDown, Ban } from 'lucide-react';
+import { Loader2, Zap, Calendar, TrendingUp, TrendingDown, Ban, RotateCcw, WifiOff } from 'lucide-react';
 
 type LoadState =
   | { status: 'loading' }
   | { status: 'invalid' }
+  // Distinct from 'invalid' — a fetch that actually failed (confirmed by
+  // hand: a "client is offline" getDoc() failure on this page's very first
+  // load, before Firestore's connection has settled, is a real, recurring
+  // quirk elsewhere in this app too — see firebase.ts's own connection-test
+  // logging) rather than the link genuinely not existing/being revoked.
+  // Telling a visitor a transient network hiccup means "this link was
+  // revoked" is actively misleading, so it gets its own retryable state.
+  | { status: 'error' }
   | { status: 'journal'; journal: JournalEntry }
   | { status: 'trade'; trade: Trade; note: JournalEntry | null };
 
@@ -139,9 +147,11 @@ function TradeView({ trade, note }: { trade: Trade; note: JournalEntry | null })
 
 export function SharePage({ token }: { token: string }) {
   const [state, setState] = useState<LoadState>({ status: 'loading' });
+  const [retryKey, setRetryKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
+    setState({ status: 'loading' });
     (async () => {
       try {
         const link: ShareLink | null = await getShareLinkByToken(token);
@@ -158,11 +168,11 @@ export function SharePage({ token }: { token: string }) {
         }
       } catch (err) {
         console.error('Failed to load shared link:', err);
-        if (!cancelled) setState({ status: 'invalid' });
+        if (!cancelled) setState({ status: 'error' });
       }
     })();
     return () => { cancelled = true; };
-  }, [token]);
+  }, [token, retryKey]);
 
   return (
     <div className="min-h-screen bg-muted">
@@ -180,6 +190,15 @@ export function SharePage({ token }: { token: string }) {
             <Ban className="w-8 h-8 text-muted-foreground mx-auto" />
             <h1 className="text-lg font-bold text-foreground">This link isn't available</h1>
             <p className="text-sm text-muted-foreground">It may have been revoked, or the person who shared it has made it private again.</p>
+          </Card>
+        )}
+
+        {state.status === 'error' && (
+          <Card className="p-10 text-center space-y-4">
+            <WifiOff className="w-8 h-8 text-muted-foreground mx-auto" />
+            <h1 className="text-lg font-bold text-foreground">Couldn't load this page</h1>
+            <p className="text-sm text-muted-foreground">Check your connection and try again.</p>
+            <Button variant="outline" icon={RotateCcw} onClick={() => setRetryKey(k => k + 1)}>Retry</Button>
           </Card>
         )}
 
