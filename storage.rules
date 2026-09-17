@@ -53,9 +53,18 @@ service firebase.storage {
       // 8-hour screen recording even at a generous bitrate, while still
       // being a real ceiling so a single upload can't blow up storage
       // costs unboundedly. Matches mediaUpload.ts' MAX_VIDEO_BYTES.
+      //
+      // No contentType check here (deliberately dropped): confirmed by
+      // hand that a real screen-recording .mp4 can reach the upload SDK
+      // with a blank/generic browser-detected MIME type, which Storage's
+      // client then sends as `application/octet-stream` — a strict
+      // `video/.*` requirement here silently denied that legitimate
+      // upload. mediaUpload.ts already checks `file.type` client-side
+      // before ever starting the upload, so this was defense-in-depth,
+      // not the real security boundary — isOwner + canWriteOwnData + the
+      // size cap are.
       allow write: if isOwner(userId) && canWriteOwnData() &&
-        request.resource.size < 20 * 1024 * 1024 * 1024 &&
-        request.resource.contentType.matches('video/.*');
+        request.resource.size < 20 * 1024 * 1024 * 1024;
       allow delete: if isOwner(userId) || isAdmin();
     }
   }
