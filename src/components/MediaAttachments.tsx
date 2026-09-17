@@ -1,7 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { Film, Loader2, Trash2, Video } from 'lucide-react';
 import { cn } from '@/src/utils';
-import { deleteMediaFile, uploadMediaFile } from '@/src/lib/mediaUpload';
+import { deleteMediaFile, MAX_VIDEO_BYTES, uploadMediaFile } from '@/src/lib/mediaUpload';
 import { MediaAttachment } from '@/src/types';
 
 interface UploadingItem {
@@ -81,7 +81,7 @@ export function MediaAttachments({ media, onChange, userId }: MediaAttachmentsPr
       >
         <Film className="w-6 h-6 text-muted-foreground" />
         <p className="text-xs font-medium">Click to browse, or drop a screen recording / clip</p>
-        <p className="text-[10px] text-muted-foreground">Up to 250MB</p>
+        <p className="text-[10px] text-muted-foreground">Up to {Math.floor(MAX_VIDEO_BYTES / (1024 * 1024 * 1024))}GB — keep this open until it finishes uploading</p>
         <input
           ref={fileInputRef}
           type="file"

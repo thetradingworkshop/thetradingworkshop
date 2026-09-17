@@ -1,14 +1,15 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Bold, Italic, Underline, List, ListOrdered, ListChecks, Minus, IndentDecrease, IndentIncrease, LayoutTemplate, Image as ImageIcon, Loader2 } from 'lucide-react';
+import { Bold, Italic, Underline, List, ListOrdered, ListChecks, Minus, IndentDecrease, IndentIncrease, LayoutTemplate, Image as ImageIcon, Video as VideoIcon, Loader2 } from 'lucide-react';
 import { cn } from '@/src/utils';
 import { processImageFile } from '@/src/lib/imageProcessing';
+import { isVideoFile, MAX_VIDEO_BYTES, uploadMediaFile } from '@/src/lib/mediaUpload';
 import { DictationButton } from './DictationButton';
 
 function isContentEmpty(html?: string): boolean {
   if (!html) return true;
   const tmp = document.createElement('div');
   tmp.innerHTML = html;
-  return !tmp.textContent?.trim() && !tmp.querySelector('img');
+  return !tmp.textContent?.trim() && !tmp.querySelector('img') && !tmp.querySelector('video');
 }
 
 function stripHtml(html?: string): string {
@@ -48,14 +49,39 @@ interface RichTextEditorProps {
   // unaffected — the "Insert Template" toolbar button only appears when a
   // caller actually has a template library to offer (JournalScreen).
   templates?: { id: string; name: string; content: string }[];
+  // Enables the "insert video" toolbar button/drop handling — omitted for
+  // callers with no natural owner for the upload (e.g. a template editor).
+  userId?: string;
+  // A session recording can take a long time to upload; the caller (e.g.
+  // JournalScreen's Save button) uses this to block saving while one is
+  // still in flight, since the note's `content` HTML would otherwise
+  // capture a live "Uploading…" placeholder instead of the finished
+  // <video> tag.
+  onUploadingChange?: (uploading: boolean) => void;
 }
 
-export function RichTextEditor({ initialValue, onChange, placeholder, minHeightClass, templates }: RichTextEditorProps) {
+export function RichTextEditor({ initialValue, onChange, placeholder, minHeightClass, templates, userId, onUploadingChange }: RichTextEditorProps) {
   const editorRef = useRef<HTMLDivElement>(null);
   const [isEmpty, setIsEmpty] = useState(isContentEmpty(initialValue));
   const [isProcessingImage, setIsProcessingImage] = useState(false);
+  const [videoUploads, setVideoUploads] = useState<Record<string, { fileName: string; progress: number }>>({});
   const [error, setError] = useState<string | null>(null);
   const [isTemplatePickerOpen, setIsTemplatePickerOpen] = useState(false);
+
+  useEffect(() => {
+    onUploadingChange?.(Object.keys(videoUploads).length > 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [videoUploads]);
+
+  // A multi-hour upload lost to an accidental tab close/navigation is a
+  // much bigger loss than the browser's generic warning implies — worth
+  // the native confirm dialog every browser shows for this.
+  useEffect(() => {
+    if (Object.keys(videoUploads).length === 0) return;
+    const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [videoUploads]);
 
   // Uncontrolled by design: contentEditable + a controlled `value` prop fight
   // over the cursor position on every keystroke. The parent remounts this
@@ -345,6 +371,78 @@ export function RichTextEditor({ initialValue, onChange, placeholder, minHeightC
       .finally(() => setIsProcessingImage(false));
   };
 
+  const escapeHtml = (s: string) =>
+    s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } as Record<string, string>)[c]);
+
+  // A recording can run for hours, so this uploads directly to Firebase
+  // Storage (see src/lib/mediaUpload.ts) rather than the base64-inline
+  // trick images use — inserts a live, non-editable progress placeholder
+  // at the caret immediately, then swaps it for the real <video> tag once
+  // the upload finishes. NOTE: the upload itself is tied only to this
+  // closure, not to the component's lifetime in any durable way — if the
+  // note is closed (this component unmounts) before it finishes, the
+  // upload keeps running but its result has nowhere left to go. The
+  // caller should keep the note open (and disable Save — see
+  // onUploadingChange) until it completes.
+  const handleVideoFile = (file: File) => {
+    if (!userId) return;
+    setError(null);
+    if (!isVideoFile(file)) {
+      setError('That file is not a video.');
+      return;
+    }
+    if (file.size > MAX_VIDEO_BYTES) {
+      setError(`That video is too large (max ${Math.floor(MAX_VIDEO_BYTES / (1024 * 1024 * 1024))}GB).`);
+      return;
+    }
+
+    const uploadId = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    setVideoUploads((prev) => ({ ...prev, [uploadId]: { fileName: file.name, progress: 0 } }));
+
+    editorRef.current?.focus();
+    const marker = `_video_caret_${uploadId}`;
+    document.execCommand(
+      'insertHTML',
+      false,
+      `<div class="video-upload-placeholder" data-video-id="${uploadId}" contenteditable="false" style="padding:14px 18px;border:1px dashed #94a3b8;border-radius:12px;font-size:12px;color:#64748b;background:rgba(100,116,139,0.08);">📹 Uploading ${escapeHtml(file.name)}… 0%</div><div class="${marker}"><br></div>`
+    );
+    placeCaretIn(marker, true);
+    emitChange();
+
+    const findPlaceholder = () => editorRef.current?.querySelector(`[data-video-id="${uploadId}"]`) as HTMLElement | null;
+
+    uploadMediaFile(file, userId, (percent) => {
+      setVideoUploads((prev) => (prev[uploadId] ? { ...prev, [uploadId]: { ...prev[uploadId], progress: percent } } : prev));
+      const placeholderEl = findPlaceholder();
+      if (placeholderEl) placeholderEl.textContent = `📹 Uploading ${file.name}… ${percent}%`;
+    })
+      .then((attachment) => {
+        const placeholderEl = findPlaceholder();
+        if (placeholderEl) {
+          const video = document.createElement('video');
+          video.src = attachment.url;
+          video.controls = true;
+          video.setAttribute('data-storage-path', attachment.storagePath);
+          video.style.maxWidth = '100%';
+          video.style.borderRadius = '12px';
+          placeholderEl.replaceWith(video);
+        }
+        emitChange();
+      })
+      .catch((err: Error) => {
+        const placeholderEl = findPlaceholder();
+        if (placeholderEl) placeholderEl.textContent = `⚠️ Failed to upload ${file.name}: ${err.message}`;
+        emitChange();
+      })
+      .finally(() => {
+        setVideoUploads((prev) => {
+          const next = { ...prev };
+          delete next[uploadId];
+          return next;
+        });
+      });
+  };
+
   const handlePaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
     const items = e.clipboardData?.items;
     if (items) {
@@ -353,6 +451,12 @@ export function RichTextEditor({ initialValue, onChange, placeholder, minHeightC
           e.preventDefault();
           const file = items[i].getAsFile();
           if (file) handleImageFile(file);
+          return;
+        }
+        if (items[i].type.startsWith('video/') && userId) {
+          e.preventDefault();
+          const file = items[i].getAsFile();
+          if (file) handleVideoFile(file);
           return;
         }
       }
@@ -369,15 +473,25 @@ export function RichTextEditor({ initialValue, onChange, placeholder, minHeightC
 
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
     const file = e.dataTransfer.files?.[0];
-    if (file && file.type.startsWith('image/')) {
+    if (!file) return;
+    if (file.type.startsWith('image/')) {
       e.preventDefault();
       handleImageFile(file);
+    } else if (file.type.startsWith('video/') && userId) {
+      e.preventDefault();
+      handleVideoFile(file);
     }
   };
 
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) handleImageFile(file);
+    e.target.value = '';
+  };
+
+  const handleVideoFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) handleVideoFile(file);
     e.target.value = '';
   };
 
@@ -453,6 +567,15 @@ export function RichTextEditor({ initialValue, onChange, placeholder, minHeightC
           <ImageIcon className="w-3.5 h-3.5" />
           <input type="file" accept="image/*" className="hidden" onChange={handleFileInput} />
         </label>
+        {userId && (
+          <label
+            className="cursor-pointer p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+            title="Insert video / screen recording"
+          >
+            <VideoIcon className="w-3.5 h-3.5" />
+            <input type="file" accept="video/*" className="hidden" onChange={handleVideoFileInput} />
+          </label>
+        )}
         <div className="w-px h-4 bg-border mx-1" />
         <DictationButton onTranscript={insertDictatedText} />
         {isProcessingImage && <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground ml-1" />}
@@ -481,7 +604,10 @@ export function RichTextEditor({ initialValue, onChange, placeholder, minHeightC
         />
       </div>
 
-      <p className="text-[10px] text-muted-foreground">Paste or drop a screenshot to attach it.</p>
+      <p className="text-[10px] text-muted-foreground">
+        Paste or drop a screenshot to attach it{userId && ', or a video to insert a recording'}.
+        {Object.keys(videoUploads).length > 0 && ' Keep this open until the upload finishes.'}
+      </p>
       {error && <p className="text-xs text-rose-500">{error}</p>}
     </div>
   );

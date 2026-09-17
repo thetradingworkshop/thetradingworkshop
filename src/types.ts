@@ -690,9 +690,6 @@ export interface JournalEntry {
   unreadByMentor?: boolean;
   lastCommentAt?: string;
   lastCommentByRole?: 'Mentor' | 'Student' | 'Admin';
-
-  // Session recordings/clips — see MediaAttachment above.
-  media?: MediaAttachment[];
 }
 
 // journals/{journalId}/mentorComments/{commentId} — a real two-way thread on

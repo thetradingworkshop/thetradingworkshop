@@ -14,7 +14,10 @@ import {
 import { storage } from '../firebase';
 import { MediaAttachment } from '../types';
 
-export const MAX_VIDEO_BYTES = 250 * 1024 * 1024; // matches storage.rules' write cap
+// A full session recording can run for hours — 20GB comfortably covers an
+// 8-hour screen recording even at a generous bitrate. Matches
+// storage.rules' write cap.
+export const MAX_VIDEO_BYTES = 20 * 1024 * 1024 * 1024;
 
 export function isVideoFile(file: File): boolean {
   return file.type.startsWith('video/');

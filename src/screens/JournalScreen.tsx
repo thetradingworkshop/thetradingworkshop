@@ -15,7 +15,6 @@ import { subscribeShareLink, createShareLink, revokeShareLink, shareUrl } from '
 import { DictationTextarea } from '../components/DictationTextarea';
 import { TradePickerModal } from '../components/TradePickerModal';
 import { RecapEquityChart } from '../components/RecapEquityChart';
-import { MediaAttachments } from '../components/MediaAttachments';
 import { format } from 'date-fns';
 
 type JournalDraft = Partial<JournalEntry>;
@@ -249,6 +248,11 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [draft, setDraft] = useState<JournalDraft | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  // True while RichTextEditor has a video upload in flight — Save is
+  // disabled during this window (see saveDraft) since the note's content
+  // HTML would otherwise capture a live "Uploading…" placeholder instead
+  // of the finished <video> tag.
+  const [isMediaUploading, setIsMediaUploading] = useState(false);
   // Repointing a note at a different trade — e.g. a manual placeholder
   // entry gets deleted once the real broker-imported trade lands, and the
   // note written against it needs a new home instead of being left
@@ -487,7 +491,7 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
     }
   };
   const openEdit = () => selectedJournal && setDraft({ ...selectedJournal });
-  const closeDraft = () => setDraft(null);
+  const closeDraft = () => { setDraft(null); setIsMediaUploading(false); };
 
   const openNewRecap = () => setRecapDraft(emptyRecapDraft());
   const closeRecapDraft = () => setRecapDraft(null);
@@ -543,6 +547,11 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
 
   const saveDraft = async () => {
     if (!draft || !user) return;
+    if (isMediaUploading) {
+      setToast({ message: 'Wait for the video upload to finish before saving', type: 'error' });
+      setTimeout(() => setToast(null), 3000);
+      return;
+    }
     if (!draft.title?.trim() || isContentEmpty(draft.content)) {
       setToast({ message: 'Title and content are required', type: 'error' });
       setTimeout(() => setToast(null), 3000);
@@ -1010,17 +1019,6 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
                   )}
                 </div>
 
-                {selectedJournal.media && selectedJournal.media.length > 0 && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {selectedJournal.media.map((m) => (
-                      <div key={m.id} className="rounded-xl overflow-hidden border border-border/50 bg-black/40">
-                        <video src={m.url} controls className="w-full aspect-video bg-black" />
-                        <p className="px-2 py-1.5 text-[10px] text-muted-foreground truncate">{m.fileName}</p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
                 {selectedJournal.tags && selectedJournal.tags.length > 0 && (
                   <div className="flex flex-wrap gap-2">
                     {selectedJournal.tags.map((tag: string) => (
@@ -1187,8 +1185,14 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
         footer={
           <>
             <Button variant="outline" onClick={closeDraft} disabled={isSaving}>Cancel</Button>
-            <Button variant="primary" icon={isSaving ? Loader2 : Save} onClick={saveDraft} disabled={isSaving}>
-              {isSaving ? 'Saving...' : 'Save Journal'}
+            <Button
+              variant="primary"
+              icon={isSaving || isMediaUploading ? Loader2 : Save}
+              onClick={saveDraft}
+              disabled={isSaving || isMediaUploading}
+              title={isMediaUploading ? 'Wait for the video upload to finish before saving' : undefined}
+            >
+              {isMediaUploading ? 'Uploading video...' : isSaving ? 'Saving...' : 'Save Journal'}
             </Button>
           </>
         }
@@ -1277,16 +1281,10 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
                 placeholder="Write your notes..."
                 minHeightClass="min-h-[160px]"
                 templates={templates}
+                userId={user?.uid}
+                onUploadingChange={setIsMediaUploading}
               />
             </div>
-
-            {user && (
-              <MediaAttachments
-                media={draft.media || []}
-                onChange={(media) => setDraft(prev => prev && ({ ...prev, media }))}
-                userId={user.uid}
-              />
-            )}
 
             {draft.noteType !== 'session_recap' && (
             <>

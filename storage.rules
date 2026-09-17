@@ -49,10 +49,12 @@ service firebase.storage {
 
     match /media/{userId}/{fileName} {
       allow read: if isOwner(userId) || isAdmin() || isAssignedMentor(userId);
-      // 250MB cap — generous for a short screen-recorded clip, but still a
-      // real ceiling so a single upload can't blow up storage costs.
+      // Session recordings can run for hours — 20GB comfortably covers an
+      // 8-hour screen recording even at a generous bitrate, while still
+      // being a real ceiling so a single upload can't blow up storage
+      // costs unboundedly. Matches mediaUpload.ts' MAX_VIDEO_BYTES.
       allow write: if isOwner(userId) && canWriteOwnData() &&
-        request.resource.size < 250 * 1024 * 1024 &&
+        request.resource.size < 20 * 1024 * 1024 * 1024 &&
         request.resource.contentType.matches('video/.*');
       allow delete: if isOwner(userId) || isAdmin();
     }
