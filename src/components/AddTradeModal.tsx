@@ -96,6 +96,13 @@ export function AddTradeModal({ isOpen, onClose, onSuccess, prefill, editingTrad
   }, [isOpen, editingTrade?.id, prefill?.intentId]);
 
   const selectedAccount = accountOptions.find(a => `${a.connectionId}::${a.accountId}` === selectedAccountKey);
+  // Archived accounts are retired — don't offer them for a new/edited
+  // trade, except the trade's own already-selected account (editing a
+  // trade already tagged to a now-archived account shouldn't make that
+  // selection disappear from the dropdown).
+  const pickableAccountOptions = accountOptions.filter(
+    a => !a.archivedAt || `${a.connectionId}::${a.accountId}` === selectedAccountKey
+  );
 
   const entryNum = Number(entryPrice);
   const stopLossNum = stopLoss.trim() !== '' ? Number(stopLoss) : undefined;
@@ -129,7 +136,7 @@ export function AddTradeModal({ isOpen, onClose, onSuccess, prefill, editingTrad
   const handleSubmit = async () => {
     setError(null);
     if (!user) return;
-    if (accountOptions.length > 0 && !selectedAccount && !editingTrade) {
+    if (pickableAccountOptions.length > 0 && !selectedAccount && !editingTrade) {
       setError('Select an account.');
       return;
     }
@@ -285,7 +292,7 @@ export function AddTradeModal({ isOpen, onClose, onSuccess, prefill, editingTrad
             recomputed from what you save here.
           </p>
         )}
-        {accountOptions.length > 0 && (
+        {pickableAccountOptions.length > 0 && (
           <div className="space-y-2">
             <label className={labelClass}>Account</label>
             <select
@@ -294,9 +301,9 @@ export function AddTradeModal({ isOpen, onClose, onSuccess, prefill, editingTrad
               className={inputClass}
             >
               <option value="">Select an account...</option>
-              {accountOptions.map(a => (
+              {pickableAccountOptions.map(a => (
                 <option key={`${a.connectionId}::${a.accountId}`} value={`${a.connectionId}::${a.accountId}`}>
-                  {a.brokerName} — {a.accountName}
+                  {a.brokerName} — {a.accountName}{a.archivedAt ? ' (Archived)' : ''}
                 </option>
               ))}
             </select>

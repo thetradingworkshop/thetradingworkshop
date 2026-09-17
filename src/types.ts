@@ -111,6 +111,11 @@ export interface BrokerAccount {
   drawdown?: number; // USD
   createdAt?: string;
   updatedAt?: string;
+  // Set when the account is archived (a retired/closed account you still
+  // want the trade history for, but don't want cluttering "pick an
+  // account" pickers for new activity) — see TradingAccountsSettings.
+  // Presence, not a boolean, so it also records when it happened.
+  archivedAt?: string;
 }
 
 export interface IngestionError {

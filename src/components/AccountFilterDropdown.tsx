@@ -100,7 +100,9 @@ export function AccountFilterDropdown({ accountOptions, accountFilter, setAccoun
                     onChange={() => toggle(key)}
                     className="w-4 h-4 rounded border-border accent-primary shrink-0"
                   />
-                  <span className="truncate" title={`${a.brokerName} — ${a.accountName}`}>{a.brokerName} — {a.accountName}</span>
+                  <span className="truncate" title={`${a.brokerName} — ${a.accountName}`}>
+                    {a.brokerName} — {a.accountName}{a.archivedAt && <span className="text-muted-foreground"> (Archived)</span>}
+                  </span>
                 </label>
               );
             })}

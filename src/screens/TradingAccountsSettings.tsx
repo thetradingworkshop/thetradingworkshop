@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, doc, orderBy } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, deleteField, doc, orderBy } from 'firebase/firestore';
 import { db } from '../firebase';
 import { cn } from '@/src/utils';
 import { useAuth } from '../context/AuthContext';
 import { Card, Button, Badge, Toast, Modal } from '../components/Shared';
-import { Plus, Trash2, Wallet, Pencil, DollarSign, ArrowUpCircle, ArrowDownCircle } from 'lucide-react';
+import { Plus, Trash2, Wallet, Pencil, DollarSign, ArrowUpCircle, ArrowDownCircle, Archive, ArchiveRestore } from 'lucide-react';
 import {
   BrokerAccount, TradingAccountType, TRADING_ACCOUNT_TYPES, ACCOUNT_SIZE_PRESETS, BROKERS, Broker,
   AccountTransaction, AccountTransactionType, ACCOUNT_TRANSACTION_TYPES, ACCOUNT_TRANSACTION_CATEGORIES,
@@ -51,6 +51,7 @@ export default function TradingAccountsSettings() {
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [typeFilter, setTypeFilter] = useState<'all' | TradingAccountType>('all');
+  const [showArchived, setShowArchived] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [form, setForm] = useState<FormState>(defaultForm);
 
@@ -242,6 +243,31 @@ export default function TradingAccountsSettings() {
     }
   };
 
+  // Archiving is the non-destructive alternative to Delete — a retired/
+  // closed account keeps its trade history and stays available in the
+  // account filter, it just drops out of "pick an account" pickers for
+  // new activity (Import Orders, Add Trade, Session Recap — see their own
+  // accountOptions.filter calls) and out of this list by default.
+  const handleArchive = async (acc: AccountRow) => {
+    try {
+      await updateDoc(doc(db, 'broker_connections', acc.connectionId, 'accounts', acc.id), {
+        archivedAt: new Date().toISOString(),
+      });
+    } catch (err: any) {
+      setToast({ message: `Failed to archive account: ${err?.message || 'Unknown error'}`, type: 'error' });
+    }
+  };
+
+  const handleUnarchive = async (acc: AccountRow) => {
+    try {
+      await updateDoc(doc(db, 'broker_connections', acc.connectionId, 'accounts', acc.id), {
+        archivedAt: deleteField(),
+      });
+    } catch (err: any) {
+      setToast({ message: `Failed to unarchive account: ${err?.message || 'Unknown error'}`, type: 'error' });
+    }
+  };
+
   // Subscribe to the open account's transaction ledger, tearing down the
   // previous account's listener when switching or closing the modal.
   useEffect(() => {
@@ -325,7 +351,10 @@ export default function TradingAccountsSettings() {
   const totalPayouts = transactions.filter(t => t.type === 'payout').reduce((s, t) => s + t.amount, 0);
   const netProfitability = totalPayouts - totalSpent;
 
-  const filteredAccounts = typeFilter === 'all' ? accounts : accounts.filter(a => a.accountType === typeFilter);
+  const archivedCount = accounts.filter(a => a.archivedAt).length;
+  const filteredAccounts = accounts
+    .filter(a => showArchived || !a.archivedAt)
+    .filter(a => typeFilter === 'all' || a.accountType === typeFilter);
 
   const renderForm = (onSubmit: () => void, submitLabel: string) => (
     <div className="mb-8 p-6 bg-accent/30 rounded-2xl border border-border space-y-6">
@@ -433,6 +462,17 @@ export default function TradingAccountsSettings() {
           <p className="text-sm text-muted-foreground mt-1">Same accounts used to tag imports — track their evaluation, funded, and live economics here.</p>
         </div>
         <div className="flex items-center space-x-3">
+          {archivedCount > 0 && (
+            <button
+              onClick={() => setShowArchived(v => !v)}
+              className={cn(
+                "h-10 px-3 rounded-xl text-xs font-bold border transition-colors",
+                showArchived ? "bg-primary text-primary-foreground border-primary" : "bg-accent/30 border-border text-muted-foreground hover:text-foreground"
+              )}
+            >
+              {showArchived ? 'Hide' : 'Show'} Archived ({archivedCount})
+            </button>
+          )}
           {accounts.length > 0 && (
             <select
               value={typeFilter}
@@ -470,7 +510,7 @@ export default function TradingAccountsSettings() {
               return <div key={key}>{renderForm(() => handleSaveEdit(acc), 'Save Changes')}</div>;
             }
             return (
-              <div key={key} className="flex items-center justify-between p-4 bg-accent/30 rounded-2xl">
+              <div key={key} className={cn("flex items-center justify-between p-4 bg-accent/30 rounded-2xl", acc.archivedAt && "opacity-60")}>
                 <div className="flex items-center space-x-4">
                   <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
                     <Wallet className="w-4 h-4 text-primary" />
@@ -481,6 +521,7 @@ export default function TradingAccountsSettings() {
                       <Badge variant="neutral">{acc.brokerName}</Badge>
                       {acc.accountType && <Badge variant="neutral">{acc.accountType}</Badge>}
                       {acc.accountSize && <Badge variant="neutral">{`${acc.accountSize / 1000}K`}</Badge>}
+                      {acc.archivedAt && <Badge variant="neutral">Archived</Badge>}
                     </div>
                     <div className="text-xs text-muted-foreground mt-1 space-x-3">
                       {acc.accountType ? (
@@ -511,6 +552,23 @@ export default function TradingAccountsSettings() {
                   >
                     <Pencil className="w-4 h-4" />
                   </button>
+                  {acc.archivedAt ? (
+                    <button
+                      onClick={() => handleUnarchive(acc)}
+                      className="p-2 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+                      title="Unarchive account"
+                    >
+                      <ArchiveRestore className="w-4 h-4" />
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => handleArchive(acc)}
+                      className="p-2 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+                      title="Archive account"
+                    >
+                      <Archive className="w-4 h-4" />
+                    </button>
+                  )}
                   <button
                     onClick={() => handleDelete(acc)}
                     className="p-2 rounded-lg hover:bg-rose-500/10 text-muted-foreground hover:text-rose-500 transition-colors"

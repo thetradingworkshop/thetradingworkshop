@@ -64,12 +64,17 @@ export default function ImportOrdersScreen({ setActivePage }: { setActivePage: (
             const unsub = onSnapshot(
               collection(db, 'broker_connections', connDoc.id, 'accounts'),
               (accountsSnap) => {
-                optionsByConnection.set(connDoc.id, accountsSnap.docs.map(accDoc => ({
-                  connectionId: connDoc.id,
-                  accountId: accDoc.id,
-                  brokerName,
-                  accountName: (accDoc.data() as BrokerAccount).displayName,
-                })));
+                // Archived accounts are retired — new imports shouldn't be
+                // tagged with one (see TradingAccountsSettings' Archive
+                // action).
+                optionsByConnection.set(connDoc.id, accountsSnap.docs
+                  .filter(accDoc => !(accDoc.data() as BrokerAccount).archivedAt)
+                  .map(accDoc => ({
+                    connectionId: connDoc.id,
+                    accountId: accDoc.id,
+                    brokerName,
+                    accountName: (accDoc.data() as BrokerAccount).displayName,
+                  })));
                 rebuild();
               }
             );

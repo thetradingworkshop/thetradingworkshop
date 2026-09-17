@@ -9,6 +9,11 @@ export interface AccountOption {
   accountId: string;
   brokerName: string;
   accountName: string;
+  // Mirrors BrokerAccount.archivedAt — kept on the option so "pick an
+  // account" pickers for new activity (Import Orders, Add Trade, Session
+  // Recap) can filter archived ones out, while the global account filter
+  // (existing trades) still shows every account, archived or not.
+  archivedAt?: string;
 }
 
 // Filter selections for the global Filters dropdown — empty array means "no
@@ -333,6 +338,7 @@ export function TradeProvider({ children }: { children: ReactNode }) {
                   accountId: d.id,
                   brokerName,
                   accountName: (d.data() as BrokerAccount).displayName,
+                  archivedAt: (d.data() as BrokerAccount).archivedAt,
                 })));
                 rebuild();
               }
