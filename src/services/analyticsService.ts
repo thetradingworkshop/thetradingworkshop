@@ -30,10 +30,15 @@ export interface DashboardModel {
   behaviorMetrics: {
     disciplineScore: number;
     disciplineTrend: number;
-    riskScore: number;
-    riskTrend: number;
-    biasScore: number;
-    biasTrend: number;
+    // Renamed from riskScore/biasScore: neither ever measured risk or bias
+    // in the trading sense (position sizing, drawdown, cognitive bias) —
+    // see computePayoffRatioScore/computeEntryTimingScore below for what
+    // they actually compute. Renamed instead of removed since the
+    // underlying numbers are still useful, just mislabeled before.
+    payoffRatioScore: number;
+    payoffRatioTrend: number;
+    entryTimingScore: number;
+    entryTimingTrend: number;
     consistencyScore: number;
     sessionVerdict: string;
     insights: { title: string; value: string; status: string; icon: string }[];
@@ -72,10 +77,10 @@ export const buildDashboardModel = (
   const behaviorMetrics = {
     disciplineScore: computeDisciplineScore(filteredTrades),
     disciplineTrend: 0,
-    riskScore: computeRiskScore(filteredTrades),
-    riskTrend: 0,
-    biasScore: computeBiasScore(filteredTrades),
-    biasTrend: 0,
+    payoffRatioScore: computePayoffRatioScore(filteredTrades),
+    payoffRatioTrend: 0,
+    entryTimingScore: computeEntryTimingScore(filteredTrades),
+    entryTimingTrend: 0,
     consistencyScore: computeConsistencyScore(filteredTrades),
     sessionVerdict: computeSessionVerdict(filteredTrades),
     insights: computeBehavioralInsights(filteredTrades),
@@ -406,15 +411,21 @@ export const computeDisciplineScore = (trades: Trade[]): number => {
   return Math.round(avgScore);
 };
 
-const computeRiskScore = (trades: Trade[]): number => {
+// Formerly "Risk Score" — renamed because it never measured risk (position
+// sizing, % of account risked, stop distance, drawdown). It's the average
+// winner size divided by the average loser size, rescaled to a 0-100
+// display score — a payoff ratio, not a risk measure. A trader could
+// oversize a single trade and blow up their account while this stays high,
+// as long as their winners are bigger than their losers on average.
+const computePayoffRatioScore = (trades: Trade[]): number => {
   if (trades.length === 0) return 0;
   const winners = trades.filter(t => t.isWinner);
   const losers = trades.filter(t => !t.isWinner);
   if (losers.length === 0) return 100;
-  
+
   const avgWinner = winners.reduce((sum, t) => sum + (t.pnlPoints || 0), 0) / (winners.length || 1);
   const avgLoser = Math.abs(losers.reduce((sum, t) => sum + (t.pnlPoints || 0), 0) / losers.length);
-  
+
   const ratio = avgWinner / (avgLoser || 1);
   return Math.min(100, Math.round(ratio * 50));
 };
@@ -429,7 +440,13 @@ export const computeConsistencyScore = (trades: Trade[]): number => {
   return Math.round(winRate * 100);
 };
 
-const computeBiasScore = (trades: Trade[]): number => {
+// Formerly "Bias Score" — renamed because it never measured cognitive bias
+// (confirmation bias, loss aversion, recency bias, etc.). It's the % of
+// trades where the trader manually rated their own entry timing >= 80 on
+// TradePerformanceLog's slider — a self-reported entry-quality metric,
+// not a bias-detection one. That slider defaults to 50 when never touched,
+// so an un-rated trade counts against this score.
+const computeEntryTimingScore = (trades: Trade[]): number => {
   if (trades.length === 0) return 0;
   const highTiming = trades.filter(t => (t.timingScore || 0) >= 80).length;
   return Math.round((highTiming / trades.length) * 100);

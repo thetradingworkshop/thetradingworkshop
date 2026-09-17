@@ -16,6 +16,7 @@ import {
   AlertCircle,
   Zap,
   BrainCircuit,
+  Gauge,
   ChevronDown,
   BarChart3,
   RefreshCw,
@@ -501,18 +502,18 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
               trend={{ value: Math.abs(behaviorMetrics.disciplineTrend), label: 'trend', positive: behaviorMetrics.disciplineTrend >= 0 }} 
               className="bg-indigo-500/5 border-indigo-500/20" 
             />
-            <Scorecard 
-              label="Risk Score" 
-              value={`${behaviorMetrics.riskScore}/100`} 
-              secondary={behaviorMetrics.riskTrend > 0 ? "Improving risk control" : "Decreasing risk control"} 
-              trend={{ value: Math.abs(behaviorMetrics.riskTrend), label: 'trend', positive: behaviorMetrics.riskTrend >= 0 }} 
+            <Scorecard
+              label="Payoff Ratio Score"
+              value={`${behaviorMetrics.payoffRatioScore}/100`}
+              secondary={behaviorMetrics.payoffRatioTrend > 0 ? "Improving payoff ratio" : "Declining payoff ratio"}
+              trend={{ value: Math.abs(behaviorMetrics.payoffRatioTrend), label: 'trend', positive: behaviorMetrics.payoffRatioTrend >= 0 }}
             />
-            <Scorecard 
-              label="Bias Score" 
-              value={`${behaviorMetrics.biasScore}/100`} 
-              secondary={behaviorMetrics.biasTrend > 0 ? "Increasing bias" : "Decreasing bias"} 
-              trend={{ value: Math.abs(behaviorMetrics.biasTrend), label: 'trend', positive: behaviorMetrics.biasTrend <= 0 }} 
-              className={behaviorMetrics.biasTrend > 0 ? "bg-rose-500/5 border-rose-500/20" : "bg-emerald-500/5 border-emerald-500/20"} 
+            <Scorecard
+              label="Entry Timing Score"
+              value={`${behaviorMetrics.entryTimingScore}/100`}
+              secondary={behaviorMetrics.entryTimingTrend > 0 ? "Improving entry timing" : "Declining entry timing"}
+              trend={{ value: Math.abs(behaviorMetrics.entryTimingTrend), label: 'trend', positive: behaviorMetrics.entryTimingTrend >= 0 }}
+              className={behaviorMetrics.entryTimingTrend < 0 ? "bg-rose-500/5 border-rose-500/20" : "bg-emerald-500/5 border-emerald-500/20"}
             />
           </div>
         </div>
@@ -1075,9 +1076,14 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
         </div>
 
         <div className="mb-12">
-          <SectionHeader 
-            icon={BrainCircuit}
-            title="Hard-Rule AI Analysis"
+          {/* Not AI — RuleBasedMentorService is plain if/else threshold
+              logic on winRate/disciplineScore/profitFactor/etc (see that
+              file). Named/iconed to look like the deterministic scorecard
+              it is, distinct from the real Claude-backed mentor feedback
+              elsewhere on this page. */}
+          <SectionHeader
+            icon={Gauge}
+            title="Hard-Rule Analysis"
             subtitle="Metric-driven performance evaluation"
           />
         </div>

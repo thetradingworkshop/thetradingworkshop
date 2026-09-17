@@ -146,6 +146,15 @@ async function startServer() {
     res.json({ status: "ok" });
   });
 
+  // Lets the client show the real state of live broker sync up front
+  // (see DataConnectionsScreen's "Live Sync" button) instead of a
+  // permanently-disabled "(Soon)" placeholder regardless of whether it's
+  // actually configured — the OAuth flow below is fully built and only
+  // needs TRADOVATE_CLIENT_ID/SECRET/APP_URL set to work.
+  app.get("/api/integrations/status", requireAuth, (req, res) => {
+    res.json({ tradovateLiveSyncConfigured: tradovate.isConfigured() });
+  });
+
   // --- Tradovate OAuth ---
 
   app.get("/api/auth/tradovate/url", requireAuth, async (req, res) => {

@@ -67,6 +67,19 @@ export default function DataConnectionsScreen() {
 
   const [expandedErrorId, setExpandedErrorId] = useState<string | null>(null);
 
+  // Whether the app operator has actually set TRADOVATE_CLIENT_ID/SECRET —
+  // the OAuth live-sync flow (handleConnectTradovate below) is fully built
+  // either way, so this only controls whether the UI offers it or explains
+  // why it can't yet, instead of a permanent "(Soon)" regardless of config.
+  const [tradovateLiveSyncConfigured, setTradovateLiveSyncConfigured] = useState(false);
+  useEffect(() => {
+    if (!user) return;
+    authFetch('/api/integrations/status')
+      .then(res => res.json())
+      .then(data => setTradovateLiveSyncConfigured(!!data.tradovateLiveSyncConfigured))
+      .catch(() => setTradovateLiveSyncConfigured(false));
+  }, [user]);
+
   useEffect(() => {
     // Check for new connection in URL
     const params = new URLSearchParams(window.location.search);
@@ -268,10 +281,16 @@ export default function DataConnectionsScreen() {
     setIsConnecting(true);
     try {
       const response = await authFetch('/api/auth/tradovate/url');
-      const { url } = await response.json();
-      window.location.href = url;
+      const body = await response.json();
+      if (!response.ok || !body.url) {
+        setToast({ message: body.error || 'Failed to start Tradovate connection', type: 'error' });
+        setIsConnecting(false);
+        return;
+      }
+      window.location.href = body.url;
     } catch (error) {
       console.error('Failed to get Tradovate auth URL:', error);
+      setToast({ message: 'Failed to start Tradovate connection', type: 'error' });
       setIsConnecting(false);
     }
   };
@@ -390,14 +409,17 @@ export default function DataConnectionsScreen() {
       {/* Connection Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {/* Tradovate Card (Staged) */}
-        <TradovateConnectionCard 
-          connection={tradovateConnection} 
+        <TradovateConnectionCard
+          connection={tradovateConnection}
           onSetManual={handleSetManualSyncMode}
           onUpload={(e) => tradovateConnection && handleFileUpload(e, tradovateConnection.id)}
           onDelete={() => tradovateConnection && handleDeleteConnection(tradovateConnection.id)}
           isUploading={uploadingConnId === tradovateConnection?.id}
           fileInputRef={fileInputRef}
           onHistory={scrollToIngestionEvents}
+          liveSyncConfigured={tradovateLiveSyncConfigured}
+          onConnectLive={handleConnectTradovate}
+          isConnectingLive={isConnecting}
         />
 
         {/* Other Connections */}
@@ -674,14 +696,17 @@ export default function DataConnectionsScreen() {
   );
 }
 
-function TradovateConnectionCard({ 
-  connection, 
-  onSetManual, 
-  onUpload, 
-  onDelete, 
+function TradovateConnectionCard({
+  connection,
+  onSetManual,
+  onUpload,
+  onDelete,
   isUploading,
   fileInputRef,
-  onHistory
+  onHistory,
+  liveSyncConfigured,
+  onConnectLive,
+  isConnectingLive,
 }: {
   connection?: BrokerConnection,
   onSetManual: () => void,
@@ -689,7 +714,10 @@ function TradovateConnectionCard({
   onDelete: () => void,
   isUploading: boolean,
   fileInputRef: React.RefObject<HTMLInputElement>,
-  onHistory: () => void
+  onHistory: () => void,
+  liveSyncConfigured: boolean,
+  onConnectLive: () => void,
+  isConnectingLive: boolean,
 }) {
   const isManual = connection?.syncMode === 'manual_csv';
   const isApi = connection?.syncMode === 'api_live';
@@ -729,9 +757,11 @@ function TradovateConnectionCard({
         </div>
 
         <p className="text-sm text-muted-foreground leading-relaxed">
-          {isNotConfigured 
-            ? "Import your Tradovate trade history via CSV. API sync is currently disabled."
-            : isManual 
+          {isNotConfigured
+            ? (liveSyncConfigured
+                ? "Import your Tradovate trade history via CSV, or connect live sync below to import automatically."
+                : "Import your Tradovate trade history via CSV. Live API sync isn't configured on this deployment yet.")
+            : isManual
               ? "Syncing via manual CSV exports. Analytics and coaching features are fully active."
               : "Syncing via manual CSV exports. Analytics and coaching features are fully active."}
         </p>
@@ -754,16 +784,28 @@ function TradovateConnectionCard({
 
       <div className="px-6 py-4 bg-muted border-t border-border space-y-2">
         {isNotConfigured ? (
-          <button 
-            onClick={onSetManual}
-            className="w-full flex items-center justify-center gap-2 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 transition-colors shadow-sm"
-          >
-            <Upload className="w-4 h-4" />
-            Initialize Manual Import
-          </button>
+          <>
+            <button
+              onClick={onSetManual}
+              className="w-full flex items-center justify-center gap-2 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 transition-colors shadow-sm"
+            >
+              <Upload className="w-4 h-4" />
+              Initialize Manual Import
+            </button>
+            {liveSyncConfigured && (
+              <button
+                onClick={onConnectLive}
+                disabled={isConnectingLive}
+                className="w-full flex items-center justify-center gap-2 py-2.5 bg-card border border-border text-foreground rounded-xl text-sm font-bold hover:bg-muted transition-colors disabled:opacity-60"
+              >
+                {isConnectingLive ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+                Or Connect Live (Tradovate API)
+              </button>
+            )}
+          </>
         ) : (
           <>
-            <button 
+            <button
               onClick={() => fileInputRef.current?.click()}
               disabled={isUploading}
               className="w-full flex items-center justify-center gap-2 py-2.5 bg-card border border-border text-foreground rounded-xl text-sm font-bold hover:bg-muted transition-colors"
@@ -771,27 +813,39 @@ function TradovateConnectionCard({
               {isUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
               Upload Tradovate File
             </button>
-            <input 
-              type="file" 
-              className="hidden" 
-              ref={fileInputRef} 
-              accept=".csv" 
-              onChange={onUpload} 
+            <input
+              type="file"
+              className="hidden"
+              ref={fileInputRef}
+              accept=".csv"
+              onChange={onUpload}
             />
             <div className="grid grid-cols-2 gap-2">
-              <button 
+              <button
                 onClick={onHistory}
                 className="flex items-center justify-center gap-2 py-2 bg-card border border-border text-muted-foreground rounded-xl text-[11px] font-bold hover:bg-muted transition-colors"
               >
                 <History className="w-3.5 h-3.5" />
                 History
               </button>
-              <button 
+              <button
                 disabled
+                title={
+                  liveSyncConfigured
+                    // Connecting live here would create a second, separate
+                    // Tradovate connection rather than upgrading this
+                    // manual one in place (the OAuth callback always mints
+                    // a fresh broker_connections doc) — migrating an
+                    // existing connection isn't built, so this stays a
+                    // disabled explanation rather than a button that would
+                    // silently produce a confusing duplicate.
+                    ? 'Live sync is configured, but switching an existing manual connection to it isn\'t built yet — disconnect this one and use "Connect Live" from New Connection instead.'
+                    : "Live sync is fully built but needs Tradovate API credentials configured on the server (TRADOVATE_CLIENT_ID/SECRET) — not a missing feature, just not set up on this deployment yet."
+                }
                 className="flex items-center justify-center gap-2 py-2 bg-muted border border-border text-muted-foreground rounded-xl text-[11px] font-bold cursor-not-allowed"
               >
                 <Zap className="w-3.5 h-3.5" />
-                Live Sync (Soon)
+                {liveSyncConfigured ? 'Switch to Live Sync' : 'Live Sync (Not Configured)'}
               </button>
             </div>
           </>
