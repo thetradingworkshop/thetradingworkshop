@@ -109,7 +109,7 @@ export class TradovateService {
   async getFills(accessToken: string, accountId: string, startTime?: string): Promise<any[]> {
     const params = new URLSearchParams({ accountId });
     if (startTime) params.append('startTime', startTime);
-    
+
     const response = await fetch(`${TRADOVATE_API_URL}/fill/list?${params.toString()}`, {
       headers: { Authorization: `Bearer ${accessToken}` }
     });
@@ -117,10 +117,25 @@ export class TradovateService {
     return await response.json();
   }
 
-  normalizeFill(fill: any, connectionId: string, accountId: string): Partial<IngestionEvent> {
+  // A fill only carries contractId (a raw numeric id, e.g. 2586692) — the
+  // human-readable ticker (e.g. "MNQZ6") that contractSpecs.ts's
+  // getRootSymbol/getPointValue need lives on the separate Contract
+  // resource and has to be looked up. Getting this wrong doesn't error,
+  // it silently mis-prices every live-synced trade (falls back to the
+  // $1/point default instead of MNQ's real $2/point).
+  async getContract(accessToken: string, contractId: number): Promise<{ id: number; name: string } | null> {
+    const response = await fetch(`${TRADOVATE_API_URL}/contract/item?id=${contractId}`, {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    });
+    if (!response.ok) return null;
+    const contract = await response.json();
+    return contract?.name ? { id: contract.id, name: contract.name } : null;
+  }
+
+  normalizeFill(fill: any, connectionId: string, accountId: string, symbol: string): Partial<IngestionEvent> {
     const externalEventId = `fill_${fill.id}`;
     const side = fill.side === 'Buy' ? 'BUY' : 'SELL';
-    
+
     // Dedupe hash
     const hash = crypto.createHash('md5')
       .update(`${accountId}_${fill.id}_${fill.timestamp}_${fill.price}_${fill.qty}`)
@@ -133,7 +148,7 @@ export class TradovateService {
       eventType: 'fill_received',
       orderId: fill.orderId?.toString(),
       fillId: fill.id?.toString(),
-      symbol: fill.contractId?.toString() || 'UNKNOWN', // Tradovate uses contractId
+      symbol,
       side,
       quantity: fill.qty,
       avgFillPrice: fill.price,

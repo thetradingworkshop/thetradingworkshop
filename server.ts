@@ -801,6 +801,30 @@ async function startServer() {
     });
   }
 
+  // Contract id -> human-readable symbol (e.g. 2586692 -> "MNQZ6"),
+  // resolved via Tradovate's /contract/item and cached in Firestore since
+  // a contract's name never changes once defined — avoids re-resolving
+  // the same handful of contracts on every scheduled sync.
+  async function resolveContractSymbol(accessToken: string, contractId: number, cache: Map<number, string>): Promise<string> {
+    const cached = cache.get(contractId);
+    if (cached) return cached;
+
+    const cacheDoc = await db.collection("tradovate_contracts").doc(String(contractId)).get();
+    if (cacheDoc.exists) {
+      const name = cacheDoc.data()!.name as string;
+      cache.set(contractId, name);
+      return name;
+    }
+
+    const contract = await tradovate.getContract(accessToken, contractId);
+    const symbol = contract?.name || String(contractId);
+    if (contract?.name) {
+      await db.collection("tradovate_contracts").doc(String(contractId)).set({ id: contractId, name: contract.name, resolvedAt: new Date().toISOString() });
+    }
+    cache.set(contractId, symbol);
+    return symbol;
+  }
+
   async function syncConnection(connectionId: string) {
     const hasLock = await acquireSyncLock(connectionId);
     if (!hasLock) return;
@@ -823,6 +847,7 @@ async function startServer() {
       const accountIds = accountsSnapshot.docs.map(d => d.id);
       const runId = await createImportRun(connectionId, 'api', accountIds);
       let totalEventsCreated = 0;
+      const contractSymbolCache = new Map<number, string>();
 
       for (const accDoc of accountsSnapshot.docs) {
         const account = accDoc.data() as any;
@@ -839,7 +864,8 @@ async function startServer() {
         const batch = db.batch();
         
         for (const fill of fills) {
-          const normalized = tradovate.normalizeFill(fill, connectionId, account.id);
+          const symbol = await resolveContractSymbol(conn.accessToken, fill.contractId, contractSymbolCache);
+          const normalized = tradovate.normalizeFill(fill, connectionId, account.id, symbol);
           const eventRef = db.collection("ingestion_events").doc(normalized.dedupeHash);
           const existing = await eventRef.get();
           
