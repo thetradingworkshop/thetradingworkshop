@@ -117,7 +117,7 @@ export function TradeGradeBreakdown({ className, data: propData }: { className?:
   const chartData = propData || [];
 
   return (
-    <Card className={cn("p-6 h-[360px] flex flex-col", className)}>
+    <Card className={cn("p-6 h-[400px] flex flex-col", className)}>
       <div className="mb-4">
         <h3 className="text-xs font-bold uppercase tracking-widest text-muted-foreground/80">Trade Grade Breakdown</h3>
         <p className="text-[11px] text-muted-foreground/60 font-medium">Quality distribution</p>
@@ -125,13 +125,13 @@ export function TradeGradeBreakdown({ className, data: propData }: { className?:
       <div className="flex-1 flex items-center justify-center">
         {chartData.length > 0 ? (
           <>
-            <div className="w-48 h-48 shrink-0">
+            <div className="w-56 h-56 shrink-0">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
                     data={chartData}
-                    innerRadius={58}
-                    outerRadius={82}
+                    innerRadius={68}
+                    outerRadius={96}
                     paddingAngle={6}
                     dataKey="value"
                     animationDuration={1000}
@@ -143,11 +143,11 @@ export function TradeGradeBreakdown({ className, data: propData }: { className?:
                 </PieChart>
               </ResponsiveContainer>
             </div>
-            <div className="ml-10 space-y-3.5">
+            <div className="ml-12 space-y-4">
               {chartData.map((item) => (
-                <div key={item.name} className="flex items-center text-sm">
-                  <div className="w-2.5 h-2.5 rounded-full mr-3" style={{ backgroundColor: item.color }} />
-                  <span className="font-bold w-7">{item.name}</span>
+                <div key={item.name} className="flex items-center text-base">
+                  <div className="w-3 h-3 rounded-full mr-3" style={{ backgroundColor: item.color }} />
+                  <span className="font-bold w-8">{item.name}</span>
                   <span className="text-muted-foreground/80 font-medium ml-3">{item.value}%</span>
                 </div>
               ))}
@@ -165,7 +165,7 @@ export function BiasVsOutcome({ className, data: propData }: { className?: strin
   const chartData = propData || [];
 
   return (
-    <Card className={cn("p-6 h-[360px] flex flex-col", className)}>
+    <Card className={cn("p-6 h-[400px] flex flex-col", className)}>
       <div className="mb-4">
         <h3 className="text-xs font-bold uppercase tracking-widest text-muted-foreground/80">Bias vs Outcome</h3>
         <p className="text-[11px] text-muted-foreground/60 font-medium">Strategy alignment</p>
@@ -173,13 +173,13 @@ export function BiasVsOutcome({ className, data: propData }: { className?: strin
       <div className="flex-1 flex items-center justify-center">
         {chartData.length > 0 ? (
           <>
-            <div className="w-48 h-48 shrink-0">
+            <div className="w-56 h-56 shrink-0">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
                     data={chartData}
-                    innerRadius={58}
-                    outerRadius={82}
+                    innerRadius={68}
+                    outerRadius={96}
                     paddingAngle={6}
                     dataKey="value"
                     animationDuration={1000}
@@ -191,10 +191,10 @@ export function BiasVsOutcome({ className, data: propData }: { className?: strin
                 </PieChart>
               </ResponsiveContainer>
             </div>
-            <div className="ml-10 space-y-3.5">
+            <div className="ml-12 space-y-4">
               {chartData.map((item) => (
-                <div key={item.name} className="flex items-center text-sm">
-                  <div className="w-2.5 h-2.5 rounded-full mr-3 shrink-0" style={{ backgroundColor: item.color }} />
+                <div key={item.name} className="flex items-center text-base">
+                  <div className="w-3 h-3 rounded-full mr-3 shrink-0" style={{ backgroundColor: item.color }} />
                   <span className="font-bold whitespace-nowrap">{item.name}</span>
                   <span className="text-muted-foreground/80 font-medium ml-3">{item.value}%</span>
                 </div>
