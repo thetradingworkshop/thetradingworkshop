@@ -145,6 +145,11 @@ export function TradePerformanceLog({ trades, title, subtitle, readOnly, ownerId
   const { user, role } = useAuth();
   const { deleteTrades, tradeIdToOpen, setTradeIdToOpen } = useTrades();
   const [searchQuery, setSearchQuery] = useState('');
+  // Collapsed by default false (expanded) — a long log (Session Trade Logs
+  // especially, one full session's worth of trades on one page) can run to
+  // dozens of rows, so letting it collapse saves scroll space without
+  // hiding the data.
+  const [isCollapsed, setIsCollapsed] = useState(false);
   // Whose strategy/tag library to read — the trade OWNER's in readOnly
   // mode (ownerId, a mentor reviewing a student), otherwise the viewer's
   // own uid, same as always.
@@ -758,32 +763,42 @@ export function TradePerformanceLog({ trades, title, subtitle, readOnly, ownerId
   return (
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h3 className="text-lg font-bold tracking-tight">{title || "Trade Performance Log"}</h3>
-          {subtitle && <p className="text-sm text-muted-foreground">{subtitle}</p>}
-        </div>
-        <div className="flex items-center space-x-3">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input 
-              placeholder="Search trades..." 
-              className="pl-10 w-64 h-10 text-xs"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
+        <button
+          type="button"
+          onClick={() => setIsCollapsed(prev => !prev)}
+          className="flex items-center gap-2 text-left group"
+          aria-expanded={!isCollapsed}
+        >
+          <ChevronDown className={cn("w-4 h-4 text-muted-foreground shrink-0 transition-transform", isCollapsed && "-rotate-90")} />
+          <div>
+            <h3 className="text-lg font-bold tracking-tight group-hover:text-primary transition-colors">{title || "Trade Performance Log"}</h3>
+            {subtitle && <p className="text-sm text-muted-foreground">{subtitle}</p>}
           </div>
-          <Button 
-            variant={showFilters ? "primary" : "outline"} 
-            className="h-10 px-4 flex items-center space-x-2 text-xs"
-            onClick={() => setShowFilters(!showFilters)}
-          >
-            <Filter className="w-4 h-4" />
-            <span>Filters</span>
-          </Button>
-        </div>
+        </button>
+        {!isCollapsed && (
+          <div className="flex items-center space-x-3">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                placeholder="Search trades..."
+                className="pl-10 w-64 h-10 text-xs"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+            </div>
+            <Button
+              variant={showFilters ? "primary" : "outline"}
+              className="h-10 px-4 flex items-center space-x-2 text-xs"
+              onClick={() => setShowFilters(!showFilters)}
+            >
+              <Filter className="w-4 h-4" />
+              <span>Filters</span>
+            </Button>
+          </div>
+        )}
       </div>
 
-      {showFilters && (
+      {!isCollapsed && showFilters && (
         <Card className="p-4 animate-in fade-in slide-in-from-top-2 duration-200 border-primary/20 bg-primary/5">
           <div className="flex flex-wrap gap-4 items-center">
             <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Quick Filters:</span>
@@ -795,7 +810,7 @@ export function TradePerformanceLog({ trades, title, subtitle, readOnly, ownerId
         </Card>
       )}
 
-      {selectedIds.size > 0 && (
+      {!isCollapsed && selectedIds.size > 0 && (
         <Card className="p-4 animate-in fade-in slide-in-from-top-2 duration-200 border-rose-500/20 bg-rose-500/5 flex items-center justify-between flex-wrap gap-3">
           <span className="text-xs font-bold text-foreground">
             {selectedIds.size} trade{selectedIds.size !== 1 ? 's' : ''} selected
@@ -811,6 +826,7 @@ export function TradePerformanceLog({ trades, title, subtitle, readOnly, ownerId
         </Card>
       )}
 
+      {!isCollapsed && (
       <Card className="overflow-hidden border-border/50">
         <div className="overflow-x-auto">
           <table className="w-full text-sm border-collapse">
@@ -955,6 +971,7 @@ export function TradePerformanceLog({ trades, title, subtitle, readOnly, ownerId
           </table>
         </div>
       </Card>
+      )}
 
       {/* Trade Detail Drawer */}
       {selectedTrade && (
