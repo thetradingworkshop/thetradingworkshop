@@ -48,7 +48,11 @@ export const CONTRACT_POINT_VALUES: Record<string, number> = {
  * symbols default to $0 rather than guessing, so P&L is never silently wrong.
  */
 export const CONTRACT_COMMISSION_PER_CONTRACT: Record<string, number> = {
-  MNQ: 0.50,
+  // Confirmed against a TakeProfit Trader (Tradovate) account's own
+  // "This week" performance report: Trade Fees & Comm. $(882.00) over
+  // 1,176 filled contracts = $0.75/contract/fill exactly. The previous
+  // $0.50 was an unconfirmed guess.
+  MNQ: 0.75,
 };
 
 /**

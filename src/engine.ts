@@ -58,8 +58,23 @@ export function parseTradovateCsv(csvText: string, userId: string = 'manual-user
       timestamp: findHeader(['timestamp', 'time', 'filltime', 'datetime', 'date', 'fill time', 'order time']),
       symbol: findHeader(['symbol', 'contract', 'product', 'instrument', 'item']),
       side: findHeader(result.summary.sideCandidateFields!),
-      quantity: findHeader(['quantity', 'qty', 'filledqty', 'filledquantity', 'size', 'filled qty']),
-      price: findHeader(['price', 'fillprice', 'avgprice', 'averagefillprice', 'executionprice', 'fill price', 'avg price']),
+      // "Filled Qty"/"Avg Fill Price" — the actual execution — must win
+      // over same-row order-level fields with similar generic names
+      // ("Quantity"/"avgPrice", the order's originally requested size and
+      // a coarser running average) whenever a broker export includes
+      // both, as Tradovate's combined Orders+Fills CSV does. Previously
+      // the generic 'quantity'/'avgprice' candidates were checked first
+      // and silently won, pulling the order's requested size instead of
+      // what actually filled — on rows where those differ, that fed a
+      // wrong quantity into the stateful position tracker, corrupting
+      // its running average cost (and every trade after it) even though
+      // each individual order's own math was internally consistent.
+      // 'avg fill price' is listed explicitly since 'averagefillprice'
+      // (the closest of the old fallbacks) normalizes to a different
+      // string and never actually matched Tradovate's "Avg Fill Price"
+      // header.
+      quantity: findHeader(['filled qty', 'filledqty', 'filledquantity', 'quantity', 'qty', 'size']),
+      price: findHeader(['avg fill price', 'avgfillprice', 'fill price', 'fillprice', 'executionprice', 'avgprice', 'price', 'averagefillprice', 'avg price']),
       orderId: findHeader(['orderid', 'order id', 'id', 'brokerorderid', 'fillid', 'executionid', 'order #']),
       status: findHeader(['status', 'orderstatus', 'state', 'order status'])
     };
