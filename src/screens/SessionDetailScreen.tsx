@@ -1,7 +1,8 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { SectionHeader, Scorecard, Card, Badge, Button, Table, TableHeader, TableRow, TableHead, TableCell, Toast, Input } from '../components/Shared';
 import { EquityCurveChart, PnlByTradeChart, HourlyPerformanceChart, BiasVsOutcome } from '../components/Charts';
-import { BrainCircuit, MessageSquare, BookOpen, TrendingUp, ShieldCheck, Target, AlertCircle, Zap, Clock, Lightbulb, CheckCircle2, ChevronRight, Loader2, Save, ShieldAlert, AlertTriangle, Info } from 'lucide-react';
+import { BrainCircuit, MessageSquare, BookOpen, TrendingUp, ShieldCheck, Target, AlertCircle, Zap, Clock, Lightbulb, CheckCircle2, ChevronRight, ChevronDown, Loader2, Save, ShieldAlert, AlertTriangle, Info } from 'lucide-react';
+import { cn } from '@/src/utils';
 
 import { useDateRange } from '../context/DateContext';
 import { useTrades } from '../context/TradeContext';
@@ -21,6 +22,8 @@ import { db } from '../firebase';
 export default function SessionDetailScreen() {
   const { user } = useAuth();
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [isReentryCollapsed, setIsReentryCollapsed] = useState(false);
+  const [isScaledCollapsed, setIsScaledCollapsed] = useState(false);
   const { getEffectiveRange } = useDateRange();
   const { filteredTrades: trades } = useTrades();
   const effectiveRange = getEffectiveRange('sessions');
@@ -655,32 +658,47 @@ export default function SessionDetailScreen() {
       {/* Row 7: Re-entry + Scaling */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>
-          <div className="flex items-center space-x-3 mb-6">
+          <button
+            type="button"
+            onClick={() => setIsReentryCollapsed(prev => !prev)}
+            className="flex items-center space-x-3 mb-6 w-full text-left group"
+            aria-expanded={!isReentryCollapsed}
+          >
             <div className="p-2 bg-indigo-500/10 rounded-lg">
               <TrendingUp className="w-5 h-5 text-indigo-500" />
             </div>
-            <h3 className="font-bold text-foreground">Re-entry Trades</h3>
-          </div>
+            <h3 className="font-bold text-foreground flex-1 group-hover:text-primary transition-colors">Re-entry Trades</h3>
+            <ChevronDown className={cn("w-4 h-4 text-muted-foreground shrink-0 transition-transform", isReentryCollapsed && "-rotate-90")} />
+          </button>
+          {!isReentryCollapsed && (
           <div className="text-sm text-muted-foreground italic bg-muted/20 p-4 rounded-xl border border-dashed border-border/60 text-center">
             {filteredTrades.some(t => t.isReentry) ? (
               <div className="space-y-2">
                 {filteredTrades.filter(t => t.isReentry).map(t => (
                   <div key={t.id} className="flex justify-between text-xs text-foreground font-bold">
-                    <span>{t.id} ({t.symbol})</span>
+                    <span>{t.symbol} · {t.direction} · {format(new Date(t.entryTime), 'MMM d, h:mm a')}</span>
                     <Badge variant="warning">Re-entry</Badge>
                   </div>
                 ))}
               </div>
             ) : "No re-entry trades detected in this session."}
           </div>
+          )}
         </Card>
         <Card>
-          <div className="flex items-center space-x-3 mb-6">
+          <button
+            type="button"
+            onClick={() => setIsScaledCollapsed(prev => !prev)}
+            className="flex items-center space-x-3 mb-6 w-full text-left group"
+            aria-expanded={!isScaledCollapsed}
+          >
             <div className="p-2 bg-emerald-500/10 rounded-lg">
               <Target className="w-5 h-5 text-emerald-500" />
             </div>
-            <h3 className="font-bold text-foreground">Scaled Trades</h3>
-          </div>
+            <h3 className="font-bold text-foreground flex-1 group-hover:text-primary transition-colors">Scaled Trades</h3>
+            <ChevronDown className={cn("w-4 h-4 text-muted-foreground shrink-0 transition-transform", isScaledCollapsed && "-rotate-90")} />
+          </button>
+          {!isScaledCollapsed && (
           <div className="space-y-3">
             {filteredTrades.some(t => t.fills.length > 2) ? (
               filteredTrades.filter(t => t.fills.length > 2).map(t => (
@@ -688,7 +706,7 @@ export default function SessionDetailScreen() {
                   key={t.id}
                   className="flex items-center justify-between p-4 bg-muted/30 rounded-xl border border-border/40"
                 >
-                  <span className="text-sm font-bold text-foreground">{t.id} ({t.symbol})</span>
+                  <span className="text-sm font-bold text-foreground">{t.symbol} · {t.direction} · {format(new Date(t.entryTime), 'MMM d, h:mm a')}</span>
                   <Badge variant="positive">{t.fills.length} Fills</Badge>
                 </div>
               ))
@@ -698,6 +716,7 @@ export default function SessionDetailScreen() {
               </div>
             )}
           </div>
+          )}
         </Card>
       </div>
 
