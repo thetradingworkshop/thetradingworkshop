@@ -274,6 +274,14 @@ service cloud.firestore {
              data.categories is list;
     }
 
+    function isValidBacktestScenario(data) {
+      return data.userId is string &&
+             data.symbol is string &&
+             data.direction in ['long', 'short'] &&
+             data.setupDate is string &&
+             data.pnl is number;
+    }
+
     // A logged pre-trade plan (see TradeIntent in types.ts / LogIntentModal)
     // — checks the fields actually written by TradeContext.logTradeIntent.
     // Previously validated isManualOverride/matchedTradeId, neither of
@@ -551,6 +559,21 @@ service cloud.firestore {
       allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin() || isAssignedMentor(resource.data.userId));
       allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid && canWriteOwnData() && isValidStrategy(request.resource.data);
       allow update: if isAuthenticated() && ((resource.data.userId == request.auth.uid && canWriteOwnData()) || isAdmin()) && isValidStrategy(request.resource.data);
+      allow delete: if isAuthenticated() && ((resource.data.userId == request.auth.uid && canWriteOwnData()) || isAdmin());
+    }
+
+    // Manual backtest scenarios — a hypothetical/historical trade logged to
+    // validate a strategy's edge before risking capital. Same ownership
+    // shape as strategies (mentor read-only, owner read/write).
+    //   - symbol: string (required)
+    //   - direction: string (required, long/short)
+    //   - setupDate: string (required, yyyy-MM-dd)
+    //   - pnl: number (required, hypothetical dollar P&L)
+    //   - createdAt/updatedAt: string (required)
+    match /backtest_scenarios/{scenarioId} {
+      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin() || isAssignedMentor(resource.data.userId));
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid && canWriteOwnData() && isValidBacktestScenario(request.resource.data);
+      allow update: if isAuthenticated() && ((resource.data.userId == request.auth.uid && canWriteOwnData()) || isAdmin()) && isValidBacktestScenario(request.resource.data);
       allow delete: if isAuthenticated() && ((resource.data.userId == request.auth.uid && canWriteOwnData()) || isAdmin());
     }
 

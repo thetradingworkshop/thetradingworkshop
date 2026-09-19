@@ -512,6 +512,26 @@ export interface Strategy {
   updatedAt: string;
 }
 
+// A hypothetical/historical trade logged to validate a strategy's edge
+// before risking real capital — the manual-entry equivalent of chart-based
+// backtesting: no live market-data feed involved, the trader replays a
+// setup they remember (or one from a screenshot/replay) and records what
+// would have happened. strategyChecklist mirrors Trade's field/shape so the
+// same "how much of the plan did this follow" scoring applies here too.
+export interface BacktestScenario {
+  id: string;
+  userId: string;
+  strategyId?: string;
+  symbol: string;
+  direction: 'long' | 'short';
+  setupDate: string; // yyyy-MM-dd — the historical date/session being tested
+  pnl: number; // hypothetical dollar P&L for this scenario
+  notes?: string;
+  strategyChecklist?: Record<string, boolean>;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // Day View Phase 4 — a cached LLM-generated narrative for one trading day,
 // assembled server-side from that day's trades, its Daily Journal note (if
 // any), and any assigned strategies' rule adherence. Cached so opening the

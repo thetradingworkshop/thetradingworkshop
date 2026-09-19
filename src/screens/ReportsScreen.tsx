@@ -13,23 +13,26 @@ import {
   DAY_ORDER, MONTH_ORDER, DURATION_ORDER, HOUR_ORDER, HALF_HOUR_ORDER,
   hourLabel, halfHourLabel, durationBucket,
 } from '../services/reportMetrics';
-import { Trade, TagCategory } from '../types';
+import { Trade, TagCategory, JournalEntry } from '../types';
+import { MOOD_LABEL, MOOD_ORDER } from '../lib/moods';
 
-// TradeZella-style "Reports" drill-downs: Symbol, Day & Time, Tags. All
-// three render through the same ReportTemplate (see that file) — only the
-// grouping function and secondary-dimension options differ per tab.
-// Overview and Calendar are intentionally not rebuilt here (Dashboard
-// already covers that ground); Playbook is intentionally not duplicated
-// here either (StrategiesScreen already computes richer per-strategy
-// stats, including Follow Rate, than a generic drill-down would show).
-// The day/time grouping domain (weekday/month/hour order + label
-// functions) lives in reportMetrics.ts, shared with RangeAnalysisScreen.
+// TradeZella-style "Reports" drill-downs: Symbol, Day & Time, Tags,
+// Psychology. All four render through the same ReportTemplate (see that
+// file) — only the grouping function and secondary-dimension options
+// differ per tab. Overview and Calendar are intentionally not rebuilt here
+// (Dashboard already covers that ground); Playbook is intentionally not
+// duplicated here either (StrategiesScreen already computes richer
+// per-strategy stats, including Follow Rate, than a generic drill-down
+// would show). The day/time grouping domain (weekday/month/hour order +
+// label functions) lives in reportMetrics.ts, shared with
+// RangeAnalysisScreen.
 
-type ReportTab = 'symbol' | 'daytime' | 'tags';
+type ReportTab = 'symbol' | 'daytime' | 'tags' | 'psychology';
 const TABS: { id: ReportTab; label: string }[] = [
   { id: 'symbol', label: 'Symbol' },
   { id: 'daytime', label: 'Day & Time' },
   { id: 'tags', label: 'Tags' },
+  { id: 'psychology', label: 'Psychology' },
 ];
 
 type DayTimeMode = 'days' | 'month' | 'time' | 'duration';
@@ -99,6 +102,41 @@ export default function ReportsScreen() {
     return () => unsubscribe();
   }, [user]);
   const activeTagCategory = tagCategories.find(c => c.id === activeTagCategoryId) ?? null;
+
+  // Mood lives on JournalEntry (set from either a Trade Note or a Daily
+  // Journal note), not on Trade itself — so unlike the other report tabs,
+  // Psychology has to join trades to mood via a separate journals
+  // subscription. A trade-note's mood wins for that specific trade; a
+  // daily-journal note's mood applies to every trade in that session
+  // (same `${uid}_${yyyy-MM-dd}` id SessionBuilder/DayView use) that isn't
+  // itself more specifically tagged.
+  const [journalEntries, setJournalEntries] = useState<JournalEntry[]>([]);
+  useEffect(() => {
+    if (!user) return;
+    const unsubscribe = onSnapshot(
+      query(collection(db, 'journals'), where('userId', '==', user.uid)),
+      (snapshot) => setJournalEntries(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as JournalEntry)))
+    );
+    return () => unsubscribe();
+  }, [user]);
+
+  const { moodByTradeId, moodBySessionId } = useMemo(() => {
+    const byTrade = new Map<string, string>();
+    const bySession = new Map<string, string>();
+    for (const j of journalEntries) {
+      if (!j.mood) continue;
+      if (j.tradeId) byTrade.set(j.tradeId, j.mood);
+      else if (j.sessionId) bySession.set(j.sessionId, j.mood);
+    }
+    return { moodByTradeId: byTrade, moodBySessionId: bySession };
+  }, [journalEntries]);
+
+  const moodOf = (t: Trade): string | undefined => {
+    if (moodByTradeId.has(t.id)) return moodByTradeId.get(t.id);
+    if (!user) return undefined;
+    const sessionId = `${user.uid}_${format(new Date(t.entryTime), 'yyyy-MM-dd')}`;
+    return moodBySessionId.get(sessionId);
+  };
 
   return (
     <div className="space-y-6 pb-20">
@@ -262,6 +300,28 @@ export default function ReportsScreen() {
                   />
                 )}
               </div>
+            )
+          )}
+
+          {tab === 'psychology' && (
+            moodByTradeId.size === 0 && moodBySessionId.size === 0 ? (
+              <Card className="text-center py-16">
+                <BarChart3 className="w-8 h-8 text-muted-foreground/40 mx-auto mb-3" />
+                <p className="text-sm text-muted-foreground italic">No mood-tagged notes yet — set "How were you feeling?" on a Trade Note or Daily Journal entry first.</p>
+              </Card>
+            ) : (
+              <ReportTemplate
+                trades={rangedTrades}
+                labelHeader="Mood"
+                primaryKeyFn={(t) => {
+                  const mood = moodOf(t);
+                  if (!mood) return [];
+                  const label = MOOD_LABEL[mood] || mood;
+                  return [{ key: label, label }];
+                }}
+                secondaryDimensions={[dayOfWeekDim, accountDim, sideDim]}
+                sortOrder={MOOD_ORDER}
+              />
             )
           )}
         </>

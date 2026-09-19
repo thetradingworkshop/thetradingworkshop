@@ -2,11 +2,12 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { cn } from '@/src/utils';
 import { SectionHeader, Card, Badge, Button, Input, Modal, Table, TableHeader, TableRow, TableHead, TableCell, Toast } from '../components/Shared';
 import { DictationTextarea } from '../components/DictationTextarea';
-import { Rocket, Plus, TrendingUp, TrendingDown, Activity, Award, MoreVertical, Trash2, Archive, ArchiveRestore, Pencil, X } from 'lucide-react';
+import { Rocket, Plus, TrendingUp, TrendingDown, Activity, Award, MoreVertical, Trash2, Archive, ArchiveRestore, Pencil, X, FlaskConical, Percent } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useTrades } from '../context/TradeContext';
 import { subscribeStrategies, createStrategy, updateStrategy, deleteStrategy } from '../lib/strategies';
-import { Strategy, StrategyCategory } from '../types';
+import { subscribeBacktestScenarios, createBacktestScenario, updateBacktestScenario, deleteBacktestScenario } from '../lib/backtestScenarios';
+import { Strategy, StrategyCategory, BacktestScenario } from '../types';
 
 type SubTab = 'mine' | 'shared' | 'templates' | 'backtest';
 const SUB_TABS: { id: SubTab; label: string }[] = [
@@ -115,18 +116,28 @@ export default function StrategiesScreen() {
   // symbol into one number regardless of what the user had selected.
   const { filteredTrades: trades } = useTrades();
   const [strategies, setStrategies] = useState<Strategy[]>([]);
+  const [scenarios, setScenarios] = useState<BacktestScenario[]>([]);
   const [subTab, setSubTab] = useState<SubTab>('mine');
   const [statusFilter, setStatusFilter] = useState<'active' | 'archived'>('active');
   // null = closed, 'new' = Create Strategy modal, a Strategy = editing that
   // one (the form modal is shared between both — see StrategyFormModal).
   const [formTarget, setFormTarget] = useState<'new' | Strategy | null>(null);
+  // Same null/'new'/target convention as formTarget above, for the Backtest
+  // Scenario form.
+  const [scenarioFormTarget, setScenarioFormTarget] = useState<'new' | BacktestScenario | null>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [pendingDeleteScenarioId, setPendingDeleteScenarioId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   useEffect(() => {
     if (!user) return;
     return subscribeStrategies(user.uid, setStrategies);
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+    return subscribeBacktestScenarios(user.uid, setScenarios);
   }, [user]);
 
   const statsById = useMemo(() => {
@@ -202,13 +213,64 @@ export default function StrategiesScreen() {
     }
   };
 
+  const handleSubmitScenario = async (fields: {
+    symbol: string; direction: 'long' | 'short'; setupDate: string; pnl: number;
+    strategyId?: string; notes?: string; strategyChecklist?: Record<string, boolean>;
+  }) => {
+    if (!user || !scenarioFormTarget) return;
+    try {
+      if (scenarioFormTarget === 'new') {
+        await createBacktestScenario(user.uid, fields);
+        setToast({ message: 'Backtest scenario logged', type: 'success' });
+      } else {
+        await updateBacktestScenario(scenarioFormTarget.id, fields);
+        setToast({ message: 'Backtest scenario updated', type: 'success' });
+      }
+      setScenarioFormTarget(null);
+    } catch (err) {
+      console.error('Failed to save backtest scenario:', err);
+      setToast({ message: 'Failed to save backtest scenario', type: 'error' });
+    } finally {
+      setTimeout(() => setToast(null), 3000);
+    }
+  };
+
+  const confirmDeleteScenario = async () => {
+    if (!pendingDeleteScenarioId) return;
+    try {
+      await deleteBacktestScenario(pendingDeleteScenarioId);
+      setToast({ message: 'Scenario deleted', type: 'success' });
+    } catch (err) {
+      console.error('Failed to delete scenario:', err);
+      setToast({ message: 'Failed to delete scenario', type: 'error' });
+    } finally {
+      setPendingDeleteScenarioId(null);
+      setTimeout(() => setToast(null), 3000);
+    }
+  };
+
+  const scenarioStats = useMemo(() => {
+    const winners = scenarios.filter(s => s.pnl > 0);
+    const totalPnl = scenarios.reduce((sum, s) => sum + s.pnl, 0);
+    return {
+      count: scenarios.length,
+      winRate: scenarios.length ? (winners.length / scenarios.length) * 100 : 0,
+      totalPnl,
+      avgPnl: scenarios.length ? totalPnl / scenarios.length : 0,
+    };
+  }, [scenarios]);
+
+  const strategyNameById = useMemo(() => new Map(strategies.map(s => [s.id, s])), [strategies]);
+
   return (
     <div className="space-y-6 pb-20">
       <SectionHeader
         title="Strategies"
         subtitle="Reusable playbooks — define your entry/exit criteria once, then check off how much of it you actually followed on each trade."
         rightElement={
-          subTab === 'mine' ? <Button variant="primary" icon={Plus} onClick={() => setFormTarget('new')}>Create Strategy</Button> : undefined
+          subTab === 'mine' ? <Button variant="primary" icon={Plus} onClick={() => setFormTarget('new')}>Create Strategy</Button>
+          : subTab === 'backtest' ? <Button variant="primary" icon={Plus} onClick={() => setScenarioFormTarget('new')}>Log Scenario</Button>
+          : undefined
         }
       />
 
@@ -227,7 +289,97 @@ export default function StrategiesScreen() {
         ))}
       </div>
 
-      {subTab !== 'mine' ? (
+      {subTab === 'backtest' ? (
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            <SummaryCard icon={FlaskConical} iconClass="text-indigo-500 bg-indigo-500/10" label="Scenarios logged" strategy={null} stat={`${scenarioStats.count}`} detail={scenarioStats.count ? 'hypothetical trades' : 'Log your first one'} />
+            <SummaryCard icon={Percent} iconClass="text-amber-500 bg-amber-500/10" label="Hypothetical win rate" strategy={null} stat={scenarioStats.count ? `${scenarioStats.winRate.toFixed(0)}%` : '—'} detail="across all scenarios" />
+            <SummaryCard icon={TrendingUp} iconClass="text-emerald-500 bg-emerald-500/10" label="Total hypothetical P&L" strategy={null} stat={scenarioStats.count ? fmtMoney(scenarioStats.totalPnl) : '—'} detail="" />
+            <SummaryCard icon={Activity} iconClass="text-rose-500 bg-rose-500/10" label="Avg P&L per scenario" strategy={null} stat={scenarioStats.count ? fmtMoney(scenarioStats.avgPnl) : '—'} detail="" />
+          </div>
+
+          <Card noPadding>
+            <div className="p-4 border-b border-border/60">
+              <p className="text-xs text-muted-foreground">
+                Replay a setup you remember — or one from a chart screenshot or the Day View replay — and log what would have happened. No live market data is pulled in; this is for validating a strategy's edge before risking capital, the same way you'd backtest on paper.
+              </p>
+            </div>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Symbol</TableHead>
+                  <TableHead>Direction</TableHead>
+                  <TableHead>Strategy tested</TableHead>
+                  <TableHead className="text-right">Follow rate</TableHead>
+                  <TableHead className="text-right">Hypothetical P&L</TableHead>
+                  <TableHead className="w-10" />
+                </TableRow>
+              </TableHeader>
+              <tbody>
+                {scenarios.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={7} className="text-center py-12 text-muted-foreground italic">
+                      No backtest scenarios yet — log your first hypothetical trade.
+                    </TableCell>
+                  </TableRow>
+                )}
+                {[...scenarios].sort((a, b) => b.setupDate.localeCompare(a.setupDate)).map(s => {
+                  const strategy = s.strategyId ? strategyNameById.get(s.strategyId) : undefined;
+                  const applicable = strategy ? strategy.categories.flatMap(c => c.rules) : [];
+                  const checked = applicable.filter(r => s.strategyChecklist?.[r.id]).length;
+                  return (
+                    <TableRow key={s.id}>
+                      <TableCell className="whitespace-nowrap">{s.setupDate}</TableCell>
+                      <TableCell className="font-bold">{s.symbol}</TableCell>
+                      <TableCell>
+                        <Badge variant={s.direction === 'long' ? 'positive' : 'negative'}>{s.direction === 'long' ? 'Long' : 'Short'}</Badge>
+                      </TableCell>
+                      <TableCell>
+                        {strategy ? (
+                          <span className="flex items-center gap-1.5">{strategy.icon || '📈'} {strategy.name}</span>
+                        ) : (
+                          <span className="text-muted-foreground italic">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right">{applicable.length ? `${checked}/${applicable.length}` : 'N/A'}</TableCell>
+                      <TableCell className={cn("text-right font-bold", s.pnl > 0 ? "text-emerald-500" : s.pnl < 0 ? "text-rose-500" : "text-muted-foreground")}>
+                        {fmtMoney(s.pnl)}
+                      </TableCell>
+                      <TableCell className="relative">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setOpenMenuId(openMenuId === s.id ? null : `scenario:${s.id}`); }}
+                          className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground"
+                        >
+                          <MoreVertical className="w-4 h-4" />
+                        </button>
+                        {openMenuId === `scenario:${s.id}` && (
+                          <div className="absolute right-4 top-10 z-20 w-36 rounded-xl border border-border bg-card shadow-lg overflow-hidden">
+                            <button
+                              onClick={() => { setOpenMenuId(null); setScenarioFormTarget(s); }}
+                              className="w-full flex items-center gap-2 px-3 py-2.5 text-xs font-bold text-left hover:bg-accent transition-colors"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => { setOpenMenuId(null); setPendingDeleteScenarioId(s.id); }}
+                              className="w-full flex items-center gap-2 px-3 py-2.5 text-xs font-bold text-left text-rose-500 hover:bg-rose-500/10 transition-colors"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              Delete
+                            </button>
+                          </div>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </tbody>
+            </Table>
+          </Card>
+        </>
+      ) : subTab !== 'mine' ? (
         <Card className="text-center py-16">
           <p className="text-sm text-muted-foreground italic">Coming soon.</p>
         </Card>
@@ -347,6 +499,13 @@ export default function StrategiesScreen() {
 
       <StrategyFormModal target={formTarget} onClose={() => setFormTarget(null)} onSubmit={handleSubmitForm} />
 
+      <BacktestScenarioFormModal
+        target={scenarioFormTarget}
+        strategies={strategies.filter(s => s.status === 'active')}
+        onClose={() => setScenarioFormTarget(null)}
+        onSubmit={handleSubmitScenario}
+      />
+
       <Modal
         isOpen={pendingDeleteId !== null}
         onClose={() => setPendingDeleteId(null)}
@@ -362,6 +521,21 @@ export default function StrategiesScreen() {
         <p className="text-sm text-muted-foreground">
           This removes the strategy itself. Trades already tagged with it keep their recorded checklist, but the rule text and category names won't be viewable anymore since they only ever lived on the strategy.
         </p>
+      </Modal>
+
+      <Modal
+        isOpen={pendingDeleteScenarioId !== null}
+        onClose={() => setPendingDeleteScenarioId(null)}
+        title="Delete backtest scenario?"
+        maxWidth="sm"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setPendingDeleteScenarioId(null)}>Cancel</Button>
+            <Button variant="destructive" icon={Trash2} onClick={confirmDeleteScenario}>Delete</Button>
+          </>
+        }
+      >
+        <p className="text-sm text-muted-foreground">This permanently removes this logged scenario.</p>
       </Modal>
 
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
@@ -520,6 +694,150 @@ function StrategyFormModal({ target, onClose, onSubmit }: {
         <div className="flex justify-end space-x-3 pt-2">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
           <Button variant="primary" icon={Rocket} onClick={handleSubmit}>{isEditing ? 'Save Changes' : 'Create Strategy'}</Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function BacktestScenarioFormModal({ target, strategies, onClose, onSubmit }: {
+  target: 'new' | BacktestScenario | null;
+  strategies: Strategy[];
+  onClose: () => void;
+  onSubmit: (fields: {
+    symbol: string; direction: 'long' | 'short'; setupDate: string; pnl: number;
+    strategyId?: string; notes?: string; strategyChecklist?: Record<string, boolean>;
+  }) => void;
+}) {
+  const [symbol, setSymbol] = useState('');
+  const [direction, setDirection] = useState<'long' | 'short'>('long');
+  const [setupDate, setSetupDate] = useState(new Date().toISOString().slice(0, 10));
+  const [pnl, setPnl] = useState('');
+  const [strategyId, setStrategyId] = useState('');
+  const [notes, setNotes] = useState('');
+  const [checklist, setChecklist] = useState<Record<string, boolean>>({});
+  const [error, setError] = useState<string | null>(null);
+  const isEditing = target !== null && target !== 'new';
+
+  useEffect(() => {
+    if (target === 'new') {
+      setSymbol('');
+      setDirection('long');
+      setSetupDate(new Date().toISOString().slice(0, 10));
+      setPnl('');
+      setStrategyId('');
+      setNotes('');
+      setChecklist({});
+    } else if (target) {
+      setSymbol(target.symbol);
+      setDirection(target.direction);
+      setSetupDate(target.setupDate);
+      setPnl(String(target.pnl));
+      setStrategyId(target.strategyId ?? '');
+      setNotes(target.notes ?? '');
+      setChecklist(target.strategyChecklist ?? {});
+    }
+    setError(null);
+  }, [target]);
+
+  const selectedStrategy = strategies.find(s => s.id === strategyId) ?? null;
+  const rules = selectedStrategy ? selectedStrategy.categories.flatMap(c => c.rules.map(r => ({ ...r, category: c.name }))) : [];
+
+  const handleSubmit = () => {
+    if (!symbol.trim()) { setError('Give this scenario a symbol.'); return; }
+    if (!setupDate) { setError('Pick the date this setup is based on.'); return; }
+    const pnlNum = Number(pnl);
+    if (pnl.trim() === '' || Number.isNaN(pnlNum)) { setError('Enter a hypothetical P&L (can be negative).'); return; }
+    onSubmit({
+      symbol: symbol.trim().toUpperCase(),
+      direction,
+      setupDate,
+      pnl: pnlNum,
+      ...(strategyId ? { strategyId } : {}),
+      ...(notes.trim() ? { notes: notes.trim() } : {}),
+      ...(strategyId && Object.keys(checklist).length ? { strategyChecklist: checklist } : {}),
+    });
+  };
+
+  return (
+    <Modal isOpen={target !== null} onClose={onClose} title={isEditing ? 'Edit Backtest Scenario' : 'Log Backtest Scenario'} maxWidth="lg">
+      <div className="space-y-5">
+        <div className="grid grid-cols-[1fr_120px_140px] gap-4">
+          <div className="space-y-2">
+            <label className="text-xs font-bold uppercase text-muted-foreground">Symbol</label>
+            <Input value={symbol} onChange={(e) => setSymbol(e.target.value)} placeholder="e.g. MNQ" autoFocus />
+          </div>
+          <div className="space-y-2">
+            <label className="text-xs font-bold uppercase text-muted-foreground">Direction</label>
+            <select
+              value={direction}
+              onChange={(e) => setDirection(e.target.value as 'long' | 'short')}
+              className="h-10 w-full rounded-xl border border-border bg-background px-3 text-sm"
+            >
+              <option value="long">Long</option>
+              <option value="short">Short</option>
+            </select>
+          </div>
+          <div className="space-y-2">
+            <label className="text-xs font-bold uppercase text-muted-foreground">Setup date</label>
+            <Input type="date" value={setupDate} onChange={(e) => setSetupDate(e.target.value)} />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-[140px_1fr] gap-4">
+          <div className="space-y-2">
+            <label className="text-xs font-bold uppercase text-muted-foreground">Hypothetical P&L</label>
+            <Input type="number" step="0.01" value={pnl} onChange={(e) => setPnl(e.target.value)} placeholder="e.g. 240 or -85" />
+          </div>
+          <div className="space-y-2">
+            <label className="text-xs font-bold uppercase text-muted-foreground">Strategy tested <span className="normal-case text-muted-foreground/70">(optional)</span></label>
+            <select
+              value={strategyId}
+              onChange={(e) => { setStrategyId(e.target.value); setChecklist({}); }}
+              className="h-10 w-full rounded-xl border border-border bg-background px-3 text-sm"
+            >
+              <option value="">None</option>
+              {strategies.map(s => <option key={s.id} value={s.id}>{s.icon ? `${s.icon} ` : ''}{s.name}</option>)}
+            </select>
+          </div>
+        </div>
+
+        {rules.length > 0 && (
+          <div className="space-y-2">
+            <label className="text-xs font-bold uppercase text-muted-foreground">Rules followed in this scenario</label>
+            <div className="max-h-48 overflow-y-auto space-y-1.5 p-3 rounded-xl border border-border bg-accent/20">
+              {rules.map(r => (
+                <label key={r.id} className="flex items-start gap-2 text-sm cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={!!checklist[r.id]}
+                    onChange={(e) => setChecklist(prev => ({ ...prev, [r.id]: e.target.checked }))}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    <span className="text-muted-foreground">{r.category}:</span> {r.text}
+                  </span>
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="space-y-2">
+          <label className="text-xs font-bold uppercase text-muted-foreground">Notes <span className="normal-case text-muted-foreground/70">(optional)</span></label>
+          <DictationTextarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="What setup is this? What would you have done differently?"
+            className="w-full h-20 p-3 bg-accent/30 border border-border rounded-xl text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/20"
+          />
+        </div>
+
+        {error && <p className="text-xs text-rose-500">{error}</p>}
+
+        <div className="flex justify-end space-x-3 pt-2">
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button variant="primary" icon={FlaskConical} onClick={handleSubmit}>{isEditing ? 'Save Changes' : 'Log Scenario'}</Button>
         </div>
       </div>
     </Modal>

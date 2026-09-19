@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { cn, omitUndefined } from '@/src/utils';
 import { SectionHeader, Card, Button, Badge, Toast, Modal, Input } from '../components/Shared';
 import { Search, Plus, Calendar, Share2, MessageSquare, ExternalLink, RotateCcw, Trash2, BookOpen, Edit3, Link as LinkIcon, Zap, X, TrendingUp, TrendingDown, BrainCircuit, Save, Loader2, Star, FileText, BarChart3, FileBarChart, ChevronRight, Send, LayoutTemplate } from 'lucide-react';
+import { MOOD_OPTIONS } from '../lib/moods';
 import { collection, query, where, onSnapshot, orderBy, addDoc, updateDoc, deleteDoc, deleteField, doc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useTrades } from '../context/TradeContext';
@@ -1005,6 +1006,19 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
                       {selectedJournal.improvements || "No improvements noted."}
                     </p>
                   </div>
+                  {selectedJournal.mood && (
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">How you were feeling</label>
+                      <div className="flex items-center gap-1.5">
+                        {(() => {
+                          const opt = MOOD_OPTIONS.find(m => m.value === selectedJournal.mood);
+                          if (!opt) return null;
+                          const Icon = opt.icon;
+                          return (<><Icon className="w-4 h-4 text-primary" /><span className="text-sm font-bold text-foreground">{opt.label}</span></>);
+                        })()}
+                      </div>
+                    </div>
+                  )}
                 </div>
                 )}
 
@@ -1329,6 +1343,27 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
                 value={draft.improvements || ''}
                 onChange={(e) => setDraft(prev => prev && ({ ...prev, improvements: e.target.value }))}
               />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">How were you feeling?</label>
+              <div className="flex flex-wrap gap-2">
+                {MOOD_OPTIONS.map(opt => (
+                  <button
+                    key={opt.value}
+                    onClick={() => setDraft(prev => prev && ({ ...prev, mood: prev.mood === opt.value ? undefined : opt.value }))}
+                    className={cn(
+                      "flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border transition-all",
+                      draft.mood === opt.value
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-accent/30 border-border hover:border-primary/50"
+                    )}
+                  >
+                    <opt.icon className="w-3.5 h-3.5" />
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
             </div>
             </>
             )}
