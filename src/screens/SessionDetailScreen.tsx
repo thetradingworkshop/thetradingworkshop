@@ -396,7 +396,7 @@ export default function SessionDetailScreen() {
                     <p className="text-xs font-bold text-indigo-600 flex items-center mb-2">
                       <Clock className="w-3.5 h-3.5 mr-2" /> Peak Performance Window
                     </p>
-                    <p className="text-[11px] text-muted-foreground leading-relaxed">{behaviorMetrics.peakWindow.time}: {behaviorMetrics.peakWindow.details[0]}</p>
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">{behaviorMetrics.timingInsight.time}: {behaviorMetrics.timingInsight.details[0]}</p>
                   </div>
                 </>
               )}

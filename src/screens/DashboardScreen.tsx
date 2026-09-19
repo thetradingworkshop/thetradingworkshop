@@ -1,14 +1,7 @@
 import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import { cn, gradeBadgeVariant, pointsPerContract } from '@/src/utils';
 import { SectionHeader, Scorecard, Card, Badge, Button, Table, TableHeader, TableRow, TableHead, TableCell, Toast, Modal } from '../components/Shared';
-import { 
-  EquityCurveChart, 
-  TradeGradeBreakdown, 
-  BiasVsOutcome, 
-  PnlByTradeChart, 
-  HourlyPerformanceChart, 
-  HoldTimeHistogram 
-} from '../components/Charts';
+import { EquityCurveChart } from '../components/Charts';
 import {
   CheckCircle2,
   AlertCircle,
@@ -875,109 +868,10 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
 
       <hr className="border-border/30" />
 
-      {/* Section 2: Behavioral & Distribution Analysis */}
+      {/* Section 3: AI Mentor — Behavioral Analysis (charts + insight cards)
+          moved to Reports -> Behavior; see PerformanceSummaryTab's sibling
+          for that. */}
       <section className="space-y-8">
-        <div className="flex items-end justify-between">
-          <div>
-            <h3 className="text-lg font-bold tracking-tight text-foreground">Behavioral Analysis</h3>
-            <p className="text-sm text-muted-foreground">Deep dive into trade quality and timing patterns</p>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-6 gap-6">
-          <TradeGradeBreakdown className="lg:col-span-2" data={stats?.gradeData} />
-          <BiasVsOutcome className="lg:col-span-2" data={stats?.biasVsOutcomeData} />
-          <PnlByTradeChart className="lg:col-span-2" data={stats?.pnlByTrade} />
-          <HourlyPerformanceChart className="lg:col-span-3" data={stats?.hourlyData} />
-          <HoldTimeHistogram className="lg:col-span-3" data={stats?.holdData} />
-        </div>
-      </section>
-
-      <hr className="border-border/30" />
-
-      {/* Section 3: Behavioral Insights & AI Mentor */}
-      <section className="space-y-8">
-        <div className="flex items-end justify-between">
-          <div>
-            <h3 className="text-lg font-bold tracking-tight text-foreground">Behavioral Insights</h3>
-            <p className="text-sm text-muted-foreground">Pattern recognition and performance optimization</p>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-          <Card className="p-6 border-rose-500/20 bg-rose-500/[0.02]">
-            <div className="flex items-center space-x-3 mb-4">
-              <AlertCircle className="w-5 h-5 text-rose-500" />
-              <h4 className="text-sm font-bold uppercase tracking-wider text-rose-600">Loss Patterns</h4>
-            </div>
-            <div className="space-y-3">
-              <p className="text-2xl font-black text-foreground">{behaviorMetrics.lossPatterns.percentage}%</p>
-              <ul className="space-y-2">
-                {behaviorMetrics.lossPatterns.details.map((detail, idx) => (
-                  <li key={idx} className="text-xs text-muted-foreground flex items-start">
-                    <div className="w-1 h-1 rounded-full bg-rose-500 mt-1.5 mr-2 flex-shrink-0" />
-                    {detail}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </Card>
-
-          <Card className="p-6 border-emerald-500/20 bg-emerald-500/[0.02]">
-            <div className="flex items-center space-x-3 mb-4">
-              <Zap className="w-5 h-5 text-emerald-500" />
-              <h4 className="text-sm font-bold uppercase tracking-wider text-emerald-600">Peak Window</h4>
-            </div>
-            <div className="space-y-3">
-              <p className="text-2xl font-black text-foreground">{behaviorMetrics.peakWindow.time}</p>
-              <ul className="space-y-2">
-                {behaviorMetrics.peakWindow.details.map((detail, idx) => (
-                  <li key={idx} className="text-xs text-muted-foreground flex items-start">
-                    <div className="w-1 h-1 rounded-full bg-emerald-500 mt-1.5 mr-2 flex-shrink-0" />
-                    {detail}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </Card>
-
-          <Card className="p-6 border-amber-500/20 bg-amber-500/[0.02]">
-            <div className="flex items-center space-x-3 mb-4">
-              <RotateCcw className="w-5 h-5 text-amber-500" />
-              <h4 className="text-sm font-bold uppercase tracking-wider text-amber-600">Re-entry Impact</h4>
-            </div>
-            <div className="space-y-3">
-              <p className="text-2xl font-black text-foreground">{behaviorMetrics.reEntryImpact.value}%</p>
-              <ul className="space-y-2">
-                {behaviorMetrics.reEntryImpact.details.map((detail, idx) => (
-                  <li key={idx} className="text-xs text-muted-foreground flex items-start">
-                    <div className="w-1 h-1 rounded-full bg-amber-500 mt-1.5 mr-2 flex-shrink-0" />
-                    {detail}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </Card>
-
-          <Card className="p-6 border-indigo-500/20 bg-indigo-500/[0.02]">
-            <div className="flex items-center space-x-3 mb-4">
-              <BrainCircuit className="w-5 h-5 text-indigo-500" />
-              <h4 className="text-sm font-bold uppercase tracking-wider text-indigo-600">Key Patterns</h4>
-            </div>
-            <div className="space-y-3">
-              <p className="text-2xl font-black text-foreground">{behaviorMetrics.keyPatterns.title}</p>
-              <ul className="space-y-2">
-                {behaviorMetrics.keyPatterns.details.map((detail, idx) => (
-                  <li key={idx} className="text-xs text-muted-foreground flex items-start">
-                    <div className="w-1 h-1 rounded-full bg-indigo-500 mt-1.5 mr-2 flex-shrink-0" />
-                    {detail}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </Card>
-        </div>
-
         <div className="mb-12">
           {/* Not AI — RuleBasedMentorService is plain if/else threshold
               logic on winRate/disciplineScore/profitFactor/etc (see that

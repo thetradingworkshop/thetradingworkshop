@@ -119,8 +119,8 @@ export function TradeGradeBreakdown({ className, data: propData }: { className?:
   return (
     <Card className={cn("p-6 h-[360px] flex flex-col", className)}>
       <div className="mb-4">
-        <h3 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/80">Trade Grade Breakdown</h3>
-        <p className="text-[10px] text-muted-foreground/60 font-medium">Quality distribution</p>
+        <h3 className="text-xs font-bold uppercase tracking-widest text-muted-foreground/80">Trade Grade Breakdown</h3>
+        <p className="text-[11px] text-muted-foreground/60 font-medium">Quality distribution</p>
       </div>
       <div className="flex-1 flex items-center justify-center">
         {chartData.length > 0 ? (
@@ -145,7 +145,7 @@ export function TradeGradeBreakdown({ className, data: propData }: { className?:
             </div>
             <div className="ml-8 space-y-2.5">
               {chartData.map((item) => (
-                <div key={item.name} className="flex items-center text-[11px]">
+                <div key={item.name} className="flex items-center text-xs">
                   <div className="w-2 h-2 rounded-full mr-2.5" style={{ backgroundColor: item.color }} />
                   <span className="font-bold w-6">{item.name}</span>
                   <span className="text-muted-foreground/80 font-medium ml-3">{item.value}%</span>
@@ -167,8 +167,8 @@ export function BiasVsOutcome({ className, data: propData }: { className?: strin
   return (
     <Card className={cn("p-6 h-[360px] flex flex-col", className)}>
       <div className="mb-4">
-        <h3 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/80">Bias vs Outcome</h3>
-        <p className="text-[10px] text-muted-foreground/60 font-medium">Strategy alignment</p>
+        <h3 className="text-xs font-bold uppercase tracking-widest text-muted-foreground/80">Bias vs Outcome</h3>
+        <p className="text-[11px] text-muted-foreground/60 font-medium">Strategy alignment</p>
       </div>
       <div className="flex-1 flex items-center justify-center">
         {chartData.length > 0 ? (
@@ -193,7 +193,7 @@ export function BiasVsOutcome({ className, data: propData }: { className?: strin
             </div>
             <div className="ml-8 space-y-2.5">
               {chartData.map((item) => (
-                <div key={item.name} className="flex items-center text-[11px]">
+                <div key={item.name} className="flex items-center text-xs">
                   <div className="w-2 h-2 rounded-full mr-2.5 shrink-0" style={{ backgroundColor: item.color }} />
                   <span className="font-bold whitespace-nowrap">{item.name}</span>
                   <span className="text-muted-foreground/80 font-medium ml-3">{item.value}%</span>
@@ -215,21 +215,21 @@ export function PnlByTradeChart({ className, data: propData }: { className?: str
   return (
     <Card className={cn("p-8 h-[360px] flex flex-col", className)}>
       <div className="mb-8">
-        <h3 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/80">P&L by Trade</h3>
-        <p className="text-[10px] text-muted-foreground/60 font-medium">Individual trade results</p>
+        <h3 className="text-xs font-bold uppercase tracking-widest text-muted-foreground/80">P&L by Trade</h3>
+        <p className="text-[11px] text-muted-foreground/60 font-medium">Individual trade results</p>
       </div>
       <div className="flex-1 flex items-center justify-center">
         {chartData.length > 0 ? (
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={chartData} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.03)" />
-              <XAxis dataKey="id" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#71717a', fontWeight: 500 }} dy={10} />
-              <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#71717a', fontWeight: 500 }} dx={-10} />
+              <XAxis dataKey="id" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#71717a', fontWeight: 500 }} dy={10} />
+              <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#71717a', fontWeight: 500 }} dx={-10} />
               <Tooltip 
                 cursor={{ fill: 'rgba(255,255,255,0.02)' }}
                 contentStyle={{ backgroundColor: '#09090b', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', padding: '10px' }}
                 itemStyle={{ color: '#fff', fontSize: '11px', fontWeight: 'bold' }}
-                labelStyle={{ color: '#71717a', fontSize: '9px', fontWeight: 'bold', marginBottom: '2px' }}
+                labelStyle={{ color: '#71717a', fontSize: '10px', fontWeight: 'bold', marginBottom: '2px' }}
               />
               <Bar dataKey="pnl" radius={[4, 4, 0, 0]}>
                 {chartData.map((entry, index) => (
@@ -252,21 +252,21 @@ export function HourlyPerformanceChart({ className, data: propData }: { classNam
   return (
     <Card className={cn("p-8 h-[360px] flex flex-col", className)}>
       <div className="mb-8">
-        <h3 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/80">Performance by Hour</h3>
-        <p className="text-[10px] text-muted-foreground/60 font-medium">Intraday profitability</p>
+        <h3 className="text-xs font-bold uppercase tracking-widest text-muted-foreground/80">Performance by Hour</h3>
+        <p className="text-[11px] text-muted-foreground/60 font-medium">Intraday profitability</p>
       </div>
       <div className="flex-1 flex items-center justify-center">
         {chartData.length > 0 ? (
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={chartData} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.03)" />
-              <XAxis dataKey="hour" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#71717a', fontWeight: 500 }} dy={10} />
-              <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#71717a', fontWeight: 500 }} dx={-10} />
+              <XAxis dataKey="hour" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#71717a', fontWeight: 500 }} dy={10} />
+              <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#71717a', fontWeight: 500 }} dx={-10} />
               <Tooltip 
                 cursor={{ fill: 'rgba(255,255,255,0.02)' }}
                 contentStyle={{ backgroundColor: '#09090b', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', padding: '10px' }}
                 itemStyle={{ color: '#fff', fontSize: '11px', fontWeight: 'bold' }}
-                labelStyle={{ color: '#71717a', fontSize: '9px', fontWeight: 'bold', marginBottom: '2px' }}
+                labelStyle={{ color: '#71717a', fontSize: '10px', fontWeight: 'bold', marginBottom: '2px' }}
               />
               <Bar dataKey="pnl" radius={[4, 4, 0, 0]}>
                 {chartData.map((entry, index) => (
@@ -289,21 +289,21 @@ export function HoldTimeHistogram({ className, data: propData }: { className?: s
   return (
     <Card className={cn("p-8 h-[360px] flex flex-col", className)}>
       <div className="mb-8">
-        <h3 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/80">Hold Time Distribution</h3>
-        <p className="text-[10px] text-muted-foreground/60 font-medium">Trade duration analysis</p>
+        <h3 className="text-xs font-bold uppercase tracking-widest text-muted-foreground/80">Hold Time Distribution</h3>
+        <p className="text-[11px] text-muted-foreground/60 font-medium">Trade duration analysis</p>
       </div>
       <div className="flex-1 flex items-center justify-center">
         {chartData.length > 0 ? (
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={chartData} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.03)" />
-              <XAxis dataKey="range" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#71717a', fontWeight: 500 }} dy={10} />
-              <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#71717a', fontWeight: 500 }} dx={-10} />
+              <XAxis dataKey="range" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#71717a', fontWeight: 500 }} dy={10} />
+              <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#71717a', fontWeight: 500 }} dx={-10} />
               <Tooltip 
                 cursor={{ fill: 'rgba(255,255,255,0.02)' }}
                 contentStyle={{ backgroundColor: '#09090b', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', padding: '10px' }}
                 itemStyle={{ color: '#fff', fontSize: '11px', fontWeight: 'bold' }}
-                labelStyle={{ color: '#71717a', fontSize: '9px', fontWeight: 'bold', marginBottom: '2px' }}
+                labelStyle={{ color: '#71717a', fontSize: '10px', fontWeight: 'bold', marginBottom: '2px' }}
               />
               <Bar dataKey="count" fill="#ec4899" radius={[4, 4, 0, 0]} />
             </BarChart>

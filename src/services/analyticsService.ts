@@ -43,8 +43,7 @@ export interface DashboardModel {
     sessionVerdict: string;
     insights: { title: string; value: string; status: string; icon: string }[];
     lossPatterns: { percentage: number; details: string[] };
-    peakWindow: { time: string; details: string[] };
-    reEntryImpact: { value: number; details: string[] };
+    timingInsight: { time: string; details: string[] };
     keyPatterns: { title: string; details: string[] };
   };
 }
@@ -85,8 +84,7 @@ export const buildDashboardModel = (
     sessionVerdict: computeSessionVerdict(filteredTrades),
     insights: computeBehavioralInsights(filteredTrades),
     lossPatterns: computeLossPatterns(filteredTrades),
-    peakWindow: computePeakWindow(filteredTrades),
-    reEntryImpact: computeReEntryImpact(filteredTrades),
+    timingInsight: computeTimingInsight(filteredTrades),
     keyPatterns: computeKeyPatterns(filteredTrades),
   };
 
@@ -202,17 +200,26 @@ export const buildTradeStats = (trades: Trade[]): TradeStats | null => {
     pnl: Number((t.realizedPnL || 0).toFixed(2)) || 0
   }));
 
-  const hourly = validTrades.reduce((acc, t) => {
+  // Keyed by numeric hour (0-23), not the display label — Object.entries()
+  // on a string-keyed accumulator preserves *insertion* order (whichever
+  // hour a trade happened to appear in first while scanning), not
+  // chronological order, which scrambled the chart's x-axis (e.g. "11am,
+  // 9am, 8am, 10pm..."). Building the output by iterating a fixed 0-23
+  // range guarantees midnight-to-midnight order regardless of trade scan
+  // order.
+  const hourlyByNum = validTrades.reduce((acc, t) => {
     try {
       const hour = new Date(t.entryTime).getHours();
-      const label = hour >= 12 ? `${hour === 12 ? 12 : hour - 12}pm` : `${hour}am`;
-      acc[label] = (acc[label] || 0) + (t.realizedPnL || 0);
+      acc[hour] = (acc[hour] || 0) + (t.realizedPnL || 0);
     } catch (e) {
       console.warn("Invalid entryTime for trade:", t.id);
     }
     return acc;
-  }, {} as Record<string, number>);
-  const hourlyData = Object.entries(hourly).map(([hour, pnl]) => ({ hour, pnl: Number(pnl.toFixed(2)) || 0 }));
+  }, {} as Record<number, number>);
+  const hourlyData = Object.entries(hourlyByNum)
+    .map(([hour, pnl]) => ({ hourNum: Number(hour), pnl: Number(pnl.toFixed(2)) || 0 }))
+    .sort((a, b) => a.hourNum - b.hourNum)
+    .map(({ hourNum, pnl }) => ({ hour: hourNum >= 12 ? `${hourNum === 12 ? 12 : hourNum - 12}pm` : `${hourNum}am`, pnl }));
 
   const holdTimes = validTrades.reduce((acc, t) => {
     const mins = (t.holdTimeSeconds || 0) / 60;
@@ -522,12 +529,22 @@ const computeLossPatterns = (trades: Trade[]) => {
   };
 };
 
-const computePeakWindow = (trades: Trade[]) => {
+// Replaces the old separate computePeakWindow/computeReEntryImpact — both
+// carried real bugs (peak window's "% of total profit" divided by *net*
+// P&L, which can wildly exceed 100% whenever the account is near
+// breakeven overall despite one big hour; re-entry "impact" was just a raw
+// trade count with a literal "%" appended in the UI, not an actual
+// percentage of anything) and, split across two cards, didn't say whether
+// re-entering actually helps or hurts. Merged into one dollar-denominated,
+// bug-free insight — pnlPoints/pnlCurrency are never summed across
+// symbols here (a $2/pt MNQ point isn't a $50/pt ES point), only
+// realizedPnL (actual currency).
+const computeTimingInsight = (trades: Trade[]) => {
   if (trades.length === 0) return { time: "N/A", details: ["No data"] };
-  
+
   const hourlyPnL = trades.reduce((acc, t) => {
     const hour = new Date(t.entryTime).getHours();
-    acc[hour] = (acc[hour] || 0) + (t.pnlPoints || 0);
+    acc[hour] = (acc[hour] || 0) + (t.realizedPnL || 0);
     return acc;
   }, {} as Record<number, number>);
 
@@ -540,34 +557,34 @@ const computePeakWindow = (trades: Trade[]) => {
     }
   });
 
-  if (bestHour === -1) return { time: "N/A", details: ["No data"] };
+  const windowLabel = (() => {
+    if (bestHour === -1) return "N/A";
+    const startLabel = bestHour >= 12 ? `${bestHour === 12 ? 12 : bestHour - 12}pm` : `${bestHour}am`;
+    const nextHour = (bestHour + 1) % 24;
+    const endLabel = nextHour >= 12 ? `${nextHour === 12 ? 12 : nextHour - 12}pm` : `${nextHour}am`;
+    return `${startLabel} - ${endLabel}`;
+  })();
 
-  const startLabel = bestHour >= 12 ? `${bestHour === 12 ? 12 : bestHour - 12}pm` : `${bestHour}am`;
-  const endLabel = (bestHour + 1) >= 12 ? `${(bestHour + 1) === 12 ? 12 : (bestHour + 1) - 12}pm` : `${bestHour + 1}am`;
+  const reentries = trades.filter(t => t.isReentry);
+  const fresh = trades.filter(t => !t.isReentry);
+  const avgPnl = (arr: Trade[]) => arr.length ? arr.reduce((s, t) => s + (t.realizedPnL || 0), 0) / arr.length : 0;
+  const reentryAvg = avgPnl(reentries);
+  const freshAvg = avgPnl(fresh);
+  const reentryPct = Math.round((reentries.length / trades.length) * 100);
 
-  const totalPnL = trades.reduce((sum, t) => sum + (t.pnlPoints || 0), 0);
-  const peakPnL = hourlyPnL[bestHour] || 0;
-  const pctOfTotal = totalPnL > 0 ? Math.round((peakPnL / totalPnL) * 100) : 0;
+  const details = [
+    bestHour === -1 ? "No data" : `$${maxPnL.toFixed(2)} generated in this window`,
+    `${reentryPct}% of trades are re-entries`,
+  ];
+  if (reentries.length > 0) {
+    details.push(
+      reentryAvg >= freshAvg
+        ? `Re-entries outperform fresh entries ($${reentryAvg.toFixed(2)} vs $${freshAvg.toFixed(2)} avg)`
+        : `Re-entries underperform fresh entries ($${reentryAvg.toFixed(2)} vs $${freshAvg.toFixed(2)} avg)`
+    );
+  }
 
-  return {
-    time: `${startLabel} - ${endLabel}`,
-    details: [
-      "Strongest performance window",
-      totalPnL > 0 ? `${pctOfTotal}% of total profit generated` : "Focus on this window"
-    ]
-  };
-};
-
-const computeReEntryImpact = (trades: Trade[]) => {
-  if (trades.length === 0) return { value: 0, details: ["No data"] };
-  const reEntries = trades.filter(t => t.isReentry).length;
-  return {
-    value: reEntries, 
-    details: [
-      `Detected ${reEntries} re-entries`,
-      "Monitor same-symbol frequency"
-    ]
-  };
+  return { time: windowLabel, details };
 };
 
 const computeKeyPatterns = (trades: Trade[]) => {
@@ -576,7 +593,7 @@ const computeKeyPatterns = (trades: Trade[]) => {
   const symbols = trades.reduce((acc, t) => {
     if (!acc[t.symbol]) acc[t.symbol] = { count: 0, pnl: 0, winners: 0 };
     acc[t.symbol].count++;
-    acc[t.symbol].pnl += (t.pnlPoints || 0);
+    acc[t.symbol].pnl += (t.realizedPnL || 0);
     if (t.isWinner) acc[t.symbol].winners++;
     return acc;
   }, {} as Record<string, { count: number; pnl: number; winners: number }>);
