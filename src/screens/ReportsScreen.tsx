@@ -173,7 +173,7 @@ export default function ReportsScreen() {
       ) : (
         <>
           {tab === 'performance' && (
-            <PerformanceSummaryTab report={computePerformanceSummaryReport(rangedTrades)} />
+            <PerformanceSummaryTab report={computePerformanceSummaryReport(rangedTrades)} trades={rangedTrades} />
           )}
 
           {tab === 'symbol' && (

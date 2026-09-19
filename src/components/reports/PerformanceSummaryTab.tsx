@@ -4,6 +4,9 @@ import { cn } from '@/src/utils';
 import { Card } from '../Shared';
 import { BarChart3, TrendingUp, TrendingDown } from 'lucide-react';
 import { PerformanceSummaryReport } from '../../services/performanceSummary';
+import { PnlHistoryChart } from './PnlHistoryChart';
+import { PnlByTimeOfDayChart } from './PnlByTimeOfDayChart';
+import { Trade } from '../../types';
 
 // Replicates the broker-style "Performance" report (Tradovate's Account
 // Reports -> Performance tab): an All/Profit/Losing Trades breakdown side
@@ -61,7 +64,7 @@ function ColumnCard({ title, icon: Icon, iconClass, children }: {
   );
 }
 
-export function PerformanceSummaryTab({ report }: { report: PerformanceSummaryReport | null }) {
+export function PerformanceSummaryTab({ report, trades }: { report: PerformanceSummaryReport | null; trades: Trade[] }) {
   if (!report) {
     return (
       <Card className="text-center py-16">
@@ -74,7 +77,13 @@ export function PerformanceSummaryTab({ report }: { report: PerformanceSummaryRe
   const { all, winners, losers } = report;
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+    <div className="space-y-5">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <PnlHistoryChart trades={trades} />
+        <PnlByTimeOfDayChart trades={trades} />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
       <ColumnCard title="All Trades" icon={BarChart3} iconClass="text-indigo-500">
         <StatRow label="Gross P/L" value={fmtMoney(all.grossPnl)} valueClass={all.grossPnl >= 0 ? "text-emerald-500" : "text-rose-500"} />
         <StatRow label="# of Trades" value={String(all.trades)} />
@@ -114,6 +123,7 @@ export function PerformanceSummaryTab({ report }: { report: PerformanceSummaryRe
         <StatRow label="Max Drawdown, from" value={fmtDateTime(losers.maxDrawdown.fromTime)} />
         <StatRow label="Max Drawdown, to" value={fmtDateTime(losers.maxDrawdown.toTime)} />
       </ColumnCard>
+      </div>
     </div>
   );
 }
