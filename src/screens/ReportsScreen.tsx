@@ -15,20 +15,25 @@ import {
 } from '../services/reportMetrics';
 import { Trade, TagCategory, JournalEntry } from '../types';
 import { MOOD_LABEL, MOOD_ORDER } from '../lib/moods';
+import { computePerformanceSummaryReport } from '../services/performanceSummary';
+import { PerformanceSummaryTab } from '../components/reports/PerformanceSummaryTab';
 
-// TradeZella-style "Reports" drill-downs: Symbol, Day & Time, Tags,
-// Psychology. All four render through the same ReportTemplate (see that
-// file) — only the grouping function and secondary-dimension options
-// differ per tab. Overview and Calendar are intentionally not rebuilt here
-// (Dashboard already covers that ground); Playbook is intentionally not
-// duplicated here either (StrategiesScreen already computes richer
-// per-strategy stats, including Follow Rate, than a generic drill-down
-// would show). The day/time grouping domain (weekday/month/hour order +
-// label functions) lives in reportMetrics.ts, shared with
-// RangeAnalysisScreen.
+// TradeZella-style "Reports" drill-downs: Performance, Symbol, Day & Time,
+// Tags, Psychology. The latter four render through the same ReportTemplate
+// (see that file) — only the grouping function and secondary-dimension
+// options differ per tab. Performance is its own thing (see
+// PerformanceSummaryTab/performanceSummary.ts) — a broker-style All/Profit/
+// Losing Trades breakdown, not a groupable drill-down. Overview and
+// Calendar are intentionally not rebuilt here (Dashboard already covers
+// that ground); Playbook is intentionally not duplicated here either
+// (StrategiesScreen already computes richer per-strategy stats, including
+// Follow Rate, than a generic drill-down would show). The day/time
+// grouping domain (weekday/month/hour order + label functions) lives in
+// reportMetrics.ts, shared with RangeAnalysisScreen.
 
-type ReportTab = 'symbol' | 'daytime' | 'tags' | 'psychology';
+type ReportTab = 'performance' | 'symbol' | 'daytime' | 'tags' | 'psychology';
 const TABS: { id: ReportTab; label: string }[] = [
+  { id: 'performance', label: 'Performance' },
   { id: 'symbol', label: 'Symbol' },
   { id: 'daytime', label: 'Day & Time' },
   { id: 'tags', label: 'Tags' },
@@ -48,7 +53,7 @@ export default function ReportsScreen() {
   const { filteredTrades, accountOptions } = useTrades();
   const { getEffectiveRange } = useDateRange();
   const effectiveRange = getEffectiveRange('trade-reports');
-  const [tab, setTab] = useState<ReportTab>('symbol');
+  const [tab, setTab] = useState<ReportTab>('performance');
   const [dayTimeMode, setDayTimeMode] = useState<DayTimeMode>('days');
   const [timeInterval, setTimeInterval] = useState<'hour' | 'halfhour'>('hour');
 
@@ -167,6 +172,10 @@ export default function ReportsScreen() {
         </Card>
       ) : (
         <>
+          {tab === 'performance' && (
+            <PerformanceSummaryTab report={computePerformanceSummaryReport(rangedTrades)} />
+          )}
+
           {tab === 'symbol' && (
             <ReportTemplate
               trades={rangedTrades}
