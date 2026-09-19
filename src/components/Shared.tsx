@@ -1,6 +1,29 @@
 import React from 'react';
 import { cn } from '@/src/utils';
-import { X, CheckCircle2, AlertCircle, Info, ArrowUpRight, ArrowDownRight } from 'lucide-react';
+import { X, CheckCircle2, AlertCircle, Info, ArrowUpRight, ArrowDownRight, HelpCircle } from 'lucide-react';
+
+// A small "?" icon that shows an explanatory tooltip on hover — pure CSS
+// (Tailwind's group-hover), no JS state, for a one-line-or-so aside next
+// to a stat or label that isn't self-explanatory. `align` controls which
+// edge the tooltip bubble hangs from so it doesn't run off the container
+// when the icon sits near the left or right edge of a narrow card.
+export function InfoTooltip({ text, align = 'center' }: { text: string; align?: 'left' | 'center' | 'right' }) {
+  return (
+    <span className="relative inline-flex group ml-1.5 align-middle">
+      <HelpCircle className="w-3.5 h-3.5 text-muted-foreground/50 hover:text-muted-foreground cursor-help transition-colors" />
+      <span
+        className={cn(
+          "pointer-events-none absolute z-20 hidden group-hover:block bottom-full mb-2 w-64 rounded-xl border border-border bg-popover px-3 py-2 text-xs font-normal normal-case leading-relaxed text-popover-foreground shadow-lg",
+          align === 'center' && "left-1/2 -translate-x-1/2",
+          align === 'left' && "left-0",
+          align === 'right' && "right-0"
+        )}
+      >
+        {text}
+      </span>
+    </span>
+  );
+}
 
 export function Card({ children, className, noPadding }: { children: React.ReactNode; className?: string; noPadding?: boolean }) {
   return (

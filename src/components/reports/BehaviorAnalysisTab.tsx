@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Card } from '../Shared';
+import { Card, InfoTooltip } from '../Shared';
 import { AlertCircle, Clock, BrainCircuit } from 'lucide-react';
 import { Trade } from '../../types';
 import { buildDashboardModel } from '../../services/analyticsService';
@@ -72,7 +72,15 @@ export function BehaviorAnalysisTab({ trades }: { trades: Trade[] }) {
                 {behaviorMetrics.timingInsight.details.map((detail, idx) => (
                   <li key={idx} className="text-sm text-muted-foreground flex items-start">
                     <div className="w-1 h-1 rounded-full bg-indigo-500 mt-2 mr-2 flex-shrink-0" />
-                    {detail}
+                    <span>
+                      {detail}
+                      {idx === 1 && (
+                        <InfoTooltip text={`A trade counts as a "re-entry" if it's on the same symbol as your immediately-preceding trade, and it opened within 5 minutes of that previous trade's exit.`} />
+                      )}
+                      {idx === 2 && (
+                        <InfoTooltip text="Payoff comparison: average P&L per trade for re-entries vs. average P&L per trade for everything else (fresh entries)." />
+                      )}
+                    </span>
                   </li>
                 ))}
               </ul>
