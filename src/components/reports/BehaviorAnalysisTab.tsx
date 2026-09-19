@@ -3,7 +3,7 @@ import { Card } from '../Shared';
 import { AlertCircle, Clock, BrainCircuit } from 'lucide-react';
 import { Trade } from '../../types';
 import { buildDashboardModel } from '../../services/analyticsService';
-import { TradeGradeBreakdown, BiasVsOutcome, PnlByTradeChart, HourlyPerformanceChart, HoldTimeHistogram } from '../Charts';
+import { TradeGradeBreakdown, BiasVsOutcome, HourlyPerformanceChart } from '../Charts';
 
 // Moved here from Dashboard — quality/timing-pattern charts plus a small,
 // dollar-denominated set of insight cards. Originally 4 insight cards
@@ -32,13 +32,12 @@ export function BehaviorAnalysisTab({ trades }: { trades: Trade[] }) {
 
   return (
     <div className="space-y-8">
-      <div className="grid grid-cols-1 lg:grid-cols-6 gap-6">
-        <TradeGradeBreakdown className="lg:col-span-2" data={stats?.gradeData} />
-        <BiasVsOutcome className="lg:col-span-2" data={stats?.biasVsOutcomeData} />
-        <PnlByTradeChart className="lg:col-span-2" data={stats?.pnlByTrade} />
-        <HourlyPerformanceChart className="lg:col-span-3" data={stats?.hourlyData} />
-        <HoldTimeHistogram className="lg:col-span-3" data={stats?.holdData} />
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <TradeGradeBreakdown data={stats?.gradeData} />
+        <BiasVsOutcome data={stats?.biasVsOutcomeData} />
       </div>
+
+      <HourlyPerformanceChart data={stats?.hourlyData} />
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <Card className="p-6 border-rose-500/20 bg-rose-500/[0.02]">

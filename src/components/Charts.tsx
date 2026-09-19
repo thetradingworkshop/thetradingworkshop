@@ -125,13 +125,13 @@ export function TradeGradeBreakdown({ className, data: propData }: { className?:
       <div className="flex-1 flex items-center justify-center">
         {chartData.length > 0 ? (
           <>
-            <div className="w-24 h-24">
+            <div className="w-36 h-36">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
                     data={chartData}
-                    innerRadius={32}
-                    outerRadius={42}
+                    innerRadius={44}
+                    outerRadius={62}
                     paddingAngle={6}
                     dataKey="value"
                     animationDuration={1000}
@@ -143,11 +143,11 @@ export function TradeGradeBreakdown({ className, data: propData }: { className?:
                 </PieChart>
               </ResponsiveContainer>
             </div>
-            <div className="ml-8 space-y-2.5">
+            <div className="ml-10 space-y-3.5">
               {chartData.map((item) => (
-                <div key={item.name} className="flex items-center text-xs">
-                  <div className="w-2 h-2 rounded-full mr-2.5" style={{ backgroundColor: item.color }} />
-                  <span className="font-bold w-6">{item.name}</span>
+                <div key={item.name} className="flex items-center text-sm">
+                  <div className="w-2.5 h-2.5 rounded-full mr-3" style={{ backgroundColor: item.color }} />
+                  <span className="font-bold w-7">{item.name}</span>
                   <span className="text-muted-foreground/80 font-medium ml-3">{item.value}%</span>
                 </div>
               ))}
@@ -173,13 +173,13 @@ export function BiasVsOutcome({ className, data: propData }: { className?: strin
       <div className="flex-1 flex items-center justify-center">
         {chartData.length > 0 ? (
           <>
-            <div className="w-24 h-24">
+            <div className="w-36 h-36">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
                     data={chartData}
-                    innerRadius={32}
-                    outerRadius={42}
+                    innerRadius={44}
+                    outerRadius={62}
                     paddingAngle={6}
                     dataKey="value"
                     animationDuration={1000}
@@ -191,10 +191,10 @@ export function BiasVsOutcome({ className, data: propData }: { className?: strin
                 </PieChart>
               </ResponsiveContainer>
             </div>
-            <div className="ml-8 space-y-2.5">
+            <div className="ml-10 space-y-3.5">
               {chartData.map((item) => (
-                <div key={item.name} className="flex items-center text-xs">
-                  <div className="w-2 h-2 rounded-full mr-2.5 shrink-0" style={{ backgroundColor: item.color }} />
+                <div key={item.name} className="flex items-center text-sm">
+                  <div className="w-2.5 h-2.5 rounded-full mr-3 shrink-0" style={{ backgroundColor: item.color }} />
                   <span className="font-bold whitespace-nowrap">{item.name}</span>
                   <span className="text-muted-foreground/80 font-medium ml-3">{item.value}%</span>
                 </div>
