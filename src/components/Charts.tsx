@@ -1,9 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { cn } from '@/src/utils';
-import { 
-  LineChart, Line, AreaChart, Area, BarChart, Bar, 
-  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
-  Cell, PieChart, Pie, Legend 
+import {
+  LineChart, Line, AreaChart, Area, BarChart, Bar,
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  Cell, PieChart, Pie, Legend, ReferenceLine
 } from 'recharts';
 import { Card } from './Shared';
 
@@ -248,32 +248,65 @@ export function PnlByTradeChart({ className, data: propData }: { className?: str
 
 export function HourlyPerformanceChart({ className, data: propData }: { className?: string, data?: { hour: string, pnl: number }[] }) {
   const chartData = propData || [];
+  const [chartType, setChartType] = useState<'bar' | 'line'>('bar');
 
   return (
     <Card className={cn("p-8 h-[360px] flex flex-col", className)}>
-      <div className="mb-8">
-        <h3 className="text-xs font-bold uppercase tracking-widest text-muted-foreground/80">Performance by Hour</h3>
-        <p className="text-[11px] text-muted-foreground/60 font-medium">Intraday profitability</p>
+      <div className="mb-8 flex items-start justify-between gap-4">
+        <div>
+          <h3 className="text-xs font-bold uppercase tracking-widest text-muted-foreground/80">Performance by Hour</h3>
+          <p className="text-[11px] text-muted-foreground/60 font-medium">Intraday profitability</p>
+        </div>
+        <div className="flex items-center gap-1 p-1 rounded-xl bg-accent/30 border border-border shrink-0">
+          {(['bar', 'line'] as const).map(t => (
+            <button
+              key={t}
+              onClick={() => setChartType(t)}
+              className={cn(
+                "px-3 py-1 rounded-lg text-[11px] font-bold capitalize transition-colors",
+                chartType === t ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent"
+              )}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
       </div>
       <div className="flex-1 flex items-center justify-center">
         {chartData.length > 0 ? (
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={chartData} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.03)" />
-              <XAxis dataKey="hour" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#71717a', fontWeight: 500 }} dy={10} />
-              <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#71717a', fontWeight: 500 }} dx={-10} />
-              <Tooltip 
-                cursor={{ fill: 'rgba(255,255,255,0.02)' }}
-                contentStyle={{ backgroundColor: '#09090b', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', padding: '10px' }}
-                itemStyle={{ color: '#fff', fontSize: '11px', fontWeight: 'bold' }}
-                labelStyle={{ color: '#71717a', fontSize: '10px', fontWeight: 'bold', marginBottom: '2px' }}
-              />
-              <Bar dataKey="pnl" radius={[4, 4, 0, 0]}>
-                {chartData.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={entry.pnl > 0 ? '#6366f1' : '#ef4444'} />
-                ))}
-              </Bar>
-            </BarChart>
+            {chartType === 'bar' ? (
+              <BarChart data={chartData} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.03)" />
+                <XAxis dataKey="hour" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#71717a', fontWeight: 500 }} dy={10} />
+                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#71717a', fontWeight: 500 }} dx={-10} />
+                <Tooltip
+                  cursor={{ fill: 'rgba(255,255,255,0.02)' }}
+                  contentStyle={{ backgroundColor: '#09090b', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', padding: '10px' }}
+                  itemStyle={{ color: '#fff', fontSize: '11px', fontWeight: 'bold' }}
+                  labelStyle={{ color: '#71717a', fontSize: '10px', fontWeight: 'bold', marginBottom: '2px' }}
+                />
+                <Bar dataKey="pnl" radius={[4, 4, 0, 0]}>
+                  {chartData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={entry.pnl > 0 ? '#6366f1' : '#ef4444'} />
+                  ))}
+                </Bar>
+              </BarChart>
+            ) : (
+              <LineChart data={chartData} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.03)" />
+                <XAxis dataKey="hour" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#71717a', fontWeight: 500 }} dy={10} />
+                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#71717a', fontWeight: 500 }} dx={-10} />
+                <Tooltip
+                  cursor={{ stroke: 'rgba(255,255,255,0.1)' }}
+                  contentStyle={{ backgroundColor: '#09090b', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', padding: '10px' }}
+                  itemStyle={{ color: '#fff', fontSize: '11px', fontWeight: 'bold' }}
+                  labelStyle={{ color: '#71717a', fontSize: '10px', fontWeight: 'bold', marginBottom: '2px' }}
+                />
+                <ReferenceLine y={0} stroke="rgba(255,255,255,0.15)" />
+                <Line type="monotone" dataKey="pnl" stroke="#6366f1" strokeWidth={2} dot={{ r: 3, fill: '#6366f1' }} activeDot={{ r: 5 }} />
+              </LineChart>
+            )}
           </ResponsiveContainer>
         ) : (
           <p className="text-xs text-muted-foreground italic">No data</p>
