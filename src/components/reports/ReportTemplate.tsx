@@ -93,10 +93,6 @@ export function ReportTemplate({ trades, primaryKeyFn, labelHeader, secondaryDim
     <div className="space-y-5">
       {/* 1. Performance Summary */}
       <div className={cn("grid grid-cols-1 sm:grid-cols-2 gap-4", extraDayCards.length > 0 ? "lg:grid-cols-6" : "lg:grid-cols-4")}>
-        <SummaryCallout icon={TrendingUp} iconClass="text-emerald-500" label="Best" bundle={summary.best} stat={b => fmtMoney(b.netPnl)} />
-        <SummaryCallout icon={TrendingDown} iconClass="text-rose-500" label="Worst" bundle={summary.worst} stat={b => fmtMoney(b.netPnl)} />
-        <SummaryCallout icon={Repeat} iconClass="text-indigo-500" label="Most Used" bundle={summary.mostUsed} stat={b => `${b.trades} trade${b.trades === 1 ? '' : 's'}`} />
-        <SummaryCallout icon={Target} iconClass="text-amber-500" label="Highest Win Rate" bundle={summary.highestWinRate} stat={b => fmtPct(b.winRate)} />
         {extraDayCards.map(b => (
           <SummaryCallout
             key={b.key}
@@ -107,6 +103,10 @@ export function ReportTemplate({ trades, primaryKeyFn, labelHeader, secondaryDim
             stat={x => `${x.trades} trade${x.trades === 1 ? '' : 's'}`}
           />
         ))}
+        <SummaryCallout icon={TrendingUp} iconClass="text-emerald-500" label="Best" bundle={summary.best} stat={b => fmtMoney(b.netPnl)} />
+        <SummaryCallout icon={TrendingDown} iconClass="text-rose-500" label="Worst" bundle={summary.worst} stat={b => fmtMoney(b.netPnl)} />
+        <SummaryCallout icon={Repeat} iconClass="text-indigo-500" label="Most Used" bundle={summary.mostUsed} stat={b => `${b.trades} trade${b.trades === 1 ? '' : 's'}`} />
+        <SummaryCallout icon={Target} iconClass="text-amber-500" label="Highest Win Rate" bundle={summary.highestWinRate} stat={b => fmtPct(b.winRate)} />
       </div>
 
       {/* 2. Customizable chart */}
