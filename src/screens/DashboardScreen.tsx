@@ -1,6 +1,4 @@
 import React, { useMemo, useState, useEffect, useCallback } from 'react';
-import { collectionGroup, query, where, onSnapshot } from 'firebase/firestore';
-import { db } from '../firebase';
 import { cn, gradeBadgeVariant, pointsPerContract } from '@/src/utils';
 import { SectionHeader, Scorecard, Card, Badge, Button, Table, TableHeader, TableRow, TableHead, TableCell, Toast, Modal } from '../components/Shared';
 import { 
@@ -19,7 +17,6 @@ import {
   Gauge,
   ChevronDown,
   BarChart3,
-  RefreshCw,
   Clock,
   RotateCcw,
   TrendingUp,
@@ -30,31 +27,26 @@ import {
   Settings,
   BookOpen,
   Loader2,
-  Wallet,
   Rocket,
   Upload
 } from 'lucide-react';
 import { useTrades } from '../context/TradeContext';
 import { useDateRange } from '../context/DateContext';
 import { useAuth } from '../context/AuthContext';
-import { AccountTransaction } from '../types';
 
 import { MentorService, StructuredInsight } from '../services/mentorService';
 import { AnthropicProvider } from '../services/aiProviders';
 import { buildDashboardModel, buildSessionMetrics } from '../services/analyticsService';
 import { RuleBasedMentorService, RuleBasedInsight } from '../services/RuleBasedMentorService';
 import { RuleBasedMentor } from '../components/RuleBasedMentor';
-import { GoalsCard } from '../components/GoalsCard';
-import { useRiskSettings } from '../hooks/useRiskSettings';
 
 export default function DashboardScreen({ setActivePage }: { setActivePage?: (page: string) => void }) {
-  const { user, role } = useAuth();
+  const { role } = useAuth();
   // `trades` here is the globally-filtered set (used throughout this screen);
   // `allTrades` is the account's real, unfiltered trade list — used only to
   // detect a genuinely brand-new account (as opposed to an active account
   // whose current filters/date range happen to exclude every trade).
-  const { trades: allTrades, filteredTrades: trades, isLiveSyncing, isLoading, error: syncError } = useTrades();
-  const { riskSettings } = useRiskSettings();
+  const { trades: allTrades, filteredTrades: trades, isLoading, error: syncError } = useTrades();
   const { getEffectiveRange } = useDateRange();
   const dateRange = getEffectiveRange('dashboard');
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
@@ -78,29 +70,6 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
     shareIncludeHighlights: true
   });
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-
-  // Real profitability — actual money spent on evals/resets/subscriptions
-  // vs. actual payouts received, across every account. This is distinct
-  // from (and the real answer next to) the in-platform P&L above: a trader
-  // can show a green Net P&L here while still being underwater once every
-  // eval attempt and subscription fee is counted, and vice versa once
-  // payouts land.
-  const [accountTransactions, setAccountTransactions] = useState<AccountTransaction[]>([]);
-  useEffect(() => {
-    if (!user) {
-      setAccountTransactions([]);
-      return;
-    }
-    const unsub = onSnapshot(
-      query(collectionGroup(db, 'transactions'), where('userId', '==', user.uid)),
-      (snap) => setAccountTransactions(snap.docs.map(d => ({ id: d.id, ...d.data() } as AccountTransaction))),
-      () => setAccountTransactions([])
-    );
-    return () => unsub();
-  }, [user?.uid]);
-  const totalSpent = useMemo(() => accountTransactions.filter(t => t.type === 'cost').reduce((s, t) => s + t.amount, 0), [accountTransactions]);
-  const totalPayouts = useMemo(() => accountTransactions.filter(t => t.type === 'payout').reduce((s, t) => s + t.amount, 0), [accountTransactions]);
-  const realNetProfitability = totalPayouts - totalSpent;
 
   const [ruleBasedInsight, setRuleBasedInsight] = useState<RuleBasedInsight | null>(null);
   const [isMentorLoading, setIsMentorLoading] = useState(false);
@@ -334,20 +303,6 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
         </div>
       </div>
 
-      {/* Row 1: Header */}
-      <SectionHeader 
-        title="Performance Dashboard" 
-        subtitle={trades.length > 0 ? `Analyzing ${trades.length} reconstructed trades` : "Comprehensive analysis of your trading performance and behavioral patterns"}
-        rightElement={
-          isLiveSyncing ? (
-            <div className="flex items-center space-x-2 px-3 py-1.5 bg-emerald-500/10 border border-emerald-500/20 rounded-full">
-              <RefreshCw className="w-3.5 h-3.5 text-emerald-500 animate-spin" />
-              <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-600">Live Sync Active</span>
-            </div>
-          ) : undefined
-        }
-      />
-
       {toast && (
         <Toast
           message={toast.message}
@@ -411,58 +366,6 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
         </Card>
         )
       )}
-
-      {/* Goals — DLL avoidance + daily/weekly/monthly profit targets, set in
-          Settings → Risk Parameters → Profit Targets. Viewer is read-only
-          and can't reach Settings at all (see AppShell's nav roles), so it
-          gets no "Set Goals" shortcut — a dead-end button to a page the
-          route guard would just bounce them back out of. */}
-      <GoalsCard
-        trades={allTrades}
-        riskSettings={riskSettings}
-        onConfigure={role !== 'Viewer' ? () => setActivePage?.('settings') : undefined}
-      />
-
-      {/* Real Profitability — actual cash spent (evals/resets/subscriptions)
-          vs. actual payouts received, across every account. This is the
-          number that answers whether the trader is actually profitable,
-          separate from in-platform P&L above. */}
-      <Card className={cn(
-        "p-6 border-2",
-        accountTransactions.length === 0
-          ? "border-border/50"
-          : realNetProfitability >= 0 ? "border-emerald-500/30 bg-emerald-500/5" : "border-rose-500/30 bg-rose-500/5"
-      )}>
-        <div className="flex items-center justify-between mb-5">
-          <div className="flex items-center gap-2">
-            <Wallet className="w-4 h-4 text-muted-foreground" />
-            <h3 className="text-sm font-bold">Real Profitability</h3>
-          </div>
-          <span className="text-[10px] text-muted-foreground">Actual money spent vs. actual payouts received — across all accounts</span>
-        </div>
-        {accountTransactions.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            No costs or payouts logged yet. Add them under <span className="font-bold">Settings → Accounts</span> (the $ icon on each account) to see your real, out-of-pocket profitability here.
-          </p>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Total Spent</p>
-              <p className="text-2xl font-bold text-rose-500">${totalSpent.toLocaleString()}</p>
-            </div>
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Total Payouts</p>
-              <p className="text-2xl font-bold text-emerald-500">${totalPayouts.toLocaleString()}</p>
-            </div>
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Net Profitability</p>
-              <p className={cn("text-2xl font-bold", realNetProfitability >= 0 ? "text-emerald-500" : "text-rose-500")}>
-                {realNetProfitability >= 0 ? '+' : '-'}${Math.abs(realNetProfitability).toLocaleString()}
-              </p>
-            </div>
-          </div>
-        )}
-      </Card>
 
       {/* Section 1: Key Metrics & Equity */}
       <section className="space-y-8">
