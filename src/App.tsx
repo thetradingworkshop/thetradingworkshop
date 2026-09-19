@@ -22,6 +22,7 @@ import { Loader2, LogIn, WifiOff, RotateCcw } from 'lucide-react';
 import { Button } from './components/Shared';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { SharePage } from './components/SharePage';
+import { usePersistedState } from './hooks/usePersistedState';
 
 // This app otherwise has no path-based routing at all — every other screen
 // is client-side tab state (`activePage`), gated behind AuthProvider's sign-
@@ -37,7 +38,11 @@ function shareTokenFromPath(): string | null {
 }
 
 function AppContent() {
-  const [activePage, setActivePage] = useState('dashboard');
+  // Persisted (not plain useState) so a browser refresh reopens whatever
+  // page you were on instead of always bouncing back to Dashboard — this
+  // app has no path-based routing (see the module comment above), so the
+  // URL itself never reflected the current page in the first place.
+  const [activePage, setActivePage] = usePersistedState<string>('activePage', 'dashboard');
   const [isSigningIn, setIsSigningIn] = useState(false);
   const { user, role, roleLoading, loading, login, loginAsTestUser, loginError, roleError, retryRole } = useAuth();
 
