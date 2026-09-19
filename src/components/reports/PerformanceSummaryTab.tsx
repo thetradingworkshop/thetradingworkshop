@@ -78,11 +78,6 @@ export function PerformanceSummaryTab({ report, trades }: { report: PerformanceS
 
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        <PnlHistoryChart trades={trades} />
-        <PnlByTimeOfDayChart trades={trades} />
-      </div>
-
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
       <ColumnCard title="All Trades" icon={BarChart3} iconClass="text-indigo-500">
         <StatRow label="Gross P/L" value={fmtMoney(all.grossPnl)} valueClass={all.grossPnl >= 0 ? "text-emerald-500" : "text-rose-500"} />
@@ -123,6 +118,11 @@ export function PerformanceSummaryTab({ report, trades }: { report: PerformanceS
         <StatRow label="Max Drawdown, from" value={fmtDateTime(losers.maxDrawdown.fromTime)} />
         <StatRow label="Max Drawdown, to" value={fmtDateTime(losers.maxDrawdown.toTime)} />
       </ColumnCard>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <PnlHistoryChart trades={trades} />
+        <PnlByTimeOfDayChart trades={trades} />
       </div>
     </div>
   );
