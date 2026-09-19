@@ -18,6 +18,7 @@ import { MOOD_LABEL, MOOD_ORDER } from '../lib/moods';
 import { computePerformanceSummaryReport } from '../services/performanceSummary';
 import { PerformanceSummaryTab } from '../components/reports/PerformanceSummaryTab';
 import { BehaviorAnalysisTab } from '../components/reports/BehaviorAnalysisTab';
+import { WeekdayPnlRow } from '../components/reports/WeekdayPnlRow';
 
 // TradeZella-style "Reports" drill-downs: Performance, Behavior, Symbol,
 // Day & Time, Tags, Psychology. Symbol/Day & Time/Tags/Psychology render
@@ -210,17 +211,20 @@ export default function ReportsScreen() {
                 ))}
               </div>
               {dayTimeMode === 'days' && (
-                <ReportTemplate
-                  trades={rangedTrades}
-                  labelHeader="Day"
-                  primaryKeyFn={(t) => {
-                    const label = format(new Date(t.entryTime), 'EEEE');
-                    return [{ key: label, label }];
-                  }}
-                  secondaryDimensions={[accountDim, sideDim]}
-                  sortOrder={DAY_ORDER}
-                  requiredKeys={WEEKDAY_ORDER}
-                />
+                <div className="space-y-5">
+                  <WeekdayPnlRow trades={rangedTrades} />
+                  <ReportTemplate
+                    trades={rangedTrades}
+                    labelHeader="Day"
+                    primaryKeyFn={(t) => {
+                      const label = format(new Date(t.entryTime), 'EEEE');
+                      return [{ key: label, label }];
+                    }}
+                    secondaryDimensions={[accountDim, sideDim]}
+                    sortOrder={DAY_ORDER}
+                    requiredKeys={WEEKDAY_ORDER}
+                  />
+                </div>
               )}
               {dayTimeMode === 'month' && (
                 <ReportTemplate
