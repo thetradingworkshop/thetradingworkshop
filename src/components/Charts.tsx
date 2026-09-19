@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { cn } from '@/src/utils';
 import {
   LineChart, Line, AreaChart, Area, BarChart, Bar,
@@ -6,6 +6,7 @@ import {
   Cell, PieChart, Pie, Legend, ReferenceLine
 } from 'recharts';
 import { Card } from './Shared';
+import { usePersistedState } from '../hooks/usePersistedState';
 
 const data = [
   { name: '9:00', value: 0 },
@@ -248,7 +249,7 @@ export function PnlByTradeChart({ className, data: propData }: { className?: str
 
 export function HourlyPerformanceChart({ className, data: propData }: { className?: string, data?: { hour: string, pnl: number }[] }) {
   const chartData = propData || [];
-  const [chartType, setChartType] = useState<'bar' | 'line'>('bar');
+  const [chartType, setChartType] = usePersistedState<'bar' | 'line'>('hourlyPerformanceChartType', 'bar');
 
   return (
     <Card className={cn("p-8 h-[360px] flex flex-col", className)}>

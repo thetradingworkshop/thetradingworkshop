@@ -7,6 +7,7 @@ import { groupTradesInto, computePerformanceSummary, fmtMoney, fmtPct } from '..
 import { MetricPicker } from './MetricPicker';
 import { MetricChart } from './MetricChart';
 import { ReportTable } from './ReportTable';
+import { usePersistedState } from '../../hooks/usePersistedState';
 
 // The shared four-band shell every drill-down report tab renders through:
 // Performance Summary -> Customizable Chart -> Summary Table -> Cross
@@ -38,7 +39,7 @@ interface ReportTemplateProps {
 
 export function ReportTemplate({ trades, primaryKeyFn, labelHeader, secondaryDimensions = [], sortOrder }: ReportTemplateProps) {
   const [selectedMetrics, setSelectedMetrics] = useState<string[]>(['netPnl']);
-  const [chartType, setChartType] = useState<'bar' | 'line'>('bar');
+  const [chartType, setChartType] = usePersistedState<'bar' | 'line'>('reportChartType', 'bar');
   const [secondaryKey, setSecondaryKey] = useState<string>('none');
 
   const secondaryDim = secondaryDimensions.find(d => d.key === secondaryKey) ?? null;
