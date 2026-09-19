@@ -37,62 +37,66 @@ export function BehaviorAnalysisTab({ trades }: { trades: Trade[] }) {
         <BiasVsOutcome data={stats?.biasVsOutcomeData} />
       </div>
 
-      <HourlyPerformanceChart data={stats?.hourlyData} />
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+        <div className="lg:col-span-8">
+          <HourlyPerformanceChart className="h-full" data={stats?.hourlyData} />
+        </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <Card className="p-6 border-rose-500/20 bg-rose-500/[0.02]">
-          <div className="flex items-center space-x-3 mb-4">
-            <AlertCircle className="w-5 h-5 text-rose-500" />
-            <h4 className="text-sm font-bold uppercase tracking-wider text-rose-600">Loss Patterns</h4>
-          </div>
-          <div className="space-y-3">
-            <p className="text-2xl font-black text-foreground">{behaviorMetrics.lossPatterns.percentage}%</p>
-            <ul className="space-y-2">
-              {behaviorMetrics.lossPatterns.details.map((detail, idx) => (
-                <li key={idx} className="text-sm text-muted-foreground flex items-start">
-                  <div className="w-1 h-1 rounded-full bg-rose-500 mt-2 mr-2 flex-shrink-0" />
-                  {detail}
-                </li>
-              ))}
-            </ul>
-          </div>
-        </Card>
+        <div className="lg:col-span-4 flex flex-col gap-6">
+          <Card className="flex-1 p-6 border-rose-500/20 bg-rose-500/[0.02]">
+            <div className="flex items-center space-x-3 mb-4">
+              <AlertCircle className="w-5 h-5 text-rose-500" />
+              <h4 className="text-sm font-bold uppercase tracking-wider text-rose-600">Loss Patterns</h4>
+            </div>
+            <div className="space-y-3">
+              <p className="text-2xl font-black text-foreground">{behaviorMetrics.lossPatterns.percentage}%</p>
+              <ul className="space-y-2">
+                {behaviorMetrics.lossPatterns.details.map((detail, idx) => (
+                  <li key={idx} className="text-sm text-muted-foreground flex items-start">
+                    <div className="w-1 h-1 rounded-full bg-rose-500 mt-2 mr-2 flex-shrink-0" />
+                    {detail}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </Card>
 
-        <Card className="p-6 border-indigo-500/20 bg-indigo-500/[0.02]">
-          <div className="flex items-center space-x-3 mb-4">
-            <Clock className="w-5 h-5 text-indigo-500" />
-            <h4 className="text-sm font-bold uppercase tracking-wider text-indigo-600">Timing &amp; Re-Entries</h4>
-          </div>
-          <div className="space-y-3">
-            <p className="text-2xl font-black text-foreground">{behaviorMetrics.timingInsight.time}</p>
-            <ul className="space-y-2">
-              {behaviorMetrics.timingInsight.details.map((detail, idx) => (
-                <li key={idx} className="text-sm text-muted-foreground flex items-start">
-                  <div className="w-1 h-1 rounded-full bg-indigo-500 mt-2 mr-2 flex-shrink-0" />
-                  {detail}
-                </li>
-              ))}
-            </ul>
-          </div>
-        </Card>
+          <Card className="flex-1 p-6 border-indigo-500/20 bg-indigo-500/[0.02]">
+            <div className="flex items-center space-x-3 mb-4">
+              <Clock className="w-5 h-5 text-indigo-500" />
+              <h4 className="text-sm font-bold uppercase tracking-wider text-indigo-600">Timing &amp; Re-Entries</h4>
+            </div>
+            <div className="space-y-3">
+              <p className="text-2xl font-black text-foreground">{behaviorMetrics.timingInsight.time}</p>
+              <ul className="space-y-2">
+                {behaviorMetrics.timingInsight.details.map((detail, idx) => (
+                  <li key={idx} className="text-sm text-muted-foreground flex items-start">
+                    <div className="w-1 h-1 rounded-full bg-indigo-500 mt-2 mr-2 flex-shrink-0" />
+                    {detail}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </Card>
 
-        <Card className="p-6 border-emerald-500/20 bg-emerald-500/[0.02]">
-          <div className="flex items-center space-x-3 mb-4">
-            <BrainCircuit className="w-5 h-5 text-emerald-500" />
-            <h4 className="text-sm font-bold uppercase tracking-wider text-emerald-600">Key Patterns</h4>
-          </div>
-          <div className="space-y-3">
-            <p className="text-2xl font-black text-foreground">{behaviorMetrics.keyPatterns.title}</p>
-            <ul className="space-y-2">
-              {behaviorMetrics.keyPatterns.details.map((detail, idx) => (
-                <li key={idx} className="text-sm text-muted-foreground flex items-start">
-                  <div className="w-1 h-1 rounded-full bg-emerald-500 mt-2 mr-2 flex-shrink-0" />
-                  {detail}
-                </li>
-              ))}
-            </ul>
-          </div>
-        </Card>
+          <Card className="flex-1 p-6 border-emerald-500/20 bg-emerald-500/[0.02]">
+            <div className="flex items-center space-x-3 mb-4">
+              <BrainCircuit className="w-5 h-5 text-emerald-500" />
+              <h4 className="text-sm font-bold uppercase tracking-wider text-emerald-600">Key Patterns</h4>
+            </div>
+            <div className="space-y-3">
+              <p className="text-2xl font-black text-foreground">{behaviorMetrics.keyPatterns.title}</p>
+              <ul className="space-y-2">
+                {behaviorMetrics.keyPatterns.details.map((detail, idx) => (
+                  <li key={idx} className="text-sm text-muted-foreground flex items-start">
+                    <div className="w-1 h-1 rounded-full bg-emerald-500 mt-2 mr-2 flex-shrink-0" />
+                    {detail}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </Card>
+        </div>
       </div>
     </div>
   );

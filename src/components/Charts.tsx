@@ -125,13 +125,13 @@ export function TradeGradeBreakdown({ className, data: propData }: { className?:
       <div className="flex-1 flex items-center justify-center">
         {chartData.length > 0 ? (
           <>
-            <div className="w-36 h-36">
+            <div className="w-48 h-48 shrink-0">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
                     data={chartData}
-                    innerRadius={44}
-                    outerRadius={62}
+                    innerRadius={58}
+                    outerRadius={82}
                     paddingAngle={6}
                     dataKey="value"
                     animationDuration={1000}
@@ -173,13 +173,13 @@ export function BiasVsOutcome({ className, data: propData }: { className?: strin
       <div className="flex-1 flex items-center justify-center">
         {chartData.length > 0 ? (
           <>
-            <div className="w-36 h-36">
+            <div className="w-48 h-48 shrink-0">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
                     data={chartData}
-                    innerRadius={44}
-                    outerRadius={62}
+                    innerRadius={58}
+                    outerRadius={82}
                     paddingAngle={6}
                     dataKey="value"
                     animationDuration={1000}
