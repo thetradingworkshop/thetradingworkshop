@@ -3,12 +3,14 @@ import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, del
 import { db } from '../firebase';
 import { cn } from '@/src/utils';
 import { useAuth } from '../context/AuthContext';
+import { useTrades } from '../context/TradeContext';
 import { Card, Button, Badge, Toast, Modal } from '../components/Shared';
-import { Plus, Trash2, Wallet, Pencil, DollarSign, ArrowUpCircle, ArrowDownCircle, Archive, ArchiveRestore } from 'lucide-react';
+import { Plus, Trash2, Wallet, Pencil, DollarSign, ArrowUpCircle, ArrowDownCircle, Archive, ArchiveRestore, ShieldAlert } from 'lucide-react';
 import {
   BrokerAccount, TradingAccountType, TRADING_ACCOUNT_TYPES, ACCOUNT_SIZE_PRESETS, BROKERS, Broker,
   AccountTransaction, AccountTransactionType, ACCOUNT_TRANSACTION_TYPES, ACCOUNT_TRANSACTION_CATEGORIES,
 } from '../types';
+import { computeAccountDrawdownStatus } from '../services/drawdownStatus';
 
 const ACCOUNT_SIZES = [25000, 50000, 100000];
 
@@ -45,6 +47,10 @@ const defaultForm: FormState = {
 
 export default function TradingAccountsSettings() {
   const { user } = useAuth();
+  // Unfiltered `trades` (not `filteredTrades`) — a drawdown rule tracks an
+  // account's entire history against its own hard floor, not whatever
+  // date range happens to be selected elsewhere in the app.
+  const { trades } = useTrades();
   const [accounts, setAccounts] = useState<AccountRow[]>([]);
   const [connectionIdByBroker, setConnectionIdByBroker] = useState<Record<string, string>>({});
   const [isCreating, setIsCreating] = useState(false);
@@ -509,8 +515,10 @@ export default function TradingAccountsSettings() {
             if (editingKey === key) {
               return <div key={key}>{renderForm(() => handleSaveEdit(acc), 'Save Changes')}</div>;
             }
+            const dd = computeAccountDrawdownStatus(acc, trades);
             return (
-              <div key={key} className={cn("flex items-center justify-between p-4 bg-accent/30 rounded-2xl", acc.archivedAt && "opacity-60")}>
+              <div key={key} className={cn("p-4 bg-accent/30 rounded-2xl", acc.archivedAt && "opacity-60")}>
+              <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-4">
                   <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
                     <Wallet className="w-4 h-4 text-primary" />
@@ -577,6 +585,8 @@ export default function TradingAccountsSettings() {
                     <Trash2 className="w-4 h-4" />
                   </button>
                 </div>
+              </div>
+              {dd && <DrawdownGauge status={dd} />}
               </div>
             );
           })}
@@ -715,5 +725,49 @@ export default function TradingAccountsSettings() {
         <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />
       )}
     </Card>
+  );
+}
+
+// Live per-account drawdown tracking — the manual-entry equivalent of
+// TradeZella's "Prop Firm Sync": how much of this account's max-drawdown
+// budget a losing streak has actually used, computed from its own trades
+// rather than a static config number. See drawdownStatus.ts for the math.
+function DrawdownGauge({ status }: { status: import('../services/drawdownStatus').AccountDrawdownStatus }) {
+  const barColor = status.status === 'breached' ? 'bg-rose-500' : status.status === 'warning' ? 'bg-amber-500' : 'bg-emerald-500';
+  const badge = status.status === 'breached'
+    ? <Badge variant="negative">Breached</Badge>
+    : status.status === 'warning'
+    ? <Badge variant="warning">Warning</Badge>
+    : <Badge variant="positive">Safe</Badge>;
+
+  return (
+    <div className={cn(
+      "mt-3 p-3 rounded-xl border",
+      status.status === 'breached' ? "border-rose-500/30 bg-rose-500/5"
+      : status.status === 'warning' ? "border-amber-500/30 bg-amber-500/5"
+      : "border-border/60 bg-background/40"
+    )}>
+      <div className="flex items-center justify-between mb-1.5">
+        <div className="flex items-center gap-1.5 text-muted-foreground">
+          <ShieldAlert className="w-3.5 h-3.5" />
+          <span className="text-[10px] font-bold uppercase tracking-widest">Drawdown Budget Used</span>
+        </div>
+        {badge}
+      </div>
+      <div className="h-1.5 bg-muted rounded-full overflow-hidden mb-1.5">
+        <div className={cn("h-full rounded-full transition-all", barColor)} style={{ width: `${Math.min(100, status.pctUsed)}%` }} />
+      </div>
+      <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+        <span>
+          {status.netPnl < 0 ? `-$${Math.abs(status.netPnl).toLocaleString(undefined, { maximumFractionDigits: 0 })}` : `+$${status.netPnl.toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
+          {' '}of ${status.drawdownLimit.toLocaleString()} drawdown
+        </span>
+        <span className="tabular-nums">
+          {status.status === 'breached'
+            ? `$${Math.abs(status.distanceToBreach).toLocaleString(undefined, { maximumFractionDigits: 0 })} past floor`
+            : `$${status.distanceToBreach.toLocaleString(undefined, { maximumFractionDigits: 0 })} of room left`}
+        </span>
+      </div>
+    </div>
   );
 }
