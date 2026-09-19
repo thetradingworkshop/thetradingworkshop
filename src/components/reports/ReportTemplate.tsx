@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { TrendingUp, TrendingDown, Repeat, Target } from 'lucide-react';
+import { TrendingUp, TrendingDown, Repeat, Target, CalendarDays } from 'lucide-react';
 import { cn } from '@/src/utils';
 import { Card } from '../Shared';
 import { Trade } from '../../types';
@@ -42,9 +42,18 @@ interface ReportTemplateProps {
   // out of the Best/Worst/Most Used/Highest Win Rate summary above, which
   // should keep ignoring empty days.
   requiredKeys?: string[];
+  // Always-shown extra summary cards, one per key, in the same row as
+  // Best/Worst/Most Used/Highest Win Rate — reads the day's $ P&L straight
+  // off `bundles` (so it needs requiredKeys to include these same keys,
+  // or a real trade, to find anything). Unlike the four built-in cards,
+  // these deliberately don't disappear for a zero-trade day — that's the
+  // point (e.g. showing Monday/Tuesday at $0 alongside whichever days
+  // actually won Best/Worst). Not applied under cross-analysis, same as
+  // requiredKeys, since a compound "Monday::AccountX" key wouldn't match.
+  extraSummaryDayKeys?: string[];
 }
 
-export function ReportTemplate({ trades, primaryKeyFn, labelHeader, secondaryDimensions = [], sortOrder, requiredKeys }: ReportTemplateProps) {
+export function ReportTemplate({ trades, primaryKeyFn, labelHeader, secondaryDimensions = [], sortOrder, requiredKeys, extraSummaryDayKeys }: ReportTemplateProps) {
   const [selectedMetrics, setSelectedMetrics] = useState<string[]>(['netPnl']);
   const [chartType, setChartType] = usePersistedState<'bar' | 'line'>('reportChartType', 'bar');
   const [secondaryKey, setSecondaryKey] = useState<string>('none');
@@ -68,14 +77,36 @@ export function ReportTemplate({ trades, primaryKeyFn, labelHeader, secondaryDim
   const primaryBundles = useMemo(() => groupTradesInto(trades, primaryKeyFn), [trades, primaryKeyFn]);
   const summary = useMemo(() => computePerformanceSummary(primaryBundles), [primaryBundles]);
 
+  // Only the zero-trade days among extraSummaryDayKeys get their own card —
+  // a day that actually traded already has a shot at Best/Worst/Most
+  // Used/Highest Win Rate above, so repeating it here would be redundant.
+  // This is what makes the row grow/shrink correctly across date ranges
+  // instead of hardcoding "Monday, Tuesday": pass the full weekday list
+  // and only the genuinely-empty ones surface.
+  const extraDayCards = !secondaryDim && extraSummaryDayKeys
+    ? extraSummaryDayKeys
+        .map(dayKey => bundles.find(b => b.key === dayKey))
+        .filter((b): b is NonNullable<typeof b> => !!b && b.trades === 0)
+    : [];
+
   return (
     <div className="space-y-5">
       {/* 1. Performance Summary */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className={cn("grid grid-cols-1 sm:grid-cols-2 gap-4", extraDayCards.length > 0 ? "lg:grid-cols-6" : "lg:grid-cols-4")}>
         <SummaryCallout icon={TrendingUp} iconClass="text-emerald-500" label="Best" bundle={summary.best} stat={b => fmtMoney(b.netPnl)} />
         <SummaryCallout icon={TrendingDown} iconClass="text-rose-500" label="Worst" bundle={summary.worst} stat={b => fmtMoney(b.netPnl)} />
         <SummaryCallout icon={Repeat} iconClass="text-indigo-500" label="Most Used" bundle={summary.mostUsed} stat={b => `${b.trades} trade${b.trades === 1 ? '' : 's'}`} />
         <SummaryCallout icon={Target} iconClass="text-amber-500" label="Highest Win Rate" bundle={summary.highestWinRate} stat={b => fmtPct(b.winRate)} />
+        {extraDayCards.map(b => (
+          <SummaryCallout
+            key={b.key}
+            icon={CalendarDays}
+            iconClass={b.trades === 0 ? "text-muted-foreground" : b.netPnl >= 0 ? "text-emerald-500" : "text-rose-500"}
+            label={b.key}
+            bundle={{ label: fmtMoney(b.netPnl), trades: b.trades }}
+            stat={x => `${x.trades} trade${x.trades === 1 ? '' : 's'}`}
+          />
+        ))}
       </div>
 
       {/* 2. Customizable chart */}
