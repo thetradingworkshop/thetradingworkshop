@@ -113,7 +113,39 @@ export default function ImportOrdersScreen({ setActivePage }: { setActivePage: (
         setReconstructed(null);
       } else {
         setParseResult(result);
-        const recon = reconstructTrades(result.orders, {
+
+        // reconstructTrades() is a from-scratch, stateful position-tracking
+        // pass that assumes it's seeing an account's *entire* relevant
+        // order history starting from flat — it has no memory of anything
+        // reconstructed by an earlier import. Feeding it only this file's
+        // orders in isolation is fine the first time, but re-uploading a
+        // broker export that overlaps a previous import (the normal way
+        // people re-export "recent orders") replays the same real fills
+        // through a second, independent position-tracking pass. Confirmed
+        // by hand this doesn't just create harmless exact duplicates for
+        // handleImport's dedupeHash check below to catch — a partially-
+        // overlapping order set can make the position never actually
+        // return to flat where it should, silently merging what should be
+        // several separate trades into one huge, wrong one (found a real
+        // 50-contract position held "open" for 9.8 hours, -$3,839, from
+        // exactly this). Rebuilding from this account's *complete* known
+        // order history — every fill already embedded in its existing
+        // trades, plus this file's, deduplicated by brokerOrderId and
+        // re-sorted — keeps the state machine's view complete and
+        // correct regardless of how much the new file overlaps old data;
+        // trades unchanged by this still hit the same dedupeHash and get
+        // skipped exactly as before.
+        const existingOrdersForAccount = trades
+          .filter(t => t.connectionId === selectedAccount.connectionId && t.accountId === selectedAccount.accountId)
+          .flatMap(t => t.fills || []);
+        const combinedOrders = new Map<string, typeof result.orders[number]>();
+        [...existingOrdersForAccount, ...result.orders].forEach(o => {
+          combinedOrders.set(o.brokerOrderId || o.id, o);
+        });
+        const allOrders = Array.from(combinedOrders.values())
+          .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+        const recon = reconstructTrades(allOrders, {
           connectionId: selectedAccount.connectionId,
           accountId: selectedAccount.accountId,
           brokerName: selectedAccount.brokerName,

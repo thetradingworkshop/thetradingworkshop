@@ -427,6 +427,7 @@ export function processEventStatefully(state: PositionState, event: IngestionEve
     updatedState.maxPositionSize = qty;
     updatedState.totalExitQuantity = 0;
     updatedState.exitValue = 0;
+    updatedState.hasReduced = false;
     step.type = 'trade_open';
   } else if (Math.sign(prevPosition) !== Math.sign(updatedState.currentPosition) && updatedState.currentPosition !== 0) {
     const closingQty = Math.abs(prevPosition);
@@ -444,6 +445,7 @@ export function processEventStatefully(state: PositionState, event: IngestionEve
     updatedState.totalExitQuantity = 0;
     updatedState.exitValue = 0;
     updatedState.fills = [order];
+    updatedState.hasReduced = false;
     step.type = 'position_update';
   } else if (updatedState.currentPosition === 0) {
     updatedState.totalExitQuantity += qty;
@@ -459,7 +461,38 @@ export function processEventStatefully(state: PositionState, event: IngestionEve
     updatedState.maxPositionSize = 0;
     updatedState.fills = [];
     updatedState.rawOrderIds = [];
+    updatedState.hasReduced = false;
     step.type = 'trade_close';
+  } else if (Math.sign(tradeSide) === Math.sign(prevPosition) && updatedState.hasReduced) {
+    // Re-adding to the position after it had already been partially
+    // reduced, without ever going flat in between — e.g. short 6, cover
+    // 4 down to short 2, then sell more. Left unhandled, this keeps
+    // accumulating into the SAME trade indefinitely: confirmed by hand
+    // this produced one "trade" spanning 9.8 hours and 45 fills for a
+    // trader whose core position genuinely never returned to flat, with
+    // one meaningless blended entry/exit price standing in for dozens of
+    // real, separate scalps. Close out what's been reduced so far as its
+    // own trade — using the blended avg entry price scaled down to just
+    // the exited quantity, not the full original entry — then start a
+    // fresh trade for the remaining open quantity before this fill's own
+    // contribution gets added to it below, same as a real flat/flip
+    // boundary would.
+    const avgEntryPriceSoFar = updatedState.entryValue / updatedState.totalEntryQuantity;
+    const remainingQty = updatedState.totalEntryQuantity - updatedState.totalExitQuantity;
+    closedTrades.push(createPartialCloseTradeFromState(updatedState, avgEntryPriceSoFar, timestamp, event.userId));
+
+    updatedState.openTradeId = uuidv4();
+    updatedState.entryTime = timestamp;
+    updatedState.entryValue = remainingQty * avgEntryPriceSoFar;
+    updatedState.totalEntryQuantity = remainingQty;
+    updatedState.totalExitQuantity = 0;
+    updatedState.exitValue = 0;
+    updatedState.fills = [order];
+    updatedState.hasReduced = false;
+
+    updatedState.entryValue += qty * price;
+    updatedState.totalEntryQuantity += qty;
+    step.type = 'position_update';
   } else {
     if (Math.sign(tradeSide) === Math.sign(prevPosition)) {
       updatedState.entryValue += qty * price;
@@ -467,6 +500,7 @@ export function processEventStatefully(state: PositionState, event: IngestionEve
     } else {
       updatedState.exitValue += qty * price;
       updatedState.totalExitQuantity += qty;
+      updatedState.hasReduced = true;
     }
     step.type = 'position_update';
   }
@@ -614,6 +648,24 @@ function createTradeFromState(state: PositionState, exitTime: string, exitPrice:
   return { ...truth, ...metrics, ...review };
 }
 
+// Closes out just the reduced portion of a position that's been partially
+// covered/scaled-out but hasn't gone flat or flipped — see the
+// hasReduced branch in processEventStatefully. Reuses
+// createTradeFromState's math (P&L, commission, metrics, diagnostics)
+// unchanged by handing it a state whose entry side has been scaled down
+// to match only the quantity actually being closed here, at the same
+// blended average entry price the full position was carrying — not the
+// full original entry quantity, which would overstate this trade's size
+// and double-count the portion that's still open going forward.
+function createPartialCloseTradeFromState(state: PositionState, avgEntryPriceSoFar: number, exitTime: string, userId: string = ''): Trade {
+  const scopedState: PositionState = {
+    ...state,
+    totalEntryQuantity: state.totalExitQuantity,
+    entryValue: avgEntryPriceSoFar * state.totalExitQuantity,
+  };
+  return createTradeFromState(scopedState, exitTime, state.exitValue / state.totalExitQuantity, userId);
+}
+
 export function reconstructTradesStatefully(connectionId: string, accountId: string, symbol: string, events: IngestionEvent[], brokerName?: string): { trades: Trade[], steps: ReconstructionStep[] } {
   let state: PositionState = {
     id: `${connectionId}_${accountId}_${symbol}`,
@@ -635,7 +687,8 @@ export function reconstructTradesStatefully(connectionId: string, accountId: str
     rawOrderIds: [],
     fills: [],
     updatedAt: new Date().toISOString(),
-    maxPositionSize: 0
+    maxPositionSize: 0,
+    hasReduced: false
   };
 
   const trades: Trade[] = [];

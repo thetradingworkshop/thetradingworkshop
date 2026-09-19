@@ -838,6 +838,17 @@ export interface PositionState {
   fills: Order[];
   updatedAt: string;
   maxPositionSize: number;
+  // True once at least one fill has reduced the currently-open position
+  // since it last opened. A position that gets reduced and then added
+  // back to (without ever returning to flat — common for a trader who
+  // scales around a persistent core position) used to keep accumulating
+  // into the SAME trade indefinitely: confirmed by hand this produced a
+  // single trade spanning 9.8 hours and 45 fills for what was actually
+  // dozens of separate scalps. This flag is how createTradeFromState's
+  // caller knows to close out what's been reduced so far as its own
+  // trade the moment a new same-direction (re-entering) fill arrives,
+  // instead of only closing on exactly-flat or a sign flip.
+  hasReduced: boolean;
 }
 
 // Logged *before* the trade exists (see LogIntentModal) — the plan a
