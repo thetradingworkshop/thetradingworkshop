@@ -10,7 +10,7 @@ import { useTrades } from '../context/TradeContext';
 import { useDateRange } from '../context/DateContext';
 import { ReportTemplate, SecondaryDimension } from '../components/reports/ReportTemplate';
 import {
-  DAY_ORDER, MONTH_ORDER, DURATION_ORDER, HOUR_ORDER, HALF_HOUR_ORDER,
+  DAY_ORDER, WEEKDAY_ORDER, MONTH_ORDER, DURATION_ORDER, HOUR_ORDER, HALF_HOUR_ORDER,
   hourLabel, halfHourLabel, durationBucket,
 } from '../services/reportMetrics';
 import { Trade, TagCategory, JournalEntry } from '../types';
@@ -219,6 +219,7 @@ export default function ReportsScreen() {
                   }}
                   secondaryDimensions={[accountDim, sideDim]}
                   sortOrder={DAY_ORDER}
+                  requiredKeys={WEEKDAY_ORDER}
                 />
               )}
               {dayTimeMode === 'month' && (

@@ -99,16 +99,27 @@ export function computeGroupMetrics(key: string, label: string, trades: Trade[])
 // the day unfolds instead of jumbling hours together. Keys not found in
 // sortOrder sort after everything that is (defensive, shouldn't happen for
 // well-formed callers).
+// `requiredKeys`, when given, forces those keys to always appear in the
+// output as a zero-trade bundle (key used as its own label) even when no
+// trade landed in that bucket — e.g. WEEKDAY_ORDER, so Monday still shows
+// a $0 bar instead of disappearing from the chart on a week you didn't
+// trade it.
 export function groupTradesInto(
   trades: Trade[],
   keyFn: (t: Trade) => { key: string; label: string }[],
-  sortOrder?: string[]
+  sortOrder?: string[],
+  requiredKeys?: string[]
 ): ReportMetricBundle[] {
   const buckets = new Map<string, { label: string; trades: Trade[] }>();
   for (const t of trades) {
     for (const { key, label } of keyFn(t)) {
       if (!buckets.has(key)) buckets.set(key, { label, trades: [] });
       buckets.get(key)!.trades.push(t);
+    }
+  }
+  if (requiredKeys) {
+    for (const key of requiredKeys) {
+      if (!buckets.has(key)) buckets.set(key, { label: key, trades: [] });
     }
   }
   const bundles = Array.from(buckets.entries()).map(([key, { label, trades }]) => computeGroupMetrics(key, label, trades));
@@ -189,6 +200,14 @@ export const METRIC_CATEGORY_LABELS: Record<MetricCategory, string> = {
 // day/hour" instead of two subtly different implementations drifting apart.
 
 export const DAY_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+// Futures markets don't trade weekends, so unlike DAY_ORDER (used purely
+// for sort order, in case a weekend trade genuinely exists) this is the
+// set of days the "Days" report tab always shows a row/bar for — a
+// weekday with zero trades gets a visible $0 entry in the chart and table
+// instead of silently vanishing. The Best/Worst/Most Used/Highest Win
+// Rate callouts still ignore zero-trade days (computePerformanceSummary
+// ignores empty bundles either way), so a dry Monday never wins "Best Day".
+export const WEEKDAY_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 export const MONTH_ORDER = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 export const DURATION_ORDER = ['0-1m', '1-5m', '5-15m', '15-30m', '30m+'];
 

@@ -35,9 +35,16 @@ interface ReportTemplateProps {
   // applied once a secondary "group by" is active (compound keys don't map
   // onto a single-dimension order); Symbol/Tags reports simply omit this.
   sortOrder?: string[];
+  // Keys that should always appear in the chart/table as a zero-trade row
+  // even without matching trades (e.g. WEEKDAY_ORDER, so a day you didn't
+  // trade still shows a $0 bar instead of vanishing). Same "not applied
+  // under cross-analysis" carve-out as sortOrder, and deliberately left
+  // out of the Best/Worst/Most Used/Highest Win Rate summary above, which
+  // should keep ignoring empty days.
+  requiredKeys?: string[];
 }
 
-export function ReportTemplate({ trades, primaryKeyFn, labelHeader, secondaryDimensions = [], sortOrder }: ReportTemplateProps) {
+export function ReportTemplate({ trades, primaryKeyFn, labelHeader, secondaryDimensions = [], sortOrder, requiredKeys }: ReportTemplateProps) {
   const [selectedMetrics, setSelectedMetrics] = useState<string[]>(['netPnl']);
   const [chartType, setChartType] = usePersistedState<'bar' | 'line'>('reportChartType', 'bar');
   const [secondaryKey, setSecondaryKey] = useState<string>('none');
@@ -55,8 +62,8 @@ export function ReportTemplate({ trades, primaryKeyFn, labelHeader, secondaryDim
   }, [primaryKeyFn, secondaryDim]);
 
   const bundles = useMemo(
-    () => groupTradesInto(trades, effectiveKeyFn, secondaryDim ? undefined : sortOrder),
-    [trades, effectiveKeyFn, secondaryDim, sortOrder]
+    () => groupTradesInto(trades, effectiveKeyFn, secondaryDim ? undefined : sortOrder, secondaryDim ? undefined : requiredKeys),
+    [trades, effectiveKeyFn, secondaryDim, sortOrder, requiredKeys]
   );
   const primaryBundles = useMemo(() => groupTradesInto(trades, primaryKeyFn), [trades, primaryKeyFn]);
   const summary = useMemo(() => computePerformanceSummary(primaryBundles), [primaryBundles]);
