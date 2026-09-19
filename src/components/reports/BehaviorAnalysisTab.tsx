@@ -74,11 +74,16 @@ export function BehaviorAnalysisTab({ trades }: { trades: Trade[] }) {
                     <div className="w-1 h-1 rounded-full bg-indigo-500 mt-2 mr-2 flex-shrink-0" />
                     <span>
                       {detail}
+                      {/* This card is the rightmost column on the page (see the
+                          lg:col-span-4 wrapper below), so its tooltips sit close
+                          to the viewport's right edge — align="right" anchors the
+                          bubble's right edge to the icon so it only ever extends
+                          leftward, verified against the actual page-width layout. */}
                       {idx === 1 && (
-                        <InfoTooltip text={`A trade counts as a "re-entry" if it's on the same symbol as your immediately-preceding trade, and it opened within 5 minutes of that previous trade's exit.`} />
+                        <InfoTooltip align="right" text={`A trade counts as a "re-entry" if it's on the same symbol as your immediately-preceding trade, and it opened within 5 minutes of that previous trade's exit.`} />
                       )}
                       {idx === 2 && (
-                        <InfoTooltip text="Payoff comparison: average P&L per trade for re-entries vs. average P&L per trade for everything else (fresh entries)." />
+                        <InfoTooltip align="right" text="Payoff comparison: average P&L per trade for re-entries vs. average P&L per trade for everything else (fresh entries)." />
                       )}
                     </span>
                   </li>
