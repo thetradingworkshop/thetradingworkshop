@@ -636,6 +636,12 @@ export interface Session {
   pnlFromViolations?: number;
   pnlFromValidTrades?: number;
   disciplineVerdict?: string;
+  // The single most common ModelValidationEngine violation reason this
+  // session ("Premature entry", "Chasing entry...") and how many trades
+  // hit it — lets the Hard-Rule Analysis card name the actual mistake
+  // instead of only a violation percentage.
+  topViolationReason?: string;
+  topViolationCount?: number;
 }
 
 export interface UserProfile {

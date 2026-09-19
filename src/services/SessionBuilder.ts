@@ -51,6 +51,11 @@ export class SessionBuilder {
     let totalViolations = 0;
     let pnlFromViolations = 0;
     let pnlFromValidTrades = 0;
+    // Tally of ModelValidationEngine's violation reason strings ("Premature
+    // entry", "Chasing entry...") across every violating trade, so the
+    // Hard-Rule Analysis card can name the actual most common mistake
+    // instead of only a bare violation percentage.
+    const violationReasonCounts: Record<string, number> = {};
 
     for (let i = 0; i < sortedTrades.length; i++) {
       const trade = sortedTrades[i];
@@ -116,6 +121,9 @@ export class SessionBuilder {
       if (trade.isViolation) {
         totalViolations++;
         pnlFromViolations += pnl;
+        for (const reason of modelValidation.violations) {
+          violationReasonCounts[reason] = (violationReasonCounts[reason] || 0) + 1;
+        }
         if (!trade.tags.includes("Rule Violated")) trade.tags.push("Rule Violated");
       } else {
         pnlFromValidTrades += pnl;
@@ -198,6 +206,9 @@ export class SessionBuilder {
     const avgLoser = lossCount > 0 ? grossLoss / lossCount : 0;
     const overtradingFlag = totalTrades > 10;
     const violationRate = totalTrades > 0 ? (totalViolations / totalTrades) * 100 : 0;
+    const topViolationEntry = Object.entries(violationReasonCounts).sort((a, b) => b[1] - a[1])[0];
+    const topViolationReason = topViolationEntry?.[0];
+    const topViolationCount = topViolationEntry?.[1] ?? 0;
 
     // Analysis Engine Logic
     const behaviorImpacts: BehaviorImpact[] = [];
@@ -428,7 +439,9 @@ export class SessionBuilder {
       totalViolations,
       violationRate: totalTrades > 0 ? (totalViolations / totalTrades) * 100 : 0,
       pnlFromViolations,
-      pnlFromValidTrades
+      pnlFromValidTrades,
+      topViolationReason,
+      topViolationCount
     };
 
     return session;
