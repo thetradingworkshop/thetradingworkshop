@@ -93,14 +93,17 @@ export function ReportTemplate({ trades, primaryKeyFn, labelHeader, secondaryDim
     <div className="space-y-5">
       {/* 1. Performance Summary */}
       <div className={cn("grid grid-cols-1 sm:grid-cols-2 gap-4", extraDayCards.length > 0 ? "lg:grid-cols-6" : "lg:grid-cols-4")}>
+        {/* Same label -> bold day name -> $ stat shape as Best/Worst below
+            (not label -> bold $ -> trade count, which read as a visually
+            different card type in the same row). */}
         {extraDayCards.map(b => (
           <SummaryCallout
             key={b.key}
             icon={CalendarDays}
             iconClass={b.trades === 0 ? "text-muted-foreground" : b.netPnl >= 0 ? "text-emerald-500" : "text-rose-500"}
-            label={b.key}
-            bundle={{ label: fmtMoney(b.netPnl), trades: b.trades }}
-            stat={x => `${x.trades} trade${x.trades === 1 ? '' : 's'}`}
+            label="Weekday"
+            bundle={{ label: b.key, netPnl: b.netPnl }}
+            stat={x => fmtMoney(x.netPnl)}
           />
         ))}
         <SummaryCallout icon={TrendingUp} iconClass="text-emerald-500" label="Best" bundle={summary.best} stat={b => fmtMoney(b.netPnl)} />
