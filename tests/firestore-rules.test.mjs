@@ -204,6 +204,14 @@ async function main() {
     await assertSucceeds(getDoc(doc(admin, 'trades', 'trade-2')));
   });
 
+  await check('Admin CANNOT update a student\'s trade (view-only, not a management console)', async () => {
+    await assertFails(updateDoc(doc(admin, 'trades', 'trade-1'), { symbol: 'CL' }));
+  });
+
+  await check('Admin CANNOT delete a student\'s trade (view-only)', async () => {
+    await assertFails(deleteDoc(doc(admin, 'trades', 'trade-1')));
+  });
+
   await check('a student CANNOT read another student\'s trade', async () => {
     await assertFails(getDoc(doc(otherStudent, 'trades', 'trade-1')));
   });
@@ -238,6 +246,18 @@ async function main() {
 
   await check('assigned mentor CANNOT update the student\'s trade review (read-only)', async () => {
     await assertFails(updateDoc(doc(mentor, 'trade_reviews', 'trade-1'), { verdict: 'edited' }));
+  });
+
+  await check('Admin CAN read any trade review', async () => {
+    await assertSucceeds(getDoc(doc(admin, 'trade_reviews', 'trade-1')));
+  });
+
+  await check('Admin CANNOT update a student\'s trade review (view-only, not a management console)', async () => {
+    await assertFails(updateDoc(doc(admin, 'trade_reviews', 'trade-1'), { verdict: 'edited by admin' }));
+  });
+
+  await check('Admin CANNOT delete a student\'s trade review (view-only)', async () => {
+    await assertFails(deleteDoc(doc(admin, 'trade_reviews', 'trade-1')));
   });
 
   console.log('\njournal_templates — owner-only (Journal screen\'s Templates tab)\n');
@@ -289,6 +309,18 @@ async function main() {
     await assertFails(getDoc(doc(mentor, 'journals', 'journal-2')));
   });
 
+  await check('Admin CAN read any journal', async () => {
+    await assertSucceeds(getDoc(doc(admin, 'journals', 'journal-2')));
+  });
+
+  await check('Admin CANNOT update a student\'s journal content (view-only, not a management console)', async () => {
+    await assertFails(updateDoc(doc(admin, 'journals', 'journal-1'), { title: 'Edited by admin' }));
+  });
+
+  await check('Admin CANNOT delete a student\'s journal (view-only)', async () => {
+    await assertFails(deleteDoc(doc(admin, 'journals', 'journal-1')));
+  });
+
   console.log('\njournals — mentor comment-notification fields (unreadByStudent/unreadByMentor)\n');
 
   await check('assigned mentor CAN flip unreadByStudent on their student\'s journal', async () => {
@@ -299,6 +331,12 @@ async function main() {
 
   await check('assigned mentor CANNOT touch other fields on their student\'s journal via this branch', async () => {
     await assertFails(updateDoc(doc(mentor, 'journals', 'journal-1'), { title: 'Edited by mentor' }));
+  });
+
+  await check('Admin CAN flip unreadByStudent on any student\'s journal (same narrow allowance a mentor gets)', async () => {
+    await assertSucceeds(updateDoc(doc(admin, 'journals', 'journal-2'), {
+      unreadByStudent: true, unreadByMentor: false, lastCommentAt: new Date(), lastCommentByRole: 'Mentor',
+    }));
   });
 
   await check('assigned mentor CANNOT smuggle a content edit in alongside a valid notification field', async () => {
@@ -412,6 +450,11 @@ async function main() {
     await assertSucceeds(updateDoc(doc(viewer, 'users', VIEWER_UID), { name: 'Updated Viewer Name' }));
   });
 
+  // Narrower than it looks — this only works because the owner is a
+  // Viewer (isOwnerViewer()), the one role that structurally can't write
+  // its own data at all. The "Admin CANNOT update a student's journal"
+  // tests above are the contrast: a Student can maintain their own data,
+  // so Admin doesn't get the same bypass there.
   await check('Admin CAN still write a Viewer\'s data on their behalf', async () => {
     await assertSucceeds(updateDoc(doc(admin, 'journals', 'viewer-journal-1'), { title: 'Admin edit' }));
   });
