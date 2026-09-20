@@ -372,8 +372,13 @@ export class SessionBuilder {
       disciplineVerdict = `Moderate discipline (${disciplineScore}%). Inconsistent adherence.`;
     }
 
-    // Consistency Score
-    const consistencyScore = Math.min(100, Math.max(0, (winRate * 0.6) + (maxConsecutiveWins * 5) - (maxConsecutiveLosses * 5)));
+    // Consistency Score — Math.round() here (unlike disciplineScore just
+    // below, which already had it) matters for more than cosmetics:
+    // winRate is a repeating binary fraction for most win/loss splits
+    // (e.g. 2/3 -> 66.66666666666666), so `winRate * 0.6` routinely lands
+    // on values like 39.99999999999999 that rendered as literally that
+    // many 9s in Session Quality instead of a clean number.
+    const consistencyScore = Math.round(Math.min(100, Math.max(0, (winRate * 0.6) + (maxConsecutiveWins * 5) - (maxConsecutiveLosses * 5))));
 
     // Diagnostics
     const diagnostics: string[] = [];
