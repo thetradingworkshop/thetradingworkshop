@@ -532,47 +532,47 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
       {/* CALENDAR PERFORMANCE MODULE */}
       <Card className="p-0 overflow-hidden border-border/50 shadow-xl bg-card">
         {/* HEADER BAR */}
-        <div className="p-4 border-b border-border/50 bg-card flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="flex items-center space-x-4">
-            <div className="flex items-center space-x-2">
-              <Button variant="ghost" size="sm" onClick={prevMonth} className="h-8 w-8 p-0 hover:bg-muted"><ChevronLeft className="w-4 h-4" /></Button>
-              <h3 className="text-lg font-bold text-foreground min-w-[120px] text-center">{monthYearLabel}</h3>
-              <Button variant="ghost" size="sm" onClick={nextMonth} className="h-8 w-8 p-0 hover:bg-muted"><ChevronRight className="w-4 h-4" /></Button>
+        <div className="p-3 border-b border-border/50 bg-card flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div className="flex items-center space-x-3">
+            <div className="flex items-center space-x-1.5">
+              <Button variant="ghost" size="sm" onClick={prevMonth} className="h-7 w-7 p-0 hover:bg-muted"><ChevronLeft className="w-3.5 h-3.5" /></Button>
+              <h3 className="text-sm font-bold text-foreground min-w-[100px] text-center">{monthYearLabel}</h3>
+              <Button variant="ghost" size="sm" onClick={nextMonth} className="h-7 w-7 p-0 hover:bg-muted"><ChevronRight className="w-3.5 h-3.5" /></Button>
             </div>
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={resetMonth} 
-              className="px-4 h-9 text-xs font-medium rounded-xl border-border hover:bg-muted"
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={resetMonth}
+              className="px-3 h-8 text-[11px] font-medium rounded-xl border-border hover:bg-muted"
             >
               This month
             </Button>
           </div>
 
-          <div className="flex items-center gap-6">
-            <div className="flex items-center gap-4">
-              <span className="text-sm font-bold text-foreground">Monthly stats:</span>
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3">
+              <span className="text-xs font-bold text-foreground">Monthly stats:</span>
               <div className="flex items-center gap-2">
                 <Badge variant="neutral" className={cn(
-                  "bg-emerald-50 text-emerald-600 border-none text-xs font-bold h-7 px-3",
+                  "bg-emerald-50 text-emerald-600 border-none text-[11px] font-bold h-6 px-2.5",
                   rangeStats.totalPnL < 0 && "bg-rose-50 text-rose-600"
                 )}>
                   {rangeStats.totalPnL >= 0 ? '+' : '-'}${Math.abs(rangeStats.totalPnL).toLocaleString()}
                 </Badge>
-                <Badge variant="neutral" className="bg-muted text-muted-foreground border-none text-xs font-bold h-7 px-3">
+                <Badge variant="neutral" className="bg-muted text-muted-foreground border-none text-[11px] font-bold h-6 px-2.5">
                   {rangeStats.tradingDays} days
                 </Badge>
               </div>
             </div>
 
-            <div className="flex items-center gap-1 border-l border-border pl-4">
+            <div className="flex items-center gap-1 border-l border-border pl-3">
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-8 w-8 p-0 text-muted-foreground hover:text-indigo-600"
+                className="h-7 w-7 p-0 text-muted-foreground hover:text-indigo-600"
                 onClick={() => setIsSettingsOpen(!isSettingsOpen)}
               >
-                <Settings className="w-4 h-4" />
+                <Settings className="w-3.5 h-3.5" />
               </Button>
             </div>
           </div>
@@ -580,20 +580,20 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
 
         <div className="bg-card border border-border rounded-3xl overflow-hidden shadow-sm">
           <div className={cn(
-            "grid gap-3 p-6",
-            calendarSettings.showWeeklyPanel 
-              ? (calendarSettings.showWeekends ? "grid-cols-[repeat(7,1fr)_160px]" : "grid-cols-[repeat(5,1fr)_160px]")
+            "grid gap-2 p-4",
+            calendarSettings.showWeeklyPanel
+              ? (calendarSettings.showWeekends ? "grid-cols-[repeat(7,1fr)_130px]" : "grid-cols-[repeat(5,1fr)_130px]")
               : (calendarSettings.showWeekends ? "grid-cols-7" : "grid-cols-5")
           )}>
             {/* Headers */}
             {(calendarSettings.showWeekends ? ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] : ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']).map(day => (
-              <div key={day} className="bg-muted/50 border border-border rounded-lg py-2 text-center">
-                <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">{day}</span>
+              <div key={day} className="bg-muted/50 border border-border rounded-lg py-1.5 text-center">
+                <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider">{day}</span>
               </div>
             ))}
             {calendarSettings.showWeeklyPanel && (
               <div className="flex items-center justify-between px-2">
-                <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Weekly</h4>
+                <h4 className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground">Weekly</h4>
                 <Badge variant="neutral" className="bg-muted/50 text-muted-foreground border-none text-[8px]">
                   {weeklySummaries.length}
                 </Badge>
@@ -642,10 +642,10 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
                       } : {}}
                     >
                       {!d.isEmpty && (
-                        <div className="p-2 h-full flex flex-col relative z-10">
+                        <div className="p-1.5 h-full flex flex-col relative z-10">
                           <div className="flex justify-between items-start">
                             <span className={cn(
-                              "text-[10px] font-black tracking-tighter",
+                              "text-[9px] font-black tracking-tighter",
                               d.pnl !== 0 ? "text-foreground/40" : "text-muted-foreground"
                             )}>
                               {d.day}
@@ -653,20 +653,20 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
                             <div className="flex gap-0.5">
                               {isBestDay && (
                                 <div className="bg-emerald-500 text-white p-0.5 rounded shadow-sm">
-                                  <Zap className="w-2.5 h-2.5" />
+                                  <Zap className="w-2 h-2" />
                                 </div>
                               )}
                               {isWorstDay && (
                                 <div className="bg-rose-500 text-white p-0.5 rounded shadow-sm">
-                                  <AlertCircle className="w-2.5 h-2.5" />
+                                  <AlertCircle className="w-2 h-2" />
                                 </div>
                               )}
                             </div>
                           </div>
-                          
+
                           <div className="flex-1 flex flex-col items-center justify-center">
                             <p className={cn(
-                              "text-sm font-black tracking-tight",
+                              "text-xs font-black tracking-tight",
                               d.pnl > 0 ? "text-emerald-700" : d.pnl < 0 ? "text-rose-700" : "text-muted-foreground"
                             )}>
                               {d.pnl > 0 ? '+' : d.pnl < 0 ? '-' : ''}${Math.abs(d.pnl).toLocaleString()}
@@ -675,11 +675,11 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
 
                           <div className="flex items-center justify-between mt-auto pt-1 border-t border-black/5">
                             <div className="flex items-center gap-1">
-                              <BookOpen className="w-2 h-2 text-muted-foreground/60" />
-                              <span className="text-[8px] font-bold text-muted-foreground/70">{d.trades}</span>
+                              <BookOpen className="w-1.5 h-1.5 text-muted-foreground/60" />
+                              <span className="text-[7px] font-bold text-muted-foreground/70">{d.trades}</span>
                             </div>
                             <span className={cn(
-                              "text-[8px] font-black",
+                              "text-[7px] font-black",
                               d.winRate >= 70 ? "text-emerald-600" : d.winRate >= 40 ? "text-amber-600" : "text-rose-600"
                             )}>
                               {Math.round(d.winRate)}%
@@ -711,7 +711,7 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
                               );
                             }}
                             className={cn(
-                              "group h-full p-3 bg-muted/50 border border-border rounded-xl transition-all duration-300 cursor-pointer hover:border-indigo-400 hover:shadow-lg relative overflow-hidden flex flex-col justify-between",
+                              "group h-full p-2 bg-muted/50 border border-border rounded-xl transition-all duration-300 cursor-pointer hover:border-indigo-400 hover:shadow-lg relative overflow-hidden flex flex-col justify-between",
                               isSelected && "bg-card border-indigo-500 ring-2 ring-indigo-500/10 shadow-xl z-10",
                               isBestWeek && "border-emerald-200 bg-emerald-50/20"
                             )}
@@ -725,17 +725,17 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
                             )}
 
                             <div className="flex justify-between items-start">
-                              <p className="text-[8px] font-black text-indigo-500 uppercase tracking-widest">{week.label}</p>
+                              <p className="text-[7px] font-black text-indigo-500 uppercase tracking-widest">{week.label}</p>
                               <p className={cn(
-                                "text-sm font-black tracking-tighter",
+                                "text-xs font-black tracking-tighter",
                                 week.pnl >= 0 ? "text-emerald-600" : "text-rose-600"
                               )}>
                                 {week.pnl >= 0 ? '+' : '-'}${Math.abs(week.pnl).toLocaleString()}
                               </p>
                             </div>
 
-                            <div className="space-y-1.5">
-                              <div className="flex items-center justify-between text-[8px] font-bold text-muted-foreground">
+                            <div className="space-y-1">
+                              <div className="flex items-center justify-between text-[7px] font-bold text-muted-foreground">
                                 <span>Win Rate</span>
                                 <span className={cn(
                                   week.winRate >= 60 ? "text-emerald-500" : "text-amber-500"
@@ -744,9 +744,9 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
                               <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-1">
                                   <div className="w-1 h-1 rounded-full bg-indigo-400" />
-                                  <span className="text-[8px] font-bold text-muted-foreground">{week.activeDays} Days</span>
+                                  <span className="text-[7px] font-bold text-muted-foreground">{week.activeDays} Days</span>
                                 </div>
-                                <ChevronRight className="w-2.5 h-2.5 text-muted-foreground group-hover:text-indigo-500 transition-colors" />
+                                <ChevronRight className="w-2 h-2 text-muted-foreground group-hover:text-indigo-500 transition-colors" />
                               </div>
                             </div>
                           </div>
@@ -763,24 +763,24 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
 
           {/* AI Insight Footer - Full Width if panel is open */}
           {calendarSettings.showWeeklyPanel && (
-            <div className="border-t border-border/50 bg-muted/30 p-4">
-              <div className="max-w-md mx-auto p-3 bg-indigo-600 rounded-xl text-white shadow-lg shadow-indigo-600/20 relative overflow-hidden group">
+            <div className="border-t border-border/50 bg-muted/30 p-3">
+              <div className="max-w-sm mx-auto p-2.5 bg-indigo-600 rounded-xl text-white shadow-lg shadow-indigo-600/20 relative overflow-hidden group">
                 <div className="absolute -right-2 -bottom-2 opacity-10 group-hover:scale-110 transition-transform duration-500">
-                  <BrainCircuit className="w-12 h-12" />
+                  <BrainCircuit className="w-10 h-10" />
                 </div>
                 <div className="relative z-10 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="bg-white/20 p-2 rounded-lg">
-                      <Zap className="w-4 h-4 text-indigo-100" />
+                  <div className="flex items-center gap-2.5">
+                    <div className="bg-white/20 p-1.5 rounded-lg">
+                      <Zap className="w-3.5 h-3.5 text-indigo-100" />
                     </div>
                     <div>
-                      <h5 className="text-[10px] font-black uppercase tracking-widest text-indigo-100">AI Weekly Insight</h5>
-                      <p className="text-[11px] text-indigo-50 font-medium leading-tight mt-0.5">
+                      <h5 className="text-[9px] font-black uppercase tracking-widest text-indigo-100">AI Weekly Insight</h5>
+                      <p className="text-[10px] text-indigo-50 font-medium leading-tight mt-0.5">
                         {ruleBasedInsight?.nextAction || "No insights available."}
                       </p>
                     </div>
                   </div>
-                  <Button variant="outline" className="bg-white/10 border-white/20 text-white hover:bg-white/20 text-[10px] h-8 px-3">
+                  <Button variant="outline" className="bg-white/10 border-white/20 text-white hover:bg-white/20 text-[9px] h-7 px-2.5">
                     Details
                   </Button>
                 </div>
