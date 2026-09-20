@@ -800,14 +800,6 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
                               isBestWeek && "border-emerald-200 bg-emerald-50/20"
                             )}
                           >
-                            {isBestWeek && (
-                              <div className="absolute top-0 right-0">
-                                <div className="bg-emerald-500 text-white text-[6px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-bl-lg shadow-sm">
-                                  Best
-                                </div>
-                              </div>
-                            )}
-
                             <div className="flex justify-between items-start">
                               <p className="text-[7px] font-black text-indigo-500 uppercase tracking-widest">{week.label}</p>
                               <p className={cn(
