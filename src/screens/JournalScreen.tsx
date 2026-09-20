@@ -30,6 +30,14 @@ const CATEGORIES: { id: NoteCategory; label: string; icon: any }[] = [
   { id: 'session_recap', label: 'Sessions Recap', icon: FileBarChart },
 ];
 
+const SESSION_CATEGORY_LABEL: Record<NonNullable<JournalEntry['sessionCategory']>, string> = {
+  NY_AM: 'NY AM',
+  NY_PM: 'NY PM',
+  ASIA: 'Asia',
+  LONDON: 'London',
+  WEEKLY: 'Weekly',
+};
+
 // 'daily' is the fallback, not a third condition alongside 'trade' and
 // 'session_recap' — a note only got here by requiring `sessionId` to be set,
 // but the plain "New Journal" button (openNew(), with no session attached)
@@ -502,6 +510,10 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
         // the field server-side instead of merely not mentioning it.
         const payload = omitUndefined({ ...rest, updatedAt: now }) as Record<string, unknown>;
         if (rest.tradeId === undefined) payload.tradeId = deleteField();
+        // Same reasoning as tradeId above — clearing Session Category back
+        // to "No category" needs to actually remove the field, not just
+        // omit mentioning it.
+        if (rest.sessionCategory === undefined) payload.sessionCategory = deleteField();
         await updateDoc(doc(db, 'journals', id), payload);
         setToast({ message: 'Journal updated', type: 'success' });
       } else {
@@ -953,6 +965,10 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
                 </div>
                 )}
 
+                {!linkedTrade && selectedJournal.sessionCategory && (
+                  <Badge variant="info">{SESSION_CATEGORY_LABEL[selectedJournal.sessionCategory]}</Badge>
+                )}
+
                 {/* Self Review — Daily Journal and Sessions Recap notes only
                     (not trade notes, which have their own entryReason/
                     followedPlan/improvements above). This is what used to
@@ -1329,12 +1345,29 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
             </>
             )}
 
-            {/* Self Review — Daily Journal and Sessions Recap notes (not
-                trade notes, which have entryReason/followedPlan/improvements
-                above instead). Merged in from what used to be a separate
-                Session Journal/Self Review system on the Sessions page. */}
+            {/* Session Category + Self Review — Daily Journal and Sessions
+                Recap notes (not trade notes, which have entryReason/
+                followedPlan/improvements above instead). Merged in from
+                what used to be a separate Session Journal/Self Review
+                system on the Sessions page — same fields, editable from
+                either screen. */}
             {!draft.tradeId && (
               <div className="p-4 rounded-2xl border border-border bg-accent/10 space-y-5">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Session Category</label>
+                  <select
+                    className="w-full h-11 px-4 bg-background border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+                    value={draft.sessionCategory || ''}
+                    onChange={(e) => setDraft(prev => prev && ({ ...prev, sessionCategory: (e.target.value || undefined) as JournalEntry['sessionCategory'] }))}
+                  >
+                    <option value="">No category</option>
+                    <option value="NY_AM">NY AM</option>
+                    <option value="NY_PM">NY PM</option>
+                    <option value="ASIA">Asia</option>
+                    <option value="LONDON">London</option>
+                    <option value="WEEKLY">Weekly</option>
+                  </select>
+                </div>
                 <h4 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Self Review</h4>
                 <div className="space-y-2">
                   <label className="text-[10px] font-bold uppercase tracking-widest text-emerald-600">What went well?</label>

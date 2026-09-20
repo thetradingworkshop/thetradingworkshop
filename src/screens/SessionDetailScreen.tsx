@@ -16,8 +16,8 @@ import { RuleBasedMentor } from '../components/RuleBasedMentor';
 import { DictationTextarea } from '../components/DictationTextarea';
 import { RichTextEditor } from '../components/RichTextEditor';
 import { AnthropicProvider } from '../services/aiProviders';
-import { Session, TradeIntent, JournalEntry } from '../types';
-import { doc, getDoc, setDoc, updateDoc, addDoc, deleteField, collection, query, where, getDocs, serverTimestamp } from 'firebase/firestore';
+import { TradeIntent, JournalEntry, SessionCategory } from '../types';
+import { doc, updateDoc, addDoc, deleteField, collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
 import { formatRecapTitle, computeRecapStats } from '../lib/journalRecap';
 import { usePersistedState } from '../hooks/usePersistedState';
@@ -58,19 +58,12 @@ export default function SessionDetailScreen() {
     whatWentWell: string;
     whatHurt: string;
     correctiveAction: string;
-  }>({ journalId: null, content: '', whatWentWell: '', whatHurt: '', correctiveAction: '' });
-  // sessionCategory is session-level classification, not journal content —
-  // it stays on the `sessions` doc, same as every other trade-derived
-  // stat on that document.
-  const [sessionCategory, setSessionCategory] = useState<NonNullable<Session['sessionCategory']> | ''>('');
+    sessionCategory: SessionCategory | '';
+  }>({ journalId: null, content: '', whatWentWell: '', whatHurt: '', correctiveAction: '', sessionCategory: '' });
   const [isSavingJournal, setIsSavingJournal] = useState(false);
   const [isJournalMediaUploading, setIsJournalMediaUploading] = useState(false);
   const [intents, setIntents] = useState<TradeIntent[]>([]);
   const [sessionMeta, setSessionMeta] = useState<{ createdAt?: string; updatedAt?: string }>({});
-  // Tracks whether a `sessions` doc already exists for the currently-loaded
-  // date, so saveSessionJournal knows whether to stamp createdAt (first
-  // write) or leave it alone (later edits should only touch updatedAt).
-  const sessionExistsRef = React.useRef(false);
 
   // Memoize mentor service to avoid re-instantiation
   const mentorService = useMemo(() => new MentorService(new AnthropicProvider()), []);
@@ -92,24 +85,12 @@ export default function SessionDetailScreen() {
     return accountOptions.find(a => `${a.connectionId}::${a.accountId}` === key);
   }, [accountFilter, accountOptions]);
 
-  // Load session category (sessions doc, still keyed by the range's start
-  // day — unrelated to the journal content below) + journal content
-  // (journals doc, a Sessions Recap entry matching this exact date range
-  // + account scope)
+  // Journal content — a Sessions Recap entry (journals doc) matching this
+  // exact date range + account scope. sessionCategory used to live on a
+  // separate `sessions/{uid}_{date}` doc; now it's just another field on
+  // this same entry, editable from the Journal page too.
   useEffect(() => {
     if (!user) return;
-    const sessionId = `${user.uid}_${sessionDateStr}`;
-    const loadSession = async () => {
-      const sessionRef = doc(db, 'sessions', sessionId);
-      const sessionSnap = await getDoc(sessionRef);
-      if (sessionSnap.exists()) {
-        sessionExistsRef.current = true;
-        setSessionCategory((sessionSnap.data() as Session).sessionCategory || '');
-      } else {
-        sessionExistsRef.current = false;
-        setSessionCategory('');
-      }
-    };
     const loadJournal = async () => {
       const journalsSnap = await getDocs(query(
         collection(db, 'journals'),
@@ -132,16 +113,16 @@ export default function SessionDetailScreen() {
           whatWentWell: existing.whatWentWell || '',
           whatHurt: existing.whatHurt || '',
           correctiveAction: existing.correctiveAction || '',
+          sessionCategory: existing.sessionCategory || '',
         });
         setSessionMeta({ createdAt: existing.createdAt, updatedAt: existing.updatedAt });
       } else {
-        setJournalDraft({ journalId: null, content: '', whatWentWell: '', whatHurt: '', correctiveAction: '' });
+        setJournalDraft({ journalId: null, content: '', whatWentWell: '', whatHurt: '', correctiveAction: '', sessionCategory: '' });
         setSessionMeta({});
       }
     };
-    loadSession();
     loadJournal();
-  }, [user, sessionDateStr, rangeStart, rangeEnd, selectedAccount]);
+  }, [user, rangeStart, rangeEnd, selectedAccount]);
 
   // Load intents for the session
   useEffect(() => {
@@ -187,21 +168,7 @@ export default function SessionDetailScreen() {
     }
     setIsSavingJournal(true);
     try {
-      const sessionId = `${user.uid}_${sessionDateStr}`;
       const now = new Date().toISOString();
-
-      // sessionCategory: small separate write to the `sessions` doc —
-      // unrelated to journal content, same document every other
-      // trade-derived session stat already lives on.
-      const isFirstSessionWrite = !sessionExistsRef.current;
-      await setDoc(doc(db, 'sessions', sessionId), {
-        userId: user.uid,
-        date: sessionDateStr,
-        sessionCategory: sessionCategory || deleteField(),
-        ...(isFirstSessionWrite && { createdAt: now }),
-        updatedAt: now
-      }, { merge: true });
-      sessionExistsRef.current = true;
 
       // Journal content: the same Sessions Recap entry Journal screen's
       // "New Sessions Recap" would create for this exact date range +
@@ -213,10 +180,13 @@ export default function SessionDetailScreen() {
         whatWentWell: journalDraft.whatWentWell || undefined,
         whatHurt: journalDraft.whatHurt || undefined,
         correctiveAction: journalDraft.correctiveAction || undefined,
+        sessionCategory: journalDraft.sessionCategory || undefined,
         recapStats: computeRecapStats(filteredTrades),
       });
       if (journalDraft.journalId) {
-        await updateDoc(doc(db, 'journals', journalDraft.journalId), { ...journalFields, updatedAt: now });
+        const updatePayload: Record<string, unknown> = { ...journalFields, updatedAt: now };
+        if (!journalDraft.sessionCategory) updatePayload.sessionCategory = deleteField();
+        await updateDoc(doc(db, 'journals', journalDraft.journalId), updatePayload);
         setSessionMeta(prev => ({ ...prev, updatedAt: now }));
       } else {
         const docRef = await addDoc(collection(db, 'journals'), omitUndefined({
@@ -845,8 +815,8 @@ export default function SessionDetailScreen() {
               <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Session Category</label>
               <select
                 className="w-full p-3 bg-accent/30 border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
-                value={sessionCategory}
-                onChange={(e) => setSessionCategory(e.target.value as typeof sessionCategory)}
+                value={journalDraft.sessionCategory}
+                onChange={(e) => setJournalDraft(prev => ({ ...prev, sessionCategory: e.target.value as SessionCategory | '' }))}
               >
                 <option value="">No category</option>
                 <option value="NY_AM">NY AM</option>

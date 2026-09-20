@@ -556,6 +556,10 @@ export interface BehaviorImpact {
   description: string;
 }
 
+// Which trading session a day/recap covers — shared between Session and
+// JournalEntry so both edit the exact same value.
+export type SessionCategory = 'NY_AM' | 'NY_PM' | 'ASIA' | 'LONDON' | 'WEEKLY';
+
 export interface Session {
   id: string;
   userId: string;
@@ -608,12 +612,12 @@ export interface Session {
   maxLosingStreak?: number;
 
   // Journaling — premarketPlan/sessionNotes/whatWentWell/whatHurt/
-  // correctiveAction used to live here, but moved onto the session's
-  // Daily Journal entry (journals/{id}, see JournalEntry) so there's one
-  // journaling system and mentors' existing journals access covers this
-  // content too. sessionCategory stays — it's session classification,
-  // not journal content.
-  sessionCategory?: 'NY_AM' | 'NY_PM' | 'ASIA' | 'LONDON' | 'WEEKLY';
+  // correctiveAction/sessionCategory used to live here, but moved onto the
+  // session's Sessions Recap / Daily Journal entry (journals/{id}, see
+  // JournalEntry) so there's one journaling system: the same field,
+  // editable from both the Sessions page and the Journal page, instead of
+  // sessionCategory being the one piece still split across two documents.
+  sessionCategory?: SessionCategory;
 
   // Trades
   trades?: Trade[];
@@ -689,6 +693,7 @@ export interface JournalEntry {
   whatWentWell?: string;
   whatHurt?: string;
   correctiveAction?: string;
+  sessionCategory?: SessionCategory;
   status?: 'private' | 'shared';
   createdAt: string;
   updatedAt: string;
