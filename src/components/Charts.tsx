@@ -45,7 +45,7 @@ export function EquityCurveChart({ className, data: propData, compact }: { class
 
   return (
     <Card className={cn("flex flex-col", className)}>
-      <div className={cn("border-b border-border/50 flex items-center justify-between", compact ? "p-3.5" : "p-8")}>
+      <div className={cn("border-b border-border/50 flex items-center justify-between", compact ? "px-3.5 py-2" : "p-8")}>
         <div>
           <h3 className={cn("font-bold tracking-tight", compact ? "text-xs" : "text-lg")}>Equity Curve</h3>
           <p className={cn("text-muted-foreground font-medium mt-0.5", compact ? "text-[9px]" : "text-xs")}>Cumulative performance over time</p>
@@ -70,7 +70,7 @@ export function EquityCurveChart({ className, data: propData, compact }: { class
         // height — a fixed height either left dead space below a shorter
         // sibling or, worse, got clipped by Card's overflow-hidden when a
         // sibling column shrank (see the compact-sizing pass on Scorecard).
-        compact ? "flex-1 p-4" : "h-[340px] p-6"
+        compact ? "flex-1 px-4 py-1.5" : "h-[340px] px-6 py-2"
       )}>
         {chartData.length > 0 ? (
           <ResponsiveContainer width="100%" height="100%">
