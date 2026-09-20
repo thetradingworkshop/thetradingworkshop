@@ -113,7 +113,8 @@ export default function TradesScreen() {
       await dismissTradeIntent(intent.id);
     } catch (err) {
       console.error('Failed to dismiss setup:', err);
-      setToast({ message: 'Failed to dismiss setup', type: 'error' });
+      const detail = err instanceof Error ? err.message : String(err);
+      setToast({ message: `Failed to dismiss setup: ${detail}`, type: 'error' });
     }
   };
 

@@ -590,7 +590,20 @@ service cloud.firestore {
     match /trade_intents/{intentId} {
       allow read: if isAuthenticated() && (isDocOwner() || isAdmin());
       allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid && canWriteOwnData() && isValidTradeIntent(request.resource.data);
-      allow update: if isAuthenticated() && ((isDocOwner() && canWriteOwnData()) || isAdmin()) && isValidTradeIntent(request.resource.data);
+      // Update only ever touches status (dismiss) or status+tradeId (mark
+      // matched) — see markTradeIntentMatched/dismissTradeIntent in
+      // src/lib/tradeIntents.ts, the only two callers. Re-validating the
+      // WHOLE document via isValidTradeIntent() here (as before) meant any
+      // intent whose other fields didn't already match the current schema
+      // — e.g. one logged before a past isValidTradeIntent tightening —
+      // could never be updated again, permanently stuck as "pending" no
+      // matter how many times Dismiss was clicked. Scoping validation to
+      // just the fields actually being written fixes that without
+      // loosening what create allows in the first place.
+      allow update: if isAuthenticated() && ((isDocOwner() && canWriteOwnData()) || isAdmin()) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'tradeId']) &&
+        request.resource.data.status in ['pending', 'matched', 'expired', 'dismissed'] &&
+        (!('tradeId' in request.resource.data) || request.resource.data.tradeId is string);
       allow delete: if isAuthenticated() && ((isDocOwner() && canWriteOwnData()) || isAdmin());
     }
 
