@@ -43,14 +43,24 @@ export class ModelValidationEngine {
       violations.push("No strong directional move");
     }
 
-    // 4. Reversal Structure Detection
-    // IF no reversal structure: → violation: "No structure shift"
-    // Heuristic: If this trade is in the same direction as the previous trade 
-    // and happened shortly after, it's likely a continuation, not a reversal.
+    // 4. Direction Flip Detection (was "Reversal Structure Detection" —
+    // flagged the OPPOSITE pattern until real trade data showed why that
+    // was backwards: it fired on same-direction re-entries within 5
+    // minutes, treating "sticking to your bias" as a violation. For a
+    // trend trader, taking several trades in the same direction as the
+    // market moves IS the discipline, not a lapse in it — the same real
+    // session that surfaced this also had a 5-trade stretch flipping
+    // LONG/SHORT/LONG/SHORT/LONG with gaps as tight as 4 seconds and four
+    // straight losses, which the old rule never caught at all since it
+    // only ever looked at same-direction pairs.
+    // Heuristic: a rapid flip to the opposite direction — no time to have
+    // actually waited for a fresh, independent setup — is the real
+    // indecision/whipsaw signal. Same-direction continuation, however
+    // fast, no longer counts against you.
     if (previousTrade) {
       const timeSincePrev = (new Date(trade.entryTime).getTime() - new Date(previousTrade.exitTime).getTime()) / 1000;
-      if (timeSincePrev < 300 && trade.direction === previousTrade.direction) {
-        violations.push("No structure shift (trend continuation)");
+      if (timeSincePrev < 300 && trade.direction !== previousTrade.direction) {
+        violations.push("Rapid direction flip");
       }
     }
 
