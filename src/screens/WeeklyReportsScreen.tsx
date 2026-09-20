@@ -15,7 +15,15 @@ import { WeekPicker } from '../components/DateRangePicker';
 export default function WeeklyReportsScreen() {
   const { user } = useAuth();
   const [reports, setReports] = useState<WeeklyReport[]>([]);
-  const [viewingReport, setViewingReport] = useState<WeeklyReport | null>(null);
+  // Tracks the id, not the report object — so an edit made from inside the
+  // viewer (e.g. the mentor comment) shows up immediately once the
+  // subscription below refreshes `reports`, instead of the modal holding
+  // onto whatever snapshot of the report it was opened with.
+  const [viewingReportId, setViewingReportId] = useState<string | null>(null);
+  const viewingReport = useMemo(
+    () => (viewingReportId ? reports.find(r => r.id === viewingReportId) ?? null : null),
+    [viewingReportId, reports]
+  );
   const { getEffectiveRange, setPageOverride } = useDateRange();
   // filteredTrades (not the raw, all-accounts/all-symbols `trades`) so the
   // weekly log respects the header's Filters/Account selection, same as
@@ -86,7 +94,7 @@ export default function WeeklyReportsScreen() {
                   <p className="text-sm font-bold">{report.winRate.toFixed(1)}%</p>
                 </div>
                 <div className="flex items-center space-x-2">
-                  <Button variant="ghost" icon={Eye} className="p-2 h-auto" onClick={() => setViewingReport(report)} title="View report" />
+                  <Button variant="ghost" icon={Eye} className="p-2 h-auto" onClick={() => setViewingReportId(report.id)} title="View report" />
                   <Button variant="ghost" icon={Download} className="p-2 h-auto" onClick={() => downloadReportAsText(report)} title="Download report" />
                   <Button variant="ghost" icon={Share2} className="p-2 h-auto" disabled title="A shareable link for reports isn't built yet — notes and trades already have one" />
                 </div>
@@ -106,7 +114,7 @@ export default function WeeklyReportsScreen() {
         subtitle="Detailed trade audit for the selected week"
       />
 
-      <WeeklyReportViewer report={viewingReport} onClose={() => setViewingReport(null)} />
+      <WeeklyReportViewer report={viewingReport} onClose={() => setViewingReportId(null)} />
     </div>
   );
 }

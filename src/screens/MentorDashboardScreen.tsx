@@ -169,8 +169,16 @@ export default function MentorDashboardScreen() {
   // the leaderboard reflect real, live data instead of a snapshot field
   // that was never populated. Keyed off the joined id list (not `students`
   // itself) so a re-render with the same set of students doesn't tear down
-  // and re-subscribe every listener.
-  const studentIds = useMemo(() => students.map(s => s.id).sort().join(','), [students]);
+  // and re-subscribe every listener. An Admin's own uid is folded in too
+  // (student-roster-only otherwise, so `studentRows`/the leaderboard below
+  // — which iterate `students`, not this id list — never gain a row for
+  // it) purely so `studentTrades[user.uid]` exists for the Weekly Coaching
+  // Report generator's self-report option below.
+  const studentIds = useMemo(() => {
+    const ids = students.map(s => s.id);
+    if (role === 'Admin' && user) ids.push(user.uid);
+    return Array.from(new Set(ids)).sort().join(',');
+  }, [students, role, user]);
   useEffect(() => {
     if (!studentIds) { setStudentTrades({}); return; }
     const ids = studentIds.split(',');
@@ -182,6 +190,20 @@ export default function MentorDashboardScreen() {
     );
     return () => unsubscribes.forEach(fn => fn());
   }, [studentIds]);
+
+  // Same "Admin also trades and wants their own Weekly Coaching Report"
+  // case — the generator's Student picker is otherwise Student-role-only,
+  // so an Admin account (like a mentor who's also an active trader) could
+  // never appear in it or ever get a report with userId == their own uid,
+  // which is exactly why their own Weekly Reports page always read "no
+  // reports yet" even with real trades logged.
+  const reportTargets = useMemo(() => {
+    const targets = students.map(s => ({ id: s.id, name: s.name }));
+    if (role === 'Admin' && user) {
+      targets.push({ id: user.uid, name: `${user.displayName || user.email || 'Me'} (You)` });
+    }
+    return targets;
+  }, [students, role, user]);
 
   const studentRows: StudentRow[] = useMemo(
     () => students.map(s => buildStudentRow(s, studentTrades[s.id] || [])),
@@ -686,7 +708,7 @@ export default function MentorDashboardScreen() {
           isOpen={isReportModalOpen}
           onClose={() => setIsReportModalOpen(false)}
           mentorId={user.uid}
-          students={studentRows.map(s => ({ id: s.id, name: s.name }))}
+          students={reportTargets}
           studentTrades={studentTrades}
         />
       )}

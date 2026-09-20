@@ -7,11 +7,12 @@
 import React, { useMemo, useState } from 'react';
 import { Modal, Button } from './Shared';
 import { WeekPicker } from './DateRangePicker';
+import { RichTextEditor } from './RichTextEditor';
 import { startOfWeek, endOfWeek, isWithinInterval } from 'date-fns';
-import { Loader2, FileText, CheckCircle2 } from 'lucide-react';
+import { Loader2, FileText, CheckCircle2, Save } from 'lucide-react';
 import { cn } from '@/src/utils';
 import { Trade } from '../types';
-import { generateWeeklyReport, WeeklyReport } from '../lib/weeklyReports';
+import { generateWeeklyReport, updateMentorComment, WeeklyReport } from '../lib/weeklyReports';
 
 interface GenerateReportModalProps {
   isOpen: boolean;
@@ -46,6 +47,9 @@ export function GenerateReportModal({ isOpen, onClose, mentorId, students, stude
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<WeeklyReport | null>(null);
+  const [mentorComment, setMentorComment] = useState('');
+  const [isSavingComment, setIsSavingComment] = useState(false);
+  const [commentSaved, setCommentSaved] = useState(false);
 
   const weekStart = startOfWeek(weekAnchor, { weekStartsOn: 1 });
   const weekEnd = endOfWeek(weekAnchor, { weekStartsOn: 1 });
@@ -62,6 +66,8 @@ export function GenerateReportModal({ isOpen, onClose, mentorId, students, stude
     setWeekAnchor(new Date());
     setError(null);
     setResult(null);
+    setMentorComment('');
+    setCommentSaved(false);
   };
 
   const handleClose = () => {
@@ -93,6 +99,20 @@ export function GenerateReportModal({ isOpen, onClose, mentorId, students, stude
       setError('Failed to generate report. Please try again.');
     } finally {
       setIsGenerating(false);
+    }
+  };
+
+  const handleSaveComment = async () => {
+    if (!result) return;
+    setIsSavingComment(true);
+    try {
+      await updateMentorComment(result.id, mentorComment);
+      setCommentSaved(true);
+    } catch (err) {
+      console.error('Failed to save mentor comment:', err);
+      setError('Failed to save comment. Please try again.');
+    } finally {
+      setIsSavingComment(false);
     }
   };
 
@@ -153,6 +173,35 @@ export function GenerateReportModal({ isOpen, onClose, mentorId, students, stude
             <div className="p-4 bg-accent/30 rounded-2xl space-y-2">
               <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Summary</p>
               <p className="text-sm text-foreground leading-relaxed">{result.insight.sessionSummary}</p>
+            </div>
+
+            {/* Separate from the summary above — that's the deterministic/
+                AI-generated analysis, this is the mentor's own word to the
+                student. Saved independently (updateMentorComment) so
+                editing it later doesn't mean regenerating the whole
+                report. */}
+            <div className="space-y-2">
+              <label className={labelClass}>Mentor Comment</label>
+              <RichTextEditor
+                key={result.id}
+                initialValue={mentorComment}
+                onChange={(html) => { setMentorComment(html); setCommentSaved(false); }}
+                placeholder="A personal note for this student about their week..."
+                minHeightClass="min-h-[96px]"
+              />
+              <div className="flex items-center justify-between">
+                {commentSaved && <span className="text-xs text-emerald-500 font-medium">Saved</span>}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  icon={isSavingComment ? Loader2 : Save}
+                  onClick={handleSaveComment}
+                  disabled={isSavingComment}
+                  className="ml-auto"
+                >
+                  {isSavingComment ? 'Saving...' : 'Save Comment'}
+                </Button>
+              </div>
             </div>
 
             <p className="text-xs text-muted-foreground">

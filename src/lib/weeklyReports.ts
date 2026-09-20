@@ -2,7 +2,7 @@
 // Coaching Report" → Generate, read on the student's own Weekly Reports
 // page). v1 is mentor-triggered only, per the chosen scope — no scheduled
 // job generates these automatically.
-import { collection, doc, setDoc, onSnapshot, query, where, orderBy } from 'firebase/firestore';
+import { collection, doc, setDoc, updateDoc, onSnapshot, query, where, orderBy } from 'firebase/firestore';
 import { format } from 'date-fns';
 import { db } from '../firebase';
 import { Trade } from '../types';
@@ -31,6 +31,12 @@ export interface WeeklyReport {
   // signed-in user's own.
   insight: StructuredInsight;
   createdAt: string;
+  // A free-form note from the mentor (rich HTML, same RichTextEditor as
+  // everywhere else in the app), separate from `insight` — that's the
+  // deterministic/AI-generated analysis, this is the mentor's own personal
+  // word to the student. Set after generation (see GenerateReportModal),
+  // editable later from the report viewer.
+  mentorComment?: string;
 }
 
 export function subscribeReports(userId: string, onChange: (reports: WeeklyReport[]) => void): () => void {
@@ -91,6 +97,13 @@ export async function generateWeeklyReport(params: {
   const id = `${studentId}_${weekStartStr}`;
   await setDoc(doc(db, 'reports', id), report);
   return { id, ...report };
+}
+
+// Set (or clear, with '') the mentor's own note on an already-generated
+// report — separate from generateWeeklyReport so editing the comment later
+// doesn't require regenerating the whole report (and its AI insight) again.
+export async function updateMentorComment(reportId: string, mentorComment: string): Promise<void> {
+  await updateDoc(doc(db, 'reports', reportId), { mentorComment });
 }
 
 // Real download — a plain-text file via Blob, not the PDF/branded export a
