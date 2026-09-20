@@ -464,8 +464,17 @@ export default function SessionDetailScreen() {
           <div className="relative group">
             <BiasVsOutcome data={stats?.biasVsOutcomeData} />
             <div className="absolute top-4 right-4">
+              {/* Was reading entryTimingScore (a self-rated entry-quality
+                  slider, unrelated to this specific chart) to badge the
+                  Bias vs Outcome donut — now reads the same "Aligned"
+                  share the donut itself shows (Aligned Win + Aligned
+                  Loss), so the badge actually describes the chart next
+                  to it. */}
               <Badge variant={hasData ? "positive" : "neutral"} className="shadow-lg backdrop-blur-md bg-emerald-500/20">
-                {hasData ? (behaviorMetrics.entryTimingScore > 70 ? "High Alignment" : "Partial Alignment") : "No Data"}
+                {hasData
+                  ? ((stats?.biasVsOutcomeData || []).filter(d => d.name.startsWith('Aligned')).reduce((sum, d) => sum + d.value, 0) > 70
+                    ? "High Alignment" : "Partial Alignment")
+                  : "No Data"}
               </Badge>
             </div>
           </div>

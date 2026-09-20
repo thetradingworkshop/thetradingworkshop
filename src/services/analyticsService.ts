@@ -1,6 +1,7 @@
 import { format } from 'date-fns';
 import { Trade, TradeStats, Session } from '../types';
 import { SessionBuilder } from './SessionBuilder';
+import { ModelValidationEngine } from './ModelValidationEngine';
 
 export interface CalendarDay {
   day: number | null;
@@ -37,7 +38,10 @@ export interface DashboardModel {
     // underlying numbers are still useful, just mislabeled before.
     payoffRatioScore: number;
     payoffRatioTrend: number;
-    entryTimingScore: number;
+    // null = no trade has ever had its entry timing manually rated yet —
+    // distinct from 0, which would mean "rated, and every single one
+    // scored badly." See computeEntryTimingScore below.
+    entryTimingScore: number | null;
     entryTimingTrend: number;
     consistencyScore: number;
     sessionVerdict: string;
@@ -67,19 +71,46 @@ export const buildDashboardModel = (
   trades: Trade[],
   filteredTrades: Trade[],
   currentDate: Date,
-  showWeekends: boolean
+  showWeekends: boolean,
+  // Same-length window immediately before filteredTrades' own range (e.g.
+  // the prior 30 days, if filteredTrades is "Last 30 Days") — optional and
+  // defaulting to none, so the two other callers (SessionDetailScreen,
+  // BehaviorAnalysisTab), which have no natural "previous period" of their
+  // own, are unaffected and keep getting trend: 0 exactly as before. Only
+  // DashboardScreen currently passes this.
+  previousPeriodTrades: Trade[] = []
 ): DashboardModel => {
   const stats = buildTradeStats(filteredTrades);
   const calendarDays = buildCalendarDays(trades, currentDate, showWeekends);
   const weeklySummaries = buildWeeklySummaries(calendarDays, showWeekends);
-  
+
+  const disciplineScore = computeDisciplineScore(filteredTrades);
+  const payoffRatioScore = computePayoffRatioScore(filteredTrades);
+  const entryTimingScore = computeEntryTimingScore(filteredTrades);
+
+  // Real point-change vs. the prior comparable period — these used to be
+  // hardcoded to 0, which the "Improving X" / "Declining X" labels and
+  // trend badges below Discipline/Payoff Ratio/Entry Timing Score render
+  // as unconditionally *declining* (their positive branch is `trend > 0`,
+  // and 0 fails that), so every trader saw all three scores marked
+  // "Declining" on every visit regardless of whether anything had actually
+  // gotten worse. No prior-period trades at all (e.g. a brand-new account,
+  // or viewing the very first period of activity) leaves trend at 0 —
+  // honestly "no comparison available" rather than inventing one.
+  const hasPreviousPeriod = previousPeriodTrades.length > 0;
+  const previousDisciplineScore = hasPreviousPeriod ? computeDisciplineScore(previousPeriodTrades) : null;
+  const previousPayoffRatioScore = hasPreviousPeriod ? computePayoffRatioScore(previousPeriodTrades) : null;
+  const previousEntryTimingScore = hasPreviousPeriod ? computeEntryTimingScore(previousPeriodTrades) : null;
+
   const behaviorMetrics = {
-    disciplineScore: computeDisciplineScore(filteredTrades),
-    disciplineTrend: 0,
-    payoffRatioScore: computePayoffRatioScore(filteredTrades),
-    payoffRatioTrend: 0,
-    entryTimingScore: computeEntryTimingScore(filteredTrades),
-    entryTimingTrend: 0,
+    disciplineScore,
+    disciplineTrend: previousDisciplineScore !== null ? disciplineScore - previousDisciplineScore : 0,
+    payoffRatioScore,
+    payoffRatioTrend: previousPayoffRatioScore !== null ? payoffRatioScore - previousPayoffRatioScore : 0,
+    entryTimingScore,
+    entryTimingTrend: (entryTimingScore !== null && previousEntryTimingScore !== null)
+      ? entryTimingScore - previousEntryTimingScore
+      : 0,
     consistencyScore: computeConsistencyScore(filteredTrades),
     sessionVerdict: computeSessionVerdict(filteredTrades),
     insights: computeBehavioralInsights(filteredTrades),
@@ -173,12 +204,20 @@ export const buildTradeStats = (trades: Trade[]): TradeStats | null => {
   ].filter(g => g.value > 0);
 
   // "Bias" here means whether the trade followed the trader's model/rules
-  // (mirrors the fallback used in computeDisciplineScore: isViolation when
-  // the backend computed it, otherwise modelValidation.followsModel).
+  // — isViolation when persisted (e.g. from a matched Log Setup), otherwise
+  // real rule violations computed fresh via ModelValidationEngine, same as
+  // computeDisciplineScore now does. NOT a bare `?? true` fallback: that
+  // defaulted an unchecked trade to "followed the model" instead of
+  // actually checking it, which is what made this chart's numbers depend
+  // on whether something else (e.g. visiting the Sessions page) happened
+  // to run SessionBuilder first in the same browser session.
   // Crossed with outcome (win/loss) to show whether discipline actually
   // correlates with winning, not just a raw follow-rate.
-  const biasCategories = validTrades.reduce((acc, t) => {
-    const followedModel = t.isViolation !== undefined ? !t.isViolation : (t.modelValidation?.followsModel ?? true);
+  const chronological = [...validTrades].sort((a, b) => new Date(a.entryTime).getTime() - new Date(b.entryTime).getTime());
+  const biasCategories = chronological.reduce((acc, t, i) => {
+    const followedModel = t.isViolation !== undefined
+      ? !t.isViolation
+      : ModelValidationEngine.validateTrade(t, i > 0 ? chronological[i - 1] : undefined).followsModel;
     const key = followedModel
       ? (t.isWinner ? 'Aligned Win' : 'Aligned Loss')
       : (t.isWinner ? 'Deviated Win' : 'Deviated Loss');
@@ -388,14 +427,27 @@ export const computeDisciplineScore = (trades: Trade[]): number => {
   
   const sessionScores = Object.values(tradesBySession).map(sessionTrades => {
     const totalTrades = sessionTrades.length;
-    // validTrades = trades where isViolation = false (or followsModel = true as fallback)
-    const validTradesCount = sessionTrades.filter(t => {
-      // Use isViolation if available (it should be if backend ran)
+    // Chronological order so the sequence-based "no structure shift" check
+    // in ModelValidationEngine sees trades in the right order — same
+    // requirement SessionBuilder.buildSession() has for the same reason.
+    const sorted = [...sessionTrades].sort((a, b) => new Date(a.entryTime).getTime() - new Date(b.entryTime).getTime());
+    // validTrades = trades where isViolation = false (persisted, e.g. from
+    // a matched Log Setup — see AddTradeModal's prefill handling) or,
+    // absent that, real rule violations computed fresh via the same
+    // ModelValidationEngine SessionBuilder uses. This used to fall back to
+    // `t.modelValidation?.followsModel ?? true` — defaulting an unchecked
+    // trade to "compliant" rather than actually checking it — which meant
+    // this score only ever reflected real rule violations if something
+    // else (e.g. visiting the Sessions page, which mutates these fields
+    // onto the same Trade objects as a side effect) happened to run first.
+    // A trade with no rules ever checked against it now gets checked here,
+    // so the number means the same thing regardless of navigation history.
+    const validTradesCount = sorted.filter((t, i) => {
       if (t.isViolation !== undefined) return !t.isViolation;
-      // Fallback to followsModel
-      return t.modelValidation?.followsModel ?? true;
+      const previous = i > 0 ? sorted[i - 1] : undefined;
+      return ModelValidationEngine.validateTrade(t, previous).followsModel;
     }).length;
-    
+
     let score = (validTradesCount / totalTrades) * 100;
     
     // Penalties
@@ -424,7 +476,7 @@ export const computeDisciplineScore = (trades: Trade[]): number => {
 // display score — a payoff ratio, not a risk measure. A trader could
 // oversize a single trade and blow up their account while this stays high,
 // as long as their winners are bigger than their losers on average.
-const computePayoffRatioScore = (trades: Trade[]): number => {
+export const computePayoffRatioScore = (trades: Trade[]): number => {
   if (trades.length === 0) return 0;
   const winners = trades.filter(t => t.isWinner);
   const losers = trades.filter(t => !t.isWinner);
@@ -449,14 +501,18 @@ export const computeConsistencyScore = (trades: Trade[]): number => {
 
 // Formerly "Bias Score" — renamed because it never measured cognitive bias
 // (confirmation bias, loss aversion, recency bias, etc.). It's the % of
-// trades where the trader manually rated their own entry timing >= 80 on
-// TradePerformanceLog's slider — a self-reported entry-quality metric,
-// not a bias-detection one. That slider defaults to 50 when never touched,
-// so an un-rated trade counts against this score.
-const computeEntryTimingScore = (trades: Trade[]): number => {
-  if (trades.length === 0) return 0;
-  const highTiming = trades.filter(t => (t.timingScore || 0) >= 80).length;
-  return Math.round((highTiming / trades.length) * 100);
+// *rated* trades where the trader manually scored their own entry timing
+// >= 80 on TradePerformanceLog's slider — a self-reported entry-quality
+// metric, not a bias-detection one. Only counts trades with an explicit
+// timingScore: this used to divide by every trade regardless of whether
+// it had ever been rated, so a trader who simply hadn't gone back to rate
+// anything yet saw a stark "0/100, declining" rather than "nothing rated
+// yet" — the two mean very different things and looked identical.
+export const computeEntryTimingScore = (trades: Trade[]): number | null => {
+  const rated = trades.filter(t => t.timingScore !== undefined);
+  if (rated.length === 0) return null;
+  const highTiming = rated.filter(t => (t.timingScore || 0) >= 80).length;
+  return Math.round((highTiming / rated.length) * 100);
 };
 
 const computeSessionVerdict = (trades: Trade[]): string => {

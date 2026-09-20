@@ -138,14 +138,34 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
     });
   }, [trades, selectedFilter, currentDate, dateRange]);
 
+  // The same-length window immediately before the current date range (e.g.
+  // the prior 30 days, if dateRange is "Last 30 Days") — real data for the
+  // Discipline/Payoff Ratio/Entry Timing trend badges below, which used to
+  // be hardcoded to 0 regardless of what actually happened. Built from
+  // `trades` (respects the header's own symbol/account/tag filters, same
+  // as `filteredTrades` below) rather than `filteredTrades` itself, since
+  // the calendar's day/week selectedFilter narrowing is a within-the-
+  // current-period interaction that shouldn't also narrow what "previous
+  // period" means.
+  const previousPeriodTrades = useMemo(() => {
+    const durationMs = dateRange.to.getTime() - dateRange.from.getTime();
+    const previousTo = new Date(dateRange.from.getTime() - 1);
+    const previousFrom = new Date(dateRange.from.getTime() - durationMs);
+    return trades.filter(t => {
+      const tradeDate = new Date(t.entryTime);
+      return tradeDate >= previousFrom && tradeDate <= previousTo;
+    });
+  }, [trades, dateRange]);
+
   const dashboardModel = useMemo(() => {
     return buildDashboardModel(
       trades,
       filteredTrades,
       currentDate,
-      calendarSettings.showWeekends
+      calendarSettings.showWeekends,
+      previousPeriodTrades
     );
-  }, [trades, filteredTrades, currentDate, calendarSettings.showWeekends]);
+  }, [trades, filteredTrades, currentDate, calendarSettings.showWeekends, previousPeriodTrades]);
 
   const { stats, calendarDays, weeklySummaries, behaviorMetrics } = dashboardModel;
 
@@ -430,27 +450,39 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
             <EquityCurveChart className="h-full" data={stats?.equityDataDollars} compact />
           </div>
           <div className="lg:col-span-3 flex flex-col gap-3">
+            {/* trend is a real point-change vs. the prior comparable period
+                now (see buildDashboardModel), not the hardcoded 0 it used
+                to be — but 0 still genuinely means "flat" or "nothing to
+                compare yet", not "declining", so each trend badge is only
+                shown when there's an actual direction to report; otherwise
+                the label alone says "Stable"/"No ratings yet" rather than
+                implying movement that isn't there. */}
             <Scorecard
               label="Discipline Score"
               value={`${behaviorMetrics.disciplineScore}/100`}
-              secondary={behaviorMetrics.disciplineTrend > 0 ? "Improving adherence" : "Decreasing adherence"}
-              trend={{ value: Math.abs(behaviorMetrics.disciplineTrend), label: 'trend', positive: behaviorMetrics.disciplineTrend >= 0 }}
+              secondary={behaviorMetrics.disciplineTrend > 0 ? "Improving adherence" : behaviorMetrics.disciplineTrend < 0 ? "Decreasing adherence" : "Stable adherence"}
+              trend={behaviorMetrics.disciplineTrend !== 0 ? { value: Math.abs(behaviorMetrics.disciplineTrend), label: 'trend', positive: behaviorMetrics.disciplineTrend > 0 } : undefined}
               className="bg-indigo-500/5 border-indigo-500/20"
               compact
             />
             <Scorecard
               label="Payoff Ratio Score"
               value={`${behaviorMetrics.payoffRatioScore}/100`}
-              secondary={behaviorMetrics.payoffRatioTrend > 0 ? "Improving payoff ratio" : "Declining payoff ratio"}
-              trend={{ value: Math.abs(behaviorMetrics.payoffRatioTrend), label: 'trend', positive: behaviorMetrics.payoffRatioTrend >= 0 }}
+              secondary={behaviorMetrics.payoffRatioTrend > 0 ? "Improving payoff ratio" : behaviorMetrics.payoffRatioTrend < 0 ? "Declining payoff ratio" : "Stable payoff ratio"}
+              trend={behaviorMetrics.payoffRatioTrend !== 0 ? { value: Math.abs(behaviorMetrics.payoffRatioTrend), label: 'trend', positive: behaviorMetrics.payoffRatioTrend > 0 } : undefined}
               compact
             />
             <Scorecard
               label="Entry Timing Score"
-              value={`${behaviorMetrics.entryTimingScore}/100`}
-              secondary={behaviorMetrics.entryTimingTrend > 0 ? "Improving entry timing" : "Declining entry timing"}
-              trend={{ value: Math.abs(behaviorMetrics.entryTimingTrend), label: 'trend', positive: behaviorMetrics.entryTimingTrend >= 0 }}
-              className={behaviorMetrics.entryTimingTrend < 0 ? "bg-rose-500/5 border-rose-500/20" : "bg-emerald-500/5 border-emerald-500/20"}
+              value={behaviorMetrics.entryTimingScore === null ? 'N/A' : `${behaviorMetrics.entryTimingScore}/100`}
+              secondary={
+                behaviorMetrics.entryTimingScore === null ? "No entries rated yet"
+                  : behaviorMetrics.entryTimingTrend > 0 ? "Improving entry timing"
+                  : behaviorMetrics.entryTimingTrend < 0 ? "Declining entry timing"
+                  : "Stable entry timing"
+              }
+              trend={behaviorMetrics.entryTimingTrend !== 0 ? { value: Math.abs(behaviorMetrics.entryTimingTrend), label: 'trend', positive: behaviorMetrics.entryTimingTrend > 0 } : undefined}
+              className={behaviorMetrics.entryTimingTrend < 0 ? "bg-rose-500/5 border-rose-500/20" : behaviorMetrics.entryTimingTrend > 0 ? "bg-emerald-500/5 border-emerald-500/20" : undefined}
               compact
             />
           </div>

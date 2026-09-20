@@ -592,7 +592,7 @@ export default function UsersPermissionsScreen() {
 
   const renderRolesTab = () => (
     <div className="space-y-4">
-      <p className="text-xs text-muted-foreground italic">Reference only — what each role is meant to allow. Not yet enforced beyond which pages appear in navigation.</p>
+      <p className="text-xs text-muted-foreground italic">Reference only — most of what's listed here describes intent, not a full enforcement engine. Some of it is genuinely backed by database rules already: "View All Data" for Mentor/Admin is real read access only — neither can alter a student's trades, trade reviews, or journal notes, regardless of what a page's navigation shows.</p>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {(Object.keys(ROLE_TEMPLATES) as Role[]).map(role => (
           <Card key={role} className="p-6 flex flex-col h-full">
@@ -633,7 +633,7 @@ export default function UsersPermissionsScreen() {
 
   const renderAccessRulesTab = () => (
     <div className="space-y-4">
-      <p className="text-xs text-muted-foreground italic">Reference only — not a live permissions engine yet.</p>
+      <p className="text-xs text-muted-foreground italic">Reference only — not a live, per-permission engine yet, though the most sensitive case (Mentor/Admin viewing but never altering a student's trades and notes) is already enforced at the database level.</p>
       <Card noPadding className="overflow-hidden">
         <Table>
           <TableHeader>
