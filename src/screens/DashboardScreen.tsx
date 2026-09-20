@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect, useCallback } from 'react';
+import React, { useMemo, useState, useEffect, useCallback, useRef } from 'react';
 import { cn, gradeBadgeVariant, pointsPerContract } from '@/src/utils';
 import { SectionHeader, Scorecard, Card, Badge, Button, Table, TableHeader, TableRow, TableHead, TableCell, Toast, Modal } from '../components/Shared';
 import { EquityCurveChart } from '../components/Charts';
@@ -102,6 +102,11 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
   const [ruleBasedInsight, setRuleBasedInsight] = useState<RuleBasedInsight | null>(null);
   const [isMentorLoading, setIsMentorLoading] = useState(false);
   const [cooldownRemaining, setCooldownRemaining] = useState(0);
+  // "Details" on the AI Weekly Insight banner jumps down to the full
+  // Hard-Rule Analysis section below, which already renders this exact
+  // same ruleBasedInsight in full (Strengths/Weaknesses/Next Action) —
+  // no separate modal/page needed, just scroll to what's already there.
+  const hardRuleAnalysisRef = useRef<HTMLDivElement>(null);
 
   // Memoize mentor service to avoid re-instantiation
   const mentorService = useMemo(() => new MentorService(new AnthropicProvider()), []);
@@ -859,7 +864,11 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
                       </p>
                     </div>
                   </div>
-                  <Button variant="outline" className="bg-white/10 border-white/20 text-white hover:bg-white/20 text-[9px] h-7 px-2.5">
+                  <Button
+                    variant="outline"
+                    className="bg-white/10 border-white/20 text-white hover:bg-white/20 text-[9px] h-7 px-2.5"
+                    onClick={() => hardRuleAnalysisRef.current?.scrollIntoView({ block: 'start' })}
+                  >
                     Details
                   </Button>
                 </div>
@@ -957,7 +966,7 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
       {/* Section 3: AI Mentor — Behavioral Analysis (charts + insight cards)
           moved to Reports -> Behavior; see PerformanceSummaryTab's sibling
           for that. */}
-      <section className="space-y-4">
+      <section ref={hardRuleAnalysisRef} className="space-y-4">
         <div className="mb-4">
           {/* Not AI — RuleBasedMentorService is plain if/else threshold
               logic on winRate/disciplineScore/profitFactor/etc (see that
