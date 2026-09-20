@@ -812,41 +812,41 @@ export default function SessionDetailScreen() {
             {isSavingJournal ? 'Saving...' : 'Save Journal'}
           </Button>
         </div>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          <div className="space-y-6">
-            <div className="space-y-2">
-              <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Session Category</label>
-              <select
-                className="w-full p-3 bg-accent/30 border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
-                value={journalDraft.sessionCategory}
-                onChange={(e) => setJournalDraft(prev => ({ ...prev, sessionCategory: e.target.value as SessionCategory | '' }))}
-              >
-                <option value="">No category</option>
-                <option value="NY_AM">NY AM</option>
-                <option value="NY_PM">NY PM</option>
-                <option value="ASIA">Asia</option>
-                <option value="LONDON">London</option>
-                <option value="WEEKLY">Weekly</option>
-              </select>
-            </div>
-            <div className="space-y-2">
-              <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Session Notes</label>
-              <RichTextEditor
-                key={journalDraft.journalId || `${rangeStart}_${rangeEnd}`}
-                initialValue={journalDraft.content}
-                onChange={(html) => setJournalDraft(prev => ({ ...prev, content: html }))}
-                placeholder="General notes about the session..."
-                minHeightClass="min-h-[128px]"
-                userId={user?.uid}
-                onUploadingChange={setIsJournalMediaUploading}
-              />
-            </div>
+        <div className="space-y-6">
+          <div className="space-y-2">
+            <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Session Category</label>
+            <select
+              className="w-full p-3 bg-accent/30 border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+              value={journalDraft.sessionCategory}
+              onChange={(e) => setJournalDraft(prev => ({ ...prev, sessionCategory: e.target.value as SessionCategory | '' }))}
+            >
+              <option value="">No category</option>
+              <option value="NY_AM">NY AM</option>
+              <option value="NY_PM">NY PM</option>
+              <option value="ASIA">Asia</option>
+              <option value="LONDON">London</option>
+              <option value="WEEKLY">Weekly</option>
+            </select>
           </div>
-          <div className="space-y-6">
+          <div className="space-y-2">
+            <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Session Notes</label>
+            <RichTextEditor
+              key={journalDraft.journalId || `${rangeStart}_${rangeEnd}`}
+              initialValue={journalDraft.content}
+              onChange={(html) => setJournalDraft(prev => ({ ...prev, content: html }))}
+              placeholder="General notes about the session..."
+              minHeightClass="min-h-[128px]"
+              userId={user?.uid}
+              onUploadingChange={setIsJournalMediaUploading}
+            />
+          </div>
+          <div className="space-y-2">
             <div className="flex items-center space-x-2">
               <MessageSquare className="w-4 h-4 text-muted-foreground" />
               <h4 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Self Review</h4>
             </div>
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="space-y-2">
               <label className="text-[10px] font-bold uppercase tracking-widest text-emerald-600">What went well?</label>
               <DictationTextarea
