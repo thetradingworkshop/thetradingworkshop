@@ -61,8 +61,8 @@ service firebase.storage {
       // `video/.*` requirement here silently denied that legitimate
       // upload. mediaUpload.ts already checks `file.type` client-side
       // before ever starting the upload, so this was defense-in-depth,
-      // not the real security boundary — isOwner + canWriteOwnData + the
-      // size cap are.
+      // not the real security boundary — isOwner + the size cap are.
+      //
       allow write: if isOwner(userId) && canWriteOwnData() &&
         request.resource.size < 20 * 1024 * 1024 * 1024;
       allow delete: if isOwner(userId) || isAdmin();
