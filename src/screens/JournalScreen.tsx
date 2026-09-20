@@ -3,6 +3,7 @@ import { cn, omitUndefined } from '@/src/utils';
 import { SectionHeader, Card, Button, Badge, Toast, Modal, Input } from '../components/Shared';
 import { Search, Plus, Calendar, Share2, MessageSquare, ExternalLink, RotateCcw, Trash2, BookOpen, Edit3, Link as LinkIcon, Zap, X, TrendingUp, TrendingDown, BrainCircuit, Save, Loader2, Star, FileText, BarChart3, FileBarChart, ChevronRight, Send, LayoutTemplate } from 'lucide-react';
 import { MOOD_OPTIONS } from '../lib/moods';
+import { formatRecapTitle, computeRecapStats, localDateOf, getRecapStatsForDisplay } from '../lib/journalRecap';
 import { collection, query, where, onSnapshot, orderBy, addDoc, updateDoc, deleteDoc, deleteField, doc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useTrades } from '../context/TradeContext';
@@ -69,80 +70,10 @@ function emptyRecapDraft(): RecapDraft {
   return { startDate: today, endDate: today, accountKey: '' };
 }
 
-function formatRecapTitle(start: string, end: string): string {
-  const fmt = (d: string) => new Date(`${d}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' });
-  return start === end ? fmt(start) : `${fmt(start)} - ${fmt(end)}`;
-}
-
-// Volume counts both legs of each trade (entry + exit fills), so it runs
-// roughly 2x contractsTraded for simple single-entry/single-exit trades —
-// contractsTraded is the per-trade position size, volume is total executed size.
-function computeRecapStats(rangeTrades: Trade[]): NonNullable<JournalEntry['recapStats']> {
-  const netPnl = rangeTrades.reduce((s, t) => s + (t.realizedPnL || 0), 0);
-  const grossPnl = rangeTrades.reduce((s, t) => s + (t.grossPnlCurrency ?? t.pnlCurrency ?? 0), 0);
-  const totalTrades = rangeTrades.length;
-  const winners = rangeTrades.filter(t => t.isWinner).length;
-  const losers = totalTrades - winners;
-  const winRate = totalTrades > 0 ? (winners / totalTrades) * 100 : 0;
-  const commissions = rangeTrades.reduce((s, t) => s + (t.totalCommission || 0), 0);
-  const volume = rangeTrades.reduce((s, t) => s + t.fills.reduce((fs, f) => fs + (f.quantity || 0), 0), 0);
-  const grossProfit = rangeTrades.filter(t => (t.realizedPnL || 0) > 0).reduce((s, t) => s + (t.realizedPnL || 0), 0);
-  const grossLoss = rangeTrades.filter(t => (t.realizedPnL || 0) < 0).reduce((s, t) => s + (t.realizedPnL || 0), 0);
-  const profitFactor = grossLoss < 0 ? grossProfit / Math.abs(grossLoss) : 0;
-
-  const byDate = new Map<string, number>();
-  rangeTrades.forEach(t => byDate.set(t.sessionDate, (byDate.get(t.sessionDate) || 0) + (t.realizedPnL || 0)));
-  let running = 0;
-  const equityCurve = [...byDate.keys()].sort().map(date => {
-    running += byDate.get(date)!;
-    return { date, cumPnl: Number(running.toFixed(2)) };
-  });
-
-  return { netPnl, grossPnl, totalTrades, winners, losers, winRate, commissions, volume, profitFactor, equityCurve };
-}
-
-// Trade.sessionDate is derived once at import/reconstruction time from the
-// raw UTC timestamp (entryTime.split('T')[0]), with no timezone conversion.
-// The Dashboard calendar instead buckets trades by LOCAL calendar day (via
-// new Date(entryTime).getDate() etc). For a trade entered late in the
-// evening local time — e.g. after 8pm ET, which is already past midnight
-// UTC — those two dates disagree by one day. Matching journal/recap trades
-// against sessionDate directly (as this used to) silently drops those
-// trades from the day the trader actually experienced them on. Deriving
-// the same local date the calendar uses keeps both in sync.
-function localDateOf(trade: Trade): string {
-  return format(new Date(trade.entryTime), 'yyyy-MM-dd');
-}
-
-// recapStats is only ever a snapshot from when the recap was created or
-// last edited — trades imported or added afterward (e.g. a recap made
-// mid-week that should reflect today's session too) would otherwise leave
-// the recap silently stuck showing stale numbers. Recomputing live from
-// current trades on every read means the recap always reflects reality;
-// the stored value is only a fallback for the rare note missing date
-// fields entirely (or one saved under an earlier shape of `recapStats`,
-// before equityCurve/winners/losers/winRate/profitFactor existed, which
-// would otherwise throw when this screen reads those fields — and with no
-// error boundary anywhere in the app, that crash blanks the entire page,
-// not just this note).
-function getRecapStatsForDisplay(journal: JournalDraft, trades: Trade[]): NonNullable<JournalEntry['recapStats']> | null {
-  if (journal.recapStartDate && journal.recapEndDate) {
-    const rangeTrades = trades.filter(t => {
-      const d = localDateOf(t);
-      if (d < journal.recapStartDate! || d > journal.recapEndDate!) return false;
-      if (journal.connectionId && journal.accountId) {
-        return t.connectionId === journal.connectionId && t.accountId === journal.accountId;
-      }
-      return true;
-    });
-    return computeRecapStats(rangeTrades);
-  }
-  const stats = journal.recapStats;
-  if (stats && Array.isArray(stats.equityCurve) && typeof stats.winRate === 'number') {
-    return stats;
-  }
-  return null;
-}
+// formatRecapTitle/computeRecapStats/localDateOf/getRecapStatsForDisplay
+// moved to lib/journalRecap.ts — shared with SessionDetailScreen, whose
+// own journal is really the same kind of entry scoped to whatever range/
+// account the Sessions page currently has selected.
 
 export default function JournalScreen({ setActivePage }: { setActivePage: (page: string) => void }) {
   const { user } = useAuth();
@@ -1022,6 +953,36 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
                 </div>
                 )}
 
+                {/* Self Review — Daily Journal and Sessions Recap notes only
+                    (not trade notes, which have their own entryReason/
+                    followedPlan/improvements above). This is what used to
+                    be a separate Session Journal/Self Review system on the
+                    Sessions page — merged in here so it's visible/
+                    commentable like any other journal content. */}
+                {!linkedTrade && (selectedJournal.whatWentWell || selectedJournal.whatHurt || selectedJournal.correctiveAction) && (
+                <div className="p-6 rounded-3xl bg-muted border border-border space-y-6">
+                  <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Self Review</h4>
+                  {selectedJournal.whatWentWell && (
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest">What went well?</label>
+                      <p className="text-sm font-medium text-foreground leading-relaxed">{selectedJournal.whatWentWell}</p>
+                    </div>
+                  )}
+                  {selectedJournal.whatHurt && (
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold text-rose-600 uppercase tracking-widest">What hurt?</label>
+                      <p className="text-sm font-medium text-foreground leading-relaxed">{selectedJournal.whatHurt}</p>
+                    </div>
+                  )}
+                  {selectedJournal.correctiveAction && (
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest">Corrective Action</label>
+                      <p className="text-sm font-medium text-foreground leading-relaxed">{selectedJournal.correctiveAction}</p>
+                    </div>
+                  )}
+                </div>
+                )}
+
                 <div className="max-w-none">
                   {selectedJournal.content ? (
                     <div
@@ -1366,6 +1327,43 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
               </div>
             </div>
             </>
+            )}
+
+            {/* Self Review — Daily Journal and Sessions Recap notes (not
+                trade notes, which have entryReason/followedPlan/improvements
+                above instead). Merged in from what used to be a separate
+                Session Journal/Self Review system on the Sessions page. */}
+            {!draft.tradeId && (
+              <div className="p-4 rounded-2xl border border-border bg-accent/10 space-y-5">
+                <h4 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Self Review</h4>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-emerald-600">What went well?</label>
+                  <DictationTextarea
+                    className="w-full h-16 p-4 bg-emerald-500/5 border border-emerald-500/10 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 resize-none"
+                    placeholder="List your wins and good habits..."
+                    value={draft.whatWentWell || ''}
+                    onChange={(e) => setDraft(prev => prev && ({ ...prev, whatWentWell: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-rose-600">What hurt?</label>
+                  <DictationTextarea
+                    className="w-full h-16 p-4 bg-rose-500/5 border border-rose-500/10 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-rose-500/20 resize-none"
+                    placeholder="What mistakes did you make?"
+                    value={draft.whatHurt || ''}
+                    onChange={(e) => setDraft(prev => prev && ({ ...prev, whatHurt: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-indigo-600">Corrective Action</label>
+                  <DictationTextarea
+                    className="w-full h-16 p-4 bg-indigo-500/5 border border-indigo-500/10 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 resize-none"
+                    placeholder="What will you do differently next time?"
+                    value={draft.correctiveAction || ''}
+                    onChange={(e) => setDraft(prev => prev && ({ ...prev, correctiveAction: e.target.value }))}
+                  />
+                </div>
+              </div>
             )}
 
             <div className="space-y-2">

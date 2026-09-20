@@ -19,6 +19,7 @@ import { AnthropicProvider } from '../services/aiProviders';
 import { Session, TradeIntent, JournalEntry } from '../types';
 import { doc, getDoc, setDoc, updateDoc, addDoc, deleteField, collection, query, where, getDocs, serverTimestamp } from 'firebase/firestore';
 import { db } from '../firebase';
+import { formatRecapTitle, computeRecapStats } from '../lib/journalRecap';
 
 export default function SessionDetailScreen() {
   const { user } = useAuth();
@@ -26,30 +27,37 @@ export default function SessionDetailScreen() {
   const [isReentryCollapsed, setIsReentryCollapsed] = useState(false);
   const [isScaledCollapsed, setIsScaledCollapsed] = useState(false);
   const { getEffectiveRange } = useDateRange();
-  const { filteredTrades: trades } = useTrades();
+  const { filteredTrades: trades, accountFilter, accountOptions } = useTrades();
   const effectiveRange = getEffectiveRange('sessions');
   const [mentorFeedback, setMentorFeedback] = useState<StructuredInsight | null>(null);
   const [ruleBasedInsight, setRuleBasedInsight] = useState<RuleBasedInsight | null>(null);
   const [isMentorLoading, setIsMentorLoading] = useState(false);
   const [cooldownRemaining, setCooldownRemaining] = useState(0);
 
-  // Session Journal + Self Review content now lives on the same Daily
-  // Journal entry Journal screen's own find-or-create would land on for
-  // this date (journals/{id} with sessionId set, no tradeId) — merged
-  // from what used to be a separate sessions-collection field set so
-  // there's one journaling system, and so a mentor's existing journals
-  // read/comment access (MentorDashboardScreen, useMentorComments) covers
-  // this content too instead of it sitting somewhere mentor tooling never
-  // looked. `journalId` is null until the first save, matching
-  // JournalScreen's own create-vs-update branch.
+  // Session Journal + Self Review content now lives on a Sessions Recap
+  // journal entry (journals/{id}, noteType 'session_recap') scoped to
+  // whatever date range + account this page's own top-of-page filters
+  // currently have selected — the exact same entry shape "New Sessions
+  // Recap" on the Journal page creates, so a note started from either
+  // screen is the same kind of thing, not two different systems. Merged
+  // in from what used to be a separate sessions-collection field set
+  // (single calendar day, ignoring both the range's end and the account
+  // filter entirely) so a mentor's existing journals read/comment access
+  // covers this content too, and so the date/account scope this page
+  // shows trades for is the same scope the journal is actually saved
+  // against. `journalId` is null until the first save for this exact
+  // range+account combo, matching JournalScreen's own create-vs-update
+  // branch. Premarket Plan was dropped entirely — it never had anywhere
+  // to show on the Journal page's own recap notes, so keeping it here
+  // only would've been the same "not uniform across the app" problem in
+  // miniature.
   const [journalDraft, setJournalDraft] = useState<{
     journalId: string | null;
     content: string;
-    premarketPlan: string;
     whatWentWell: string;
     whatHurt: string;
     correctiveAction: string;
-  }>({ journalId: null, content: '', premarketPlan: '', whatWentWell: '', whatHurt: '', correctiveAction: '' });
+  }>({ journalId: null, content: '', whatWentWell: '', whatHurt: '', correctiveAction: '' });
   // sessionCategory is session-level classification, not journal content —
   // it stays on the `sessions` doc, same as every other trade-derived
   // stat on that document.
@@ -67,8 +75,26 @@ export default function SessionDetailScreen() {
   const mentorService = useMemo(() => new MentorService(new AnthropicProvider()), []);
 
   const sessionDateStr = format(effectiveRange.from, 'yyyy-MM-dd');
+  const rangeStart = sessionDateStr;
+  const rangeEnd = format(effectiveRange.to, 'yyyy-MM-dd');
 
-  // Load session category (sessions doc) + journal content (journals doc)
+  // A single specific account selected in the page's own account filter
+  // (not 'all', not several at once, not 'unassigned') — the same
+  // accountKey shape "New Sessions Recap" uses, so this page's recap
+  // attributes to one real account exactly when that filter does.
+  // Multiple-but-not-all accounts selected falls back to "no account"
+  // (matching an "All accounts" recap) rather than guessing which one.
+  const selectedAccount = useMemo(() => {
+    if (accountFilter.length !== 1) return undefined;
+    const key = accountFilter[0];
+    if (key === 'all' || key === 'unassigned') return undefined;
+    return accountOptions.find(a => `${a.connectionId}::${a.accountId}` === key);
+  }, [accountFilter, accountOptions]);
+
+  // Load session category (sessions doc, still keyed by the range's start
+  // day — unrelated to the journal content below) + journal content
+  // (journals doc, a Sessions Recap entry matching this exact date range
+  // + account scope)
   useEffect(() => {
     if (!user) return;
     const sessionId = `${user.uid}_${sessionDateStr}`;
@@ -84,32 +110,37 @@ export default function SessionDetailScreen() {
       }
     };
     const loadJournal = async () => {
-      // Same match Journal screen's own find-or-create uses: this
-      // session's Daily Journal entry is the one with no tradeId (a Trade
-      // Note can also carry this sessionId, so tradeId is what tells them
-      // apart).
-      const journalsSnap = await getDocs(query(collection(db, 'journals'), where('sessionId', '==', sessionId)));
+      const journalsSnap = await getDocs(query(
+        collection(db, 'journals'),
+        where('userId', '==', user.uid),
+        where('noteType', '==', 'session_recap')
+      ));
       const existing = journalsSnap.docs
         .map(d => ({ id: d.id, ...d.data() } as JournalEntry))
-        .find(j => !j.tradeId);
+        .find(j =>
+          j.recapStartDate === rangeStart &&
+          j.recapEndDate === rangeEnd &&
+          (selectedAccount
+            ? (j.connectionId === selectedAccount.connectionId && j.accountId === selectedAccount.accountId)
+            : (!j.connectionId && !j.accountId))
+        );
       if (existing) {
         setJournalDraft({
           journalId: existing.id,
           content: existing.content || '',
-          premarketPlan: existing.premarketPlan || '',
           whatWentWell: existing.whatWentWell || '',
           whatHurt: existing.whatHurt || '',
           correctiveAction: existing.correctiveAction || '',
         });
         setSessionMeta({ createdAt: existing.createdAt, updatedAt: existing.updatedAt });
       } else {
-        setJournalDraft({ journalId: null, content: '', premarketPlan: '', whatWentWell: '', whatHurt: '', correctiveAction: '' });
+        setJournalDraft({ journalId: null, content: '', whatWentWell: '', whatHurt: '', correctiveAction: '' });
         setSessionMeta({});
       }
     };
     loadSession();
     loadJournal();
-  }, [user, sessionDateStr]);
+  }, [user, sessionDateStr, rangeStart, rangeEnd, selectedAccount]);
 
   // Load intents for the session
   useEffect(() => {
@@ -171,30 +202,39 @@ export default function SessionDetailScreen() {
       }, { merge: true });
       sessionExistsRef.current = true;
 
-      // Journal content: the same Daily Journal entry Journal screen
-      // would find-or-create for this date.
+      // Journal content: the same Sessions Recap entry Journal screen's
+      // "New Sessions Recap" would create for this exact date range +
+      // account scope — recapStats recomputed fresh from this page's own
+      // already range+account-scoped `filteredTrades` on every save, same
+      // as "New Sessions Recap" does at creation time.
       const journalFields = omitUndefined({
         content: journalDraft.content,
-        premarketPlan: journalDraft.premarketPlan || undefined,
         whatWentWell: journalDraft.whatWentWell || undefined,
         whatHurt: journalDraft.whatHurt || undefined,
         correctiveAction: journalDraft.correctiveAction || undefined,
+        recapStats: computeRecapStats(filteredTrades),
       });
       if (journalDraft.journalId) {
         await updateDoc(doc(db, 'journals', journalDraft.journalId), { ...journalFields, updatedAt: now });
         setSessionMeta(prev => ({ ...prev, updatedAt: now }));
       } else {
-        const docRef = await addDoc(collection(db, 'journals'), {
+        const docRef = await addDoc(collection(db, 'journals'), omitUndefined({
           userId: user.uid,
-          sessionId,
-          title: `Daily Journal — ${sessionDateStr}`,
-          date: sessionDateStr,
+          sessionId: '',
+          title: formatRecapTitle(rangeStart, rangeEnd),
+          date: rangeEnd,
           tags: [],
           status: 'private',
+          noteType: 'session_recap' as const,
+          recapStartDate: rangeStart,
+          recapEndDate: rangeEnd,
+          accountId: selectedAccount?.accountId,
+          connectionId: selectedAccount?.connectionId,
+          brokerName: selectedAccount?.brokerName,
           ...journalFields,
           createdAt: now,
           updatedAt: now,
-        });
+        }));
         setJournalDraft(prev => ({ ...prev, journalId: docRef.id }));
         setSessionMeta({ createdAt: now, updatedAt: now });
       }
@@ -816,18 +856,9 @@ export default function SessionDetailScreen() {
               </select>
             </div>
             <div className="space-y-2">
-              <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Premarket Plan</label>
-              <DictationTextarea
-                className="w-full h-24 p-4 bg-accent/30 border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
-                placeholder="What was your plan for today?"
-                value={journalDraft.premarketPlan}
-                onChange={(e) => setJournalDraft(prev => ({ ...prev, premarketPlan: e.target.value }))}
-              />
-            </div>
-            <div className="space-y-2">
               <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Session Notes</label>
               <RichTextEditor
-                key={journalDraft.journalId || sessionDateStr}
+                key={journalDraft.journalId || `${rangeStart}_${rangeEnd}`}
                 initialValue={journalDraft.content}
                 onChange={(html) => setJournalDraft(prev => ({ ...prev, content: html }))}
                 placeholder="General notes about the session..."
@@ -844,7 +875,7 @@ export default function SessionDetailScreen() {
               <MessageSquare className="w-5 h-5 text-primary" />
             </div>
             <h3 className="font-bold text-foreground">Self Review</h3>
-            <span className="text-xs text-muted-foreground italic">Saved to your Daily Journal — visible to your mentor</span>
+            <span className="text-xs text-muted-foreground italic">Saved to your Journal (Sessions Recap) — visible to your mentor</span>
           </div>
           <div className="space-y-6">
             <div className="space-y-2">
