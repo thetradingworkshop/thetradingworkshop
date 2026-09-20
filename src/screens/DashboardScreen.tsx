@@ -21,8 +21,12 @@ import {
   BookOpen,
   Loader2,
   Rocket,
-  Upload
+  Upload,
+  NotebookPen
 } from 'lucide-react';
+import { format } from 'date-fns';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { db } from '../firebase';
 import { useTrades } from '../context/TradeContext';
 import { useDateRange } from '../context/DateContext';
 import { useAuth } from '../context/AuthContext';
@@ -34,12 +38,12 @@ import { RuleBasedMentorService, RuleBasedInsight } from '../services/RuleBasedM
 import { RuleBasedMentor } from '../components/RuleBasedMentor';
 
 export default function DashboardScreen({ setActivePage }: { setActivePage?: (page: string) => void }) {
-  const { role } = useAuth();
+  const { role, user } = useAuth();
   // `trades` here is the globally-filtered set (used throughout this screen);
   // `allTrades` is the account's real, unfiltered trade list — used only to
   // detect a genuinely brand-new account (as opposed to an active account
   // whose current filters/date range happen to exclude every trade).
-  const { trades: allTrades, filteredTrades: trades, isLoading, error: syncError } = useTrades();
+  const { trades: allTrades, filteredTrades: trades, isLoading, error: syncError, setSelectedSessionForJournal } = useTrades();
   const { getEffectiveRange } = useDateRange();
   const dateRange = getEffectiveRange('dashboard');
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
@@ -63,6 +67,37 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
     shareIncludeHighlights: true
   });
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+
+  // Daily Journal notes, keyed by sessionId (`${uid}_${yyyy-MM-dd}`) — same
+  // shape and subscription DayViewScreen uses for its own "Add/View note"
+  // button, so a calendar day cell and Day View agree on whether that day
+  // has a note. Session Recap entries are deliberately excluded (they span
+  // a date range, not one specific day, so they don't map to a single cell).
+  const [noteSessionIds, setNoteSessionIds] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    if (!user) return;
+    const unsubscribe = onSnapshot(
+      query(collection(db, 'journals'), where('userId', '==', user.uid)),
+      (snapshot) => {
+        const ids = new Set<string>();
+        snapshot.docs.forEach(d => {
+          const data: any = d.data();
+          if (!data.tradeId && data.noteType !== 'session_recap' && data.sessionId) {
+            ids.add(data.sessionId);
+          }
+        });
+        setNoteSessionIds(ids);
+      }
+    );
+    return () => unsubscribe();
+  }, [user]);
+
+  const openDayNote = (date: Date) => {
+    if (!user) return;
+    const sessionDate = format(date, 'yyyy-MM-dd');
+    setSelectedSessionForJournal({ sessionId: `${user.uid}_${sessionDate}`, sessionDate });
+    setActivePage?.('journal');
+  };
 
   const [ruleBasedInsight, setRuleBasedInsight] = useState<RuleBasedInsight | null>(null);
   const [isMentorLoading, setIsMentorLoading] = useState(false);
@@ -609,6 +644,7 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
                   const isSelected = selectedFilter.type === 'day' && selectedFilter.value === d.day;
                   const isBestDay = calendarSettings.highlightBestDay && absoluteIdx === bestDayIdx;
                   const isWorstDay = calendarSettings.highlightWorstDay && absoluteIdx === worstDayIdx;
+                  const hasNote = !d.isEmpty && !!user && noteSessionIds.has(`${user.uid}_${format(d.date, 'yyyy-MM-dd')}`);
 
                   // Calculate intensity for heatmap
                   const intensityScale = maxAbsPnl > 0 ? Math.abs(d.pnl) / maxAbsPnl : 0;
@@ -644,12 +680,23 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
                       {!d.isEmpty && (
                         <div className="p-1 h-full flex flex-col relative z-10">
                           <div className="flex justify-between items-start">
-                            <span className={cn(
-                              "text-[9px] font-black tracking-tighter",
-                              d.pnl !== 0 ? "text-foreground/40" : "text-muted-foreground"
-                            )}>
-                              {d.day}
-                            </span>
+                            <div className="flex items-center gap-0.5">
+                              <span className={cn(
+                                "text-[9px] font-black tracking-tighter",
+                                d.pnl !== 0 ? "text-foreground/40" : "text-muted-foreground"
+                              )}>
+                                {d.day}
+                              </span>
+                              {hasNote && (
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); openDayNote(d.date); }}
+                                  title="View daily note"
+                                  className="p-0.5 -m-0.5 rounded text-indigo-500 hover:text-indigo-600 hover:bg-indigo-500/10 transition-colors"
+                                >
+                                  <NotebookPen className="w-2 h-2" />
+                                </button>
+                              )}
+                            </div>
                             <div className="flex gap-0.5">
                               {isBestDay && (
                                 <div className="bg-emerald-500 text-white p-0.5 rounded shadow-sm">
