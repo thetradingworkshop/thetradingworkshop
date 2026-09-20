@@ -109,20 +109,20 @@ export function AppShell({
           {isSidebarOpen && <span className="font-bold text-lg tracking-tight">TRADING OS</span>}
         </div>
 
-        <nav className="flex-1 py-6 px-3 space-y-1">
+        <nav className="flex-1 py-4 px-3 space-y-0.5">
           {filteredNav.map((item) => (
             <button
               key={item.id}
               onClick={() => setActivePage(item.id)}
               className={cn(
-                "w-full flex items-center px-3 py-2.5 rounded-xl transition-colors group",
-                activePage === item.id 
-                  ? "bg-primary text-primary-foreground" 
+                "w-full flex items-center px-3 py-2 rounded-lg transition-colors group",
+                activePage === item.id
+                  ? "bg-primary text-primary-foreground"
                   : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
               )}
             >
-              <item.icon className={cn("w-5 h-5", isSidebarOpen ? "mr-3" : "mx-auto")} />
-              {isSidebarOpen && <span className="font-medium text-sm">{item.label}</span>}
+              <item.icon className={cn("w-4 h-4", isSidebarOpen ? "mr-2.5" : "mx-auto")} />
+              {isSidebarOpen && <span className="font-medium text-xs">{item.label}</span>}
             </button>
           ))}
         </nav>
