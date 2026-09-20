@@ -54,7 +54,8 @@ export function FiltersDropdown({ filters, setFilters, filterOptions }: FiltersD
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [isOpen]);
 
-  const activeCount = filters.symbols.length + filters.sides.length + filters.grades.length + filters.tags.length;
+  const activeCount = filters.symbols.length + filters.sides.length + filters.grades.length + filters.tags.length +
+    filters.weekdays.length + filters.hours.length + filters.behaviorFlags.length;
 
   const toggle = (field: keyof TradeFilters, value: string) => {
     const current = filters[field] as string[];
@@ -78,13 +79,17 @@ export function FiltersDropdown({ filters, setFilters, filterOptions }: FiltersD
       </button>
 
       {isOpen && (
-        <div className="absolute left-0 mt-2 z-[100] bg-card border border-border rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 w-72 p-4 space-y-4">
+        <div className="absolute left-0 mt-2 z-[100] bg-card border border-border rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 w-72 p-4 space-y-4 max-h-[calc(100vh-8rem)] overflow-y-auto">
           <FilterGroup label="Symbol" options={filterOptions.symbols} selected={filters.symbols} onToggle={(v) => toggle('symbols', v)} />
           <FilterGroup label="Side" options={SIDES} selected={filters.sides} onToggle={(v) => toggle('sides', v)} />
           <FilterGroup label="Trade Grade" options={filterOptions.grades} selected={filters.grades} onToggle={(v) => toggle('grades', v)} />
           <FilterGroup label="Tags" options={filterOptions.tags} selected={filters.tags} onToggle={(v) => toggle('tags', v)} />
+          <FilterGroup label="Day of Week" options={filterOptions.weekdays} selected={filters.weekdays} onToggle={(v) => toggle('weekdays', v)} />
+          <FilterGroup label="Time of Day" options={filterOptions.hours} selected={filters.hours} onToggle={(v) => toggle('hours', v)} />
+          <FilterGroup label="Psychology" options={filterOptions.behaviorFlags} selected={filters.behaviorFlags} onToggle={(v) => toggle('behaviorFlags', v)} />
 
-          {filterOptions.symbols.length === 0 && filterOptions.grades.length === 0 && filterOptions.tags.length === 0 && (
+          {filterOptions.symbols.length === 0 && filterOptions.grades.length === 0 && filterOptions.tags.length === 0 &&
+           filterOptions.weekdays.length === 0 && filterOptions.hours.length === 0 && filterOptions.behaviorFlags.length === 0 && (
             <p className="text-xs text-muted-foreground italic px-1">No filterable data yet — import some trades first.</p>
           )}
 

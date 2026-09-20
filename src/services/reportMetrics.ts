@@ -219,6 +219,13 @@ export function hourLabelFromHour(hour: number): string {
 export function hourLabel(entryTime: string): string {
   return hourLabelFromHour(new Date(entryTime).getHours());
 }
+
+// Same weekday-name convention as WEEKDAY_ORDER above, so a "Monday" bucket
+// means the same thing everywhere it appears (Range Analysis, the global
+// Filters dropdown).
+export function weekdayLabel(entryTime: string): string {
+  return new Date(entryTime).toLocaleDateString('en-US', { weekday: 'long' });
+}
 export const HOUR_ORDER = Array.from({ length: 24 }, (_, h) => hourLabelFromHour(h));
 
 // Finer-grained alternative to hourLabel — a trading day's shape (open

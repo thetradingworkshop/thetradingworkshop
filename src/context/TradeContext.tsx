@@ -3,6 +3,7 @@ import { Trade, ReconstructionStep, BrokerAccount } from '../types';
 import { db, auth } from '../firebase';
 import { collection, query, where, onSnapshot, orderBy, addDoc, setDoc, serverTimestamp, writeBatch, doc, deleteDoc, getDocFromServer } from 'firebase/firestore';
 import { useAuth } from './AuthContext';
+import { weekdayLabel, hourLabel, WEEKDAY_ORDER, HOUR_ORDER } from '../services/reportMetrics';
 
 export interface AccountOption {
   connectionId: string;
@@ -24,9 +25,17 @@ export interface TradeFilters {
   sides: ('LONG' | 'SHORT')[];
   grades: string[];
   tags: string[];
+  // Day of week / hour-of-day the trade was entered (WEEKDAY_ORDER/
+  // HOUR_ORDER labels — see reportMetrics.ts, the same buckets Range
+  // Analysis's weekday/hourly charts already use).
+  weekdays: string[];
+  hours: string[];
+  // "Psychology" — the fixed FOMO/Revenge/Early Exit/Late Entry/Over-sized
+  // vocabulary a trader tags a trade's own review with (Trade.behaviorFlags).
+  behaviorFlags: string[];
 }
 
-export const EMPTY_TRADE_FILTERS: TradeFilters = { symbols: [], sides: [], grades: [], tags: [] };
+export const EMPTY_TRADE_FILTERS: TradeFilters = { symbols: [], sides: [], grades: [], tags: [], weekdays: [], hours: [], behaviorFlags: [] };
 
 // The set of values actually present across the account-filtered trades,
 // so the Filters dropdown only ever offers choices that exist in the data.
@@ -34,6 +43,9 @@ export interface TradeFilterOptions {
   symbols: string[];
   grades: string[];
   tags: string[];
+  weekdays: string[];
+  hours: string[];
+  behaviorFlags: string[];
 }
 
 // Trades imported before per-account tagging existed have no accountId; the
@@ -367,20 +379,35 @@ export function TradeProvider({ children }: { children: ReactNode }) {
     const symbols = new Set<string>();
     const grades = new Set<string>();
     const tags = new Set<string>();
+    const weekdays = new Set<string>();
+    const hours = new Set<string>();
+    const behaviorFlags = new Set<string>();
     accountFilteredTrades.forEach(t => {
       if (t.symbol) symbols.add(t.symbol);
       if (t.tradeGrade) grades.add(t.tradeGrade);
       (t.tags || []).forEach(tag => tags.add(tag));
+      if (t.entryTime) {
+        weekdays.add(weekdayLabel(t.entryTime));
+        hours.add(hourLabel(t.entryTime));
+      }
+      (t.behaviorFlags || []).forEach(flag => behaviorFlags.add(flag));
     });
     return {
       symbols: Array.from(symbols).sort(),
       grades: Array.from(grades).sort(),
       tags: Array.from(tags).sort(),
+      // Chronological, not alphabetical — WEEKDAY_ORDER/HOUR_ORDER already
+      // define the right order (Monday before Tuesday, 9am before 10am).
+      weekdays: WEEKDAY_ORDER.filter(d => weekdays.has(d)),
+      hours: HOUR_ORDER.filter(h => hours.has(h)),
+      behaviorFlags: Array.from(behaviorFlags).sort(),
     };
   }, [accountFilteredTrades]);
 
   const filteredTrades = useMemo(() => {
-    if (filters.symbols.length === 0 && filters.sides.length === 0 && filters.grades.length === 0 && filters.tags.length === 0) {
+    const hasActiveFilter = filters.symbols.length > 0 || filters.sides.length > 0 || filters.grades.length > 0 ||
+      filters.tags.length > 0 || filters.weekdays.length > 0 || filters.hours.length > 0 || filters.behaviorFlags.length > 0;
+    if (!hasActiveFilter) {
       return accountFilteredTrades;
     }
     return accountFilteredTrades.filter(t => {
@@ -388,6 +415,9 @@ export function TradeProvider({ children }: { children: ReactNode }) {
       if (filters.sides.length > 0 && !filters.sides.includes(t.direction)) return false;
       if (filters.grades.length > 0 && (!t.tradeGrade || !filters.grades.includes(t.tradeGrade))) return false;
       if (filters.tags.length > 0 && !(t.tags || []).some(tag => filters.tags.includes(tag))) return false;
+      if (filters.weekdays.length > 0 && (!t.entryTime || !filters.weekdays.includes(weekdayLabel(t.entryTime)))) return false;
+      if (filters.hours.length > 0 && (!t.entryTime || !filters.hours.includes(hourLabel(t.entryTime)))) return false;
+      if (filters.behaviorFlags.length > 0 && !(t.behaviorFlags || []).some(flag => filters.behaviorFlags.includes(flag))) return false;
       return true;
     });
   }, [accountFilteredTrades, filters]);
