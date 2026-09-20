@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { SectionHeader, Scorecard, Card, Badge, Button, Table, TableHeader, TableRow, TableHead, TableCell, Toast, Input } from '../components/Shared';
 import { EquityCurveChart, PnlByTradeChart, HourlyPerformanceChart, BiasVsOutcome } from '../components/Charts';
-import { BrainCircuit, BookOpen, TrendingUp, ShieldCheck, Target, AlertCircle, Zap, Clock, Lightbulb, CheckCircle2, ChevronRight, ChevronDown, Loader2, Save, ShieldAlert, AlertTriangle, Info } from 'lucide-react';
+import { BrainCircuit, BookOpen, TrendingUp, ShieldCheck, Target, AlertCircle, Zap, Clock, Lightbulb, CheckCircle2, ChevronRight, ChevronDown, Loader2, Save, ShieldAlert, AlertTriangle, Info, Share2, Link as LinkIcon } from 'lucide-react';
 import { cn, omitUndefined } from '@/src/utils';
 
 import { useDateRange } from '../context/DateContext';
@@ -15,11 +15,13 @@ import { RuleBasedMentorService, RuleBasedInsight } from '../services/RuleBasedM
 import { RuleBasedMentor } from '../components/RuleBasedMentor';
 import { RichTextEditor } from '../components/RichTextEditor';
 import { AnthropicProvider } from '../services/aiProviders';
-import { TradeIntent, JournalEntry, SessionCategory } from '../types';
+import { TradeIntent, JournalEntry, SessionCategory, ShareLink } from '../types';
 import { doc, updateDoc, addDoc, deleteField, collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
 import { formatRecapTitle, computeRecapStats } from '../lib/journalRecap';
 import { usePersistedState } from '../hooks/usePersistedState';
+import { subscribeShareLink, createShareLink, revokeShareLink, shareUrl } from '../lib/shareLinks';
+import { Mood, MOOD_OPTIONS } from '../lib/moods';
 
 export default function SessionDetailScreen() {
   const { user } = useAuth();
@@ -55,11 +57,20 @@ export default function SessionDetailScreen() {
     journalId: string | null;
     content: string;
     sessionCategory: SessionCategory | '';
-  }>({ journalId: null, content: '', sessionCategory: '' });
+    mood: Mood | '';
+  }>({ journalId: null, content: '', sessionCategory: '', mood: '' });
   const [isSavingJournal, setIsSavingJournal] = useState(false);
   const [isJournalMediaUploading, setIsJournalMediaUploading] = useState(false);
   const [intents, setIntents] = useState<TradeIntent[]>([]);
   const [sessionMeta, setSessionMeta] = useState<{ createdAt?: string; updatedAt?: string }>({});
+
+  // "Share Session" shares the same underlying journals doc the Session
+  // Journal card below saves to (journalDraft.journalId) — same 'journal'
+  // resourceType and SharePage rendering the Journal page's own Share Panel
+  // already uses, not a separate sharing system for Sessions to keep in
+  // sync.
+  const [activeShareLink, setActiveShareLink] = useState<ShareLink | null>(null);
+  const [isShareBusy, setIsShareBusy] = useState(false);
 
   // Memoize mentor service to avoid re-instantiation
   const mentorService = useMemo(() => new MentorService(new AnthropicProvider()), []);
@@ -107,10 +118,11 @@ export default function SessionDetailScreen() {
           journalId: existing.id,
           content: existing.content || '',
           sessionCategory: existing.sessionCategory || '',
+          mood: existing.mood || '',
         });
         setSessionMeta({ createdAt: existing.createdAt, updatedAt: existing.updatedAt });
       } else {
-        setJournalDraft({ journalId: null, content: '', sessionCategory: '' });
+        setJournalDraft({ journalId: null, content: '', sessionCategory: '', mood: '' });
         setSessionMeta({});
       }
     };
@@ -171,11 +183,13 @@ export default function SessionDetailScreen() {
       const journalFields = omitUndefined({
         content: journalDraft.content,
         sessionCategory: journalDraft.sessionCategory || undefined,
+        mood: journalDraft.mood || undefined,
         recapStats: computeRecapStats(filteredTrades),
       });
       if (journalDraft.journalId) {
         const updatePayload: Record<string, unknown> = { ...journalFields, updatedAt: now };
         if (!journalDraft.sessionCategory) updatePayload.sessionCategory = deleteField();
+        if (!journalDraft.mood) updatePayload.mood = deleteField();
         await updateDoc(doc(db, 'journals', journalDraft.journalId), updatePayload);
         setSessionMeta(prev => ({ ...prev, updatedAt: now }));
       } else {
@@ -206,6 +220,49 @@ export default function SessionDetailScreen() {
       setToast({ message: 'Failed to save session journal', type: 'error' });
     } finally {
       setIsSavingJournal(false);
+      setTimeout(() => setToast(null), 3000);
+    }
+  };
+
+  useEffect(() => {
+    if (!user || !journalDraft.journalId) { setActiveShareLink(null); return; }
+    return subscribeShareLink(user.uid, 'journal', journalDraft.journalId, setActiveShareLink);
+  }, [user, journalDraft.journalId]);
+
+  const handleShareSession = async () => {
+    if (!user || !journalDraft.journalId) return;
+    setIsShareBusy(true);
+    try {
+      const token = await createShareLink(user.uid, 'journal', journalDraft.journalId);
+      await navigator.clipboard.writeText(shareUrl(token));
+      setToast({ message: 'Session shared — link copied to clipboard', type: 'success' });
+    } catch (error) {
+      console.error('Failed to share session:', error);
+      setToast({ message: 'Failed to share session', type: 'error' });
+    } finally {
+      setIsShareBusy(false);
+      setTimeout(() => setToast(null), 3000);
+    }
+  };
+
+  const handleCopyShareLink = () => {
+    if (!activeShareLink) return;
+    navigator.clipboard.writeText(shareUrl(activeShareLink.id));
+    setToast({ message: 'Link copied', type: 'success' });
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  const handleRevokeShare = async () => {
+    if (!activeShareLink) return;
+    setIsShareBusy(true);
+    try {
+      await revokeShareLink(activeShareLink);
+      setToast({ message: 'Link revoked — session is private again', type: 'success' });
+    } catch (error) {
+      console.error('Failed to revoke share link:', error);
+      setToast({ message: 'Failed to revoke link', type: 'error' });
+    } finally {
+      setIsShareBusy(false);
       setTimeout(() => setToast(null), 3000);
     }
   };
@@ -295,7 +352,31 @@ export default function SessionDetailScreen() {
         rightElement={
           <div className="flex flex-wrap items-center gap-3">
             <Button variant="outline" disabled title="PDF export isn't built yet">Export PDF</Button>
-            <Button variant="primary" disabled title="Session sharing isn't built yet">Share Session</Button>
+            {activeShareLink ? (
+              <div className="flex items-center gap-2">
+                <Button variant="outline" icon={Share2} onClick={handleCopyShareLink}>Copy Share Link</Button>
+                <Button
+                  variant="outline"
+                  className="text-rose-500"
+                  icon={LinkIcon}
+                  onClick={handleRevokeShare}
+                  disabled={isShareBusy}
+                  title="Stop sharing this session"
+                >
+                  {isShareBusy ? 'Revoking...' : 'Revoke'}
+                </Button>
+              </div>
+            ) : (
+              <Button
+                variant="primary"
+                icon={Share2}
+                onClick={handleShareSession}
+                disabled={isShareBusy || !journalDraft.journalId}
+                title={journalDraft.journalId ? undefined : 'Save a journal entry for this session first'}
+              >
+                {isShareBusy ? 'Sharing...' : 'Share Session'}
+              </Button>
+            )}
           </div>
         }
       />
@@ -446,20 +527,48 @@ export default function SessionDetailScreen() {
           </Button>
         </div>
         <div className="space-y-6">
-          <div className="space-y-2">
-            <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Session Category</label>
-            <select
-              className="w-full p-3 bg-accent/30 border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
-              value={journalDraft.sessionCategory}
-              onChange={(e) => setJournalDraft(prev => ({ ...prev, sessionCategory: e.target.value as SessionCategory | '' }))}
-            >
-              <option value="">No category</option>
-              <option value="NY_AM">NY AM</option>
-              <option value="NY_PM">NY PM</option>
-              <option value="ASIA">Asia</option>
-              <option value="LONDON">London</option>
-              <option value="WEEKLY">Weekly</option>
-            </select>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-2">
+              <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Session Category</label>
+              <select
+                className="w-full p-3 bg-accent/30 border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+                value={journalDraft.sessionCategory}
+                onChange={(e) => setJournalDraft(prev => ({ ...prev, sessionCategory: e.target.value as SessionCategory | '' }))}
+              >
+                <option value="">No category</option>
+                <option value="NY_AM">NY AM</option>
+                <option value="NY_PM">NY PM</option>
+                <option value="ASIA">Asia</option>
+                <option value="LONDON">London</option>
+                <option value="WEEKLY">Weekly</option>
+              </select>
+            </div>
+            {/* Mood — the only thing Reports -> Psychology reads back (see
+                ReportsScreen's moodOf(), which matches a trade against
+                whichever Sessions Recap's date range covers it). This used
+                to have no home at all once Session Journal/Self Review
+                were merged into this same recap entry. */}
+            <div className="space-y-2">
+              <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">How were you feeling?</label>
+              <div className="flex flex-wrap gap-2">
+                {MOOD_OPTIONS.map(opt => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setJournalDraft(prev => ({ ...prev, mood: prev.mood === opt.value ? '' : opt.value }))}
+                    className={cn(
+                      "flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border transition-all",
+                      journalDraft.mood === opt.value
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-accent/30 border-border hover:border-primary/50"
+                    )}
+                  >
+                    <opt.icon className="w-3.5 h-3.5" />
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
           <div className="space-y-2">
             <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Session Notes</label>

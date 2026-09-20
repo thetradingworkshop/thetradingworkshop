@@ -928,8 +928,15 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
               )}
 
               <div className="space-y-8">
-                {selectedJournal.noteType !== 'session_recap' && !linkedTrade && (
+                {/* Mood shows for every note type, including Sessions Recap
+                    (unlike followedPlan/improvements just below, which are
+                    single-trade/single-day reflection that doesn't fit a
+                    multi-day recap) — see the matching editor-side change
+                    above. */}
+                {((selectedJournal.noteType !== 'session_recap') || selectedJournal.mood) && !linkedTrade && (
                 <div className="p-6 rounded-3xl bg-muted border border-border space-y-6">
+                  {selectedJournal.noteType !== 'session_recap' && (
+                  <>
                   <div className="space-y-2">
                     <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Did you follow your plan?</label>
                     <div className="flex items-center space-x-2">
@@ -951,6 +958,8 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
                       {selectedJournal.improvements || "No improvements noted."}
                     </p>
                   </div>
+                  </>
+                  )}
                   {selectedJournal.mood && (
                     <div className="space-y-2">
                       <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">How you were feeling</label>
@@ -1294,6 +1303,17 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
               />
             </div>
 
+            </>
+            )}
+
+            {/* Mood — every note type gets this, including Sessions Recap
+                (unlike entryReason/followedPlan/improvements above, which
+                are single-trade/single-day reflection and don't fit a
+                multi-day recap the same way). This is the *only* place
+                mood is logged, and Reports -> Psychology is the only place
+                it's read back — see ReportsScreen's moodOf(), which now
+                also checks a trade's date against any Sessions Recap
+                covering it, not just tradeId/sessionId. */}
             <div className="space-y-2">
               <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">How were you feeling?</label>
               <div className="flex flex-wrap gap-2">
@@ -1314,8 +1334,6 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
                 ))}
               </div>
             </div>
-            </>
-            )}
 
             {/* Session Category — Daily Journal and Sessions Recap notes
                 (not trade notes, which have entryReason/followedPlan/

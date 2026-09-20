@@ -112,13 +112,16 @@ export default function ReportsScreen() {
   }, [user]);
   const activeTagCategory = tagCategories.find(c => c.id === activeTagCategoryId) ?? null;
 
-  // Mood lives on JournalEntry (set from either a Trade Note or a Daily
-  // Journal note), not on Trade itself — so unlike the other report tabs,
-  // Psychology has to join trades to mood via a separate journals
-  // subscription. A trade-note's mood wins for that specific trade; a
-  // daily-journal note's mood applies to every trade in that session
-  // (same `${uid}_${yyyy-MM-dd}` id SessionBuilder/DayView use) that isn't
-  // itself more specifically tagged.
+  // Mood lives on JournalEntry (set from a Trade Note, a Daily Journal
+  // note, or a Sessions Recap), not on Trade itself — so unlike the other
+  // report tabs, Psychology has to join trades to mood via a separate
+  // journals subscription. Most specific wins: a trade-note's mood for that
+  // exact trade, then a daily-journal note's mood for every trade in that
+  // session (same `${uid}_${yyyy-MM-dd}` id SessionBuilder/DayView use),
+  // then — since Sessions Recap became the primary journal entry point and
+  // is the only place most trades ever get a mood logged against them at
+  // all — whichever Sessions Recap's date range (and account scope, if it
+  // has one) covers that trade.
   const [journalEntries, setJournalEntries] = useState<JournalEntry[]>([]);
   useEffect(() => {
     if (!user) return;
@@ -129,22 +132,32 @@ export default function ReportsScreen() {
     return () => unsubscribe();
   }, [user]);
 
-  const { moodByTradeId, moodBySessionId } = useMemo(() => {
+  const { moodByTradeId, moodBySessionId, recapMoodRanges } = useMemo(() => {
     const byTrade = new Map<string, string>();
     const bySession = new Map<string, string>();
+    const recapRanges: { start: string; end: string; mood: string; accountId?: string; connectionId?: string }[] = [];
     for (const j of journalEntries) {
       if (!j.mood) continue;
       if (j.tradeId) byTrade.set(j.tradeId, j.mood);
-      else if (j.sessionId) bySession.set(j.sessionId, j.mood);
+      else if (j.noteType === 'session_recap' && j.recapStartDate && j.recapEndDate) {
+        recapRanges.push({ start: j.recapStartDate, end: j.recapEndDate, mood: j.mood, accountId: j.accountId, connectionId: j.connectionId });
+      } else if (j.sessionId) bySession.set(j.sessionId, j.mood);
     }
-    return { moodByTradeId: byTrade, moodBySessionId: bySession };
+    return { moodByTradeId: byTrade, moodBySessionId: bySession, recapMoodRanges: recapRanges };
   }, [journalEntries]);
 
   const moodOf = (t: Trade): string | undefined => {
     if (moodByTradeId.has(t.id)) return moodByTradeId.get(t.id);
-    if (!user) return undefined;
-    const sessionId = `${user.uid}_${format(new Date(t.entryTime), 'yyyy-MM-dd')}`;
-    return moodBySessionId.get(sessionId);
+    const tradeDate = format(new Date(t.entryTime), 'yyyy-MM-dd');
+    if (user) {
+      const sessionId = `${user.uid}_${tradeDate}`;
+      if (moodBySessionId.has(sessionId)) return moodBySessionId.get(sessionId);
+    }
+    const recap = recapMoodRanges.find(r =>
+      tradeDate >= r.start && tradeDate <= r.end &&
+      (!r.accountId || (r.accountId === t.accountId && r.connectionId === t.connectionId))
+    );
+    return recap?.mood;
   };
 
   return (
