@@ -48,6 +48,7 @@ import { LinkTradeModal } from './LinkTradeModal';
 import { AddTradeModal } from './AddTradeModal';
 import { NoteCommentThread } from './NoteCommentThread';
 import { useMarketBars } from '../hooks/useMarketBars';
+import { usePersistedState } from '../hooks/usePersistedState';
 import { getPointValue } from '../contractSpecs';
 import { subscribeShareLink, createShareLink, revokeShareLink, shareUrl } from '../lib/shareLinks';
 import { MessageCircle } from 'lucide-react';
@@ -148,8 +149,11 @@ export function TradePerformanceLog({ trades, title, subtitle, readOnly, ownerId
   // Collapsed by default false (expanded) — a long log (Session Trade Logs
   // especially, one full session's worth of trades on one page) can run to
   // dozens of rows, so letting it collapse saves scroll space without
-  // hiding the data.
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  // hiding the data. Persisted per distinct usage (keyed by title, since
+  // that's what actually distinguishes "Session Trade Logs" from the
+  // default Trades-page log from a Mentor Dashboard readOnly view) so the
+  // choice survives a reload instead of resetting every visit.
+  const [isCollapsed, setIsCollapsed] = usePersistedState(`tradeLogCollapsed:${title || 'default'}`, false);
   // Whose strategy/tag library to read — the trade OWNER's in readOnly
   // mode (ownerId, a mentor reviewing a student), otherwise the viewer's
   // own uid, same as always.

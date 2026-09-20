@@ -20,12 +20,13 @@ import { Session, TradeIntent, JournalEntry } from '../types';
 import { doc, getDoc, setDoc, updateDoc, addDoc, deleteField, collection, query, where, getDocs, serverTimestamp } from 'firebase/firestore';
 import { db } from '../firebase';
 import { formatRecapTitle, computeRecapStats } from '../lib/journalRecap';
+import { usePersistedState } from '../hooks/usePersistedState';
 
 export default function SessionDetailScreen() {
   const { user } = useAuth();
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
-  const [isReentryCollapsed, setIsReentryCollapsed] = useState(false);
-  const [isScaledCollapsed, setIsScaledCollapsed] = useState(false);
+  const [isReentryCollapsed, setIsReentryCollapsed] = usePersistedState('reentryTradesCollapsed', false);
+  const [isScaledCollapsed, setIsScaledCollapsed] = usePersistedState('scaledTradesCollapsed', false);
   const { getEffectiveRange } = useDateRange();
   const { filteredTrades: trades, accountFilter, accountOptions } = useTrades();
   const effectiveRange = getEffectiveRange('sessions');
