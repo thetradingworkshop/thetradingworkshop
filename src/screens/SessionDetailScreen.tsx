@@ -302,31 +302,35 @@ export default function SessionDetailScreen() {
 
       {/* Row 1: Key Performance Scorecards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        <Scorecard 
-          label="Net P&L" 
-          value={sessionMetrics.netPnl !== undefined && !isNaN(sessionMetrics.netPnl) ? `${sessionMetrics.netPnl >= 0 ? '+' : ''}$${sessionMetrics.netPnl.toFixed(2)}` : "$0.00"} 
+        <Scorecard
+          label="Net P&L"
+          value={sessionMetrics.netPnl !== undefined && !isNaN(sessionMetrics.netPnl) ? `${sessionMetrics.netPnl >= 0 ? '+' : ''}$${sessionMetrics.netPnl.toFixed(2)}` : "$0.00"}
           secondary="Session Total"
           trend={undefined}
           className="border-emerald-500/20 bg-emerald-500/5 hover:bg-emerald-500/10 transition-colors"
+          compact
         />
-        <Scorecard 
-          label="Discipline Score" 
-          value={`${sessionMetrics.disciplineScore || 0}%`} 
+        <Scorecard
+          label="Discipline Score"
+          value={`${sessionMetrics.disciplineScore || 0}%`}
           secondary="Rule adherence"
           trend={undefined}
           className="border-indigo-500/20 bg-indigo-500/5 hover:bg-indigo-500/10 transition-colors"
+          compact
         />
-        <Scorecard 
-          label="Win Rate" 
-          value={sessionMetrics.winRate !== undefined && !isNaN(sessionMetrics.winRate) ? `${sessionMetrics.winRate.toFixed(1)}%` : "0.0%"} 
+        <Scorecard
+          label="Win Rate"
+          value={sessionMetrics.winRate !== undefined && !isNaN(sessionMetrics.winRate) ? `${sessionMetrics.winRate.toFixed(1)}%` : "0.0%"}
           secondary={sessionMetrics.totalTrades ? `${sessionMetrics.winCount || 0}/${sessionMetrics.totalTrades} trades` : "0/0 trades"}
           trend={undefined}
+          compact
         />
-        <Scorecard 
-          label="Profit Factor" 
-          value={sessionMetrics.profitFactor !== undefined && !isNaN(sessionMetrics.profitFactor) ? sessionMetrics.profitFactor.toFixed(2) : "0.00"} 
+        <Scorecard
+          label="Profit Factor"
+          value={sessionMetrics.profitFactor !== undefined && !isNaN(sessionMetrics.profitFactor) ? sessionMetrics.profitFactor.toFixed(2) : "0.00"}
           secondary="Risk/Reward efficiency"
           trend={undefined}
+          compact
         />
       </div>
 
@@ -373,7 +377,7 @@ export default function SessionDetailScreen() {
       {/* Row 3: Equity Curve + Bias/Quality */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         <div className="lg:col-span-8">
-          <EquityCurveChart className="h-full" data={stats?.equityDataDollars} />
+          <EquityCurveChart className="h-full" data={stats?.equityDataDollars} compact />
         </div>
         <div className="lg:col-span-4 space-y-6">
           <div className="relative group">

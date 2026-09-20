@@ -99,16 +99,16 @@ export default function RangeAnalysisScreen() {
         <>
           {/* Row 1: Scorecards — all real, all derived from rangedTrades */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <Scorecard label="Total Sessions" value={String(totalSessions)} secondary={`${greenDays} Green / ${redDays} Red`} />
-            <Scorecard label="Avg Daily P&L" value={fmtMoney(avgDailyPnl)} trend={dailyPnlTrend} />
-            <Scorecard label="Consistency Score" value={`${consistencyScore}/100`} secondary={consistencyScore >= 70 ? 'High stability' : consistencyScore >= 40 ? 'Moderate stability' : 'Low stability'} />
-            <Scorecard label="Avg Trades/Day" value={avgTradesPerDay.toFixed(1)} secondary={`${rangedTrades.length} total trades`} />
+            <Scorecard label="Total Sessions" value={String(totalSessions)} secondary={`${greenDays} Green / ${redDays} Red`} compact />
+            <Scorecard label="Avg Daily P&L" value={fmtMoney(avgDailyPnl)} trend={dailyPnlTrend} compact />
+            <Scorecard label="Consistency Score" value={`${consistencyScore}/100`} secondary={consistencyScore >= 70 ? 'High stability' : consistencyScore >= 40 ? 'Moderate stability' : 'Low stability'} compact />
+            <Scorecard label="Avg Trades/Day" value={avgTradesPerDay.toFixed(1)} secondary={`${rangedTrades.length} total trades`} compact />
           </div>
 
           {/* Row 2: Cumulative Equity + real weekday Performance Summary */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
             <div className="lg:col-span-8">
-              <EquityCurveChart className="h-full" data={stats?.equityDataDollars} />
+              <EquityCurveChart className="h-full" data={stats?.equityDataDollars} compact />
             </div>
             <div className="lg:col-span-4">
               <Card className="h-full p-6">
