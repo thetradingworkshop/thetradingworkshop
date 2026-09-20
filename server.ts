@@ -462,7 +462,7 @@ async function startServer() {
 
     try {
       const response = await anthropic.messages.create({
-        model: "claude-opus-4-8",
+        model: "claude-opus-5",
         max_tokens: 2048,
         output_config: { format: { type: "json_schema", schema: MENTOR_INSIGHT_SCHEMA } },
         messages: [{ role: "user", content: prompt }],
@@ -533,7 +533,7 @@ async function startServer() {
 
     try {
       const response = await anthropic.messages.create({
-        model: "claude-opus-4-8",
+        model: "claude-opus-5",
         max_tokens: 1536,
         output_config: { format: { type: "json_schema", schema: GROUP_PATTERN_SCHEMA } },
         messages: [{ role: "user", content: prompt }],
@@ -611,7 +611,7 @@ async function startServer() {
 
     try {
       const response = await anthropic.messages.create({
-        model: "claude-opus-4-8",
+        model: "claude-opus-5",
         max_tokens: 1024,
         output_config: { format: { type: "json_schema", schema: DAY_REVIEW_SCHEMA } },
         messages: [{ role: "user", content: prompt }],
@@ -629,7 +629,7 @@ async function startServer() {
         mistakes: generated.mistakes ?? [],
         themes: generated.themes ?? [],
         generatedAt: new Date().toISOString(),
-        model: "claude-opus-4-8",
+        model: "claude-opus-5",
       };
       await reviewRef.set(review);
 
