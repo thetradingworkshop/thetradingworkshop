@@ -56,11 +56,11 @@ export function Scorecard({ label, value, secondary, trend, className, compact }
   return (
     <Card className={cn(
       "flex flex-col justify-between hover:border-border/80 transition-all",
-      compact ? "min-h-[76px] p-3" : "min-h-[140px]",
+      compact ? "min-h-[58px] p-2.5" : "min-h-[140px]",
       className
     )}>
       <div>
-        <div className="flex items-center justify-between mb-1.5">
+        <div className="flex items-center justify-between mb-1">
           <p className={cn("font-bold uppercase tracking-wider text-muted-foreground/70", compact ? "text-[8px]" : "text-[11px]")}>{label}</p>
           {trend && (
             <div className={cn(
@@ -73,10 +73,10 @@ export function Scorecard({ label, value, secondary, trend, className, compact }
             </div>
           )}
         </div>
-        <h3 className={cn("font-bold tracking-tight text-foreground", compact ? "text-lg" : "text-3xl")}>{value}</h3>
+        <h3 className={cn("font-bold tracking-tight text-foreground", compact ? "text-base" : "text-3xl")}>{value}</h3>
       </div>
       {(secondary || trend) && (
-        <div className={cn("flex items-center justify-between border-t border-border/40", compact ? "mt-1.5 pt-1.5" : "mt-4 pt-3")}>
+        <div className={cn("flex items-center justify-between border-t border-border/40", compact ? "mt-1 pt-1" : "mt-4 pt-3")}>
           {secondary && <p className={cn("font-medium text-muted-foreground/80 leading-none", compact ? "text-[9px]" : "text-[12px]")}>{secondary}</p>}
           {trend && <p className={cn("text-muted-foreground/60 font-medium ml-auto", compact ? "text-[9px]" : "text-[11px]")}>{trend.label}</p>}
         </div>
