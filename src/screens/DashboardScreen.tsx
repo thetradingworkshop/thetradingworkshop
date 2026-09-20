@@ -262,7 +262,7 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
   }
 
   return (
-    <div className="max-w-[1600px] mx-auto space-y-6 pb-12">
+    <div className="max-w-[1600px] mx-auto space-y-3 pb-12">
       {/* 1. SESSION SUMMARY STRIP (TOP) */}
       <div className="bg-card border border-border rounded-3xl p-4 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4">
         <div className="flex items-center space-x-8 px-4">
@@ -361,8 +361,8 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
       )}
 
       {/* Section 1: Key Metrics & Equity */}
-      <section className="space-y-4">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <section className="space-y-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           <Scorecard
             label="Net P&L"
             value={stats && !isNaN(stats.netPnlDollars) ? `${stats.netPnlDollars >= 0 ? '+' : ''}$${stats.netPnlDollars.toLocaleString()}` : "$0.00"}
@@ -390,11 +390,11 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
           />
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-3">
           <div className="lg:col-span-9">
             <EquityCurveChart className="h-full" data={stats?.equityDataDollars} compact />
           </div>
-          <div className="lg:col-span-3 flex flex-col gap-4">
+          <div className="lg:col-span-3 flex flex-col gap-3">
             <Scorecard
               label="Discipline Score"
               value={`${behaviorMetrics.disciplineScore}/100`}
