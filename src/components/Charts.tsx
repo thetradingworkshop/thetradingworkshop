@@ -174,12 +174,26 @@ export function BiasVsOutcome({ className, data: propData }: { className?: strin
   const chartData = propData || [];
 
   return (
-    <Card className={cn("p-6 h-[400px] flex flex-col", className)}>
+    // min-h, not h — a fixed height plus Card's overflow-hidden is exactly
+    // what clipped the legend below (see the comment on the legend wrapper):
+    // at some width the legend wraps to more rows than a fixed 400px has
+    // room for, and a hard height just cuts the overflow off instead of the
+    // card growing to fit it.
+    <Card className={cn("p-6 min-h-[400px] flex flex-col", className)}>
       <div className="mb-4">
         <h3 className="text-xs font-bold uppercase tracking-widest text-muted-foreground/80">Bias vs Outcome</h3>
         <p className="text-[11px] text-muted-foreground/60 font-medium">Strategy alignment</p>
       </div>
-      <div className="flex-1 flex items-center justify-center">
+      {/* Stacked (donut above, legend below) rather than side-by-side —
+          side-by-side had a fixed-width donut plus nowrap legend text with
+          no wrap/shrink fallback, so a narrower container (this card has
+          shrunk over several sizing passes, and a narrower browser window
+          shrinks it further) pushed the legend past the card's edge and
+          Card's own overflow-hidden clipped it mid-word ("Deviated Win" ->
+          "Deviated Wi"). Stacking removes the horizontal squeeze entirely;
+          flex-wrap on the legend itself is a second line of defense if the
+          card ever gets narrower than one legend row. */}
+      <div className="flex-1 flex flex-col items-center justify-center gap-4 min-w-0">
         {chartData.length > 0 ? (
           <>
             <div className="w-56 h-56 shrink-0">
@@ -200,12 +214,12 @@ export function BiasVsOutcome({ className, data: propData }: { className?: strin
                 </PieChart>
               </ResponsiveContainer>
             </div>
-            <div className="ml-12 space-y-4">
+            <div className="w-full flex flex-wrap items-center justify-center gap-x-5 gap-y-2">
               {chartData.map((item) => (
-                <div key={item.name} className="flex items-center text-base">
-                  <div className="w-3 h-3 rounded-full mr-3 shrink-0" style={{ backgroundColor: item.color }} />
+                <div key={item.name} className="flex items-center text-sm min-w-0">
+                  <div className="w-3 h-3 rounded-full mr-2 shrink-0" style={{ backgroundColor: item.color }} />
                   <span className="font-bold whitespace-nowrap">{item.name}</span>
-                  <span className="text-muted-foreground/80 font-medium ml-3">{item.value}%</span>
+                  <span className="text-muted-foreground/80 font-medium ml-2">{item.value}%</span>
                 </div>
               ))}
             </div>
