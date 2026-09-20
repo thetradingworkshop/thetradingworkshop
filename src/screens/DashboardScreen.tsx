@@ -24,7 +24,7 @@ import {
   Upload,
   NotebookPen
 } from 'lucide-react';
-import { format } from 'date-fns';
+import { format, startOfWeek, endOfWeek } from 'date-fns';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useTrades } from '../context/TradeContext';
@@ -162,6 +162,25 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
     });
   }, [trades, dateRange]);
 
+  // "AI Weekly Insight" was silently computing over the FULL header date
+  // range (e.g. "Last 30 Days" — everything in `filteredTrades`), not
+  // literally the current week despite its name. A single great trading
+  // day got diluted into invisibility against a month of accumulated
+  // violations, so the banner kept recommending "stop trading" even right
+  // after a clean, profitable session. Scoped to the real current
+  // Sun-Sat week instead (same "This Week" window DateContext's own date
+  // range preset uses), built from `trades` (header-filtered, not
+  // date-range-narrowed) so it reflects this week regardless of what date
+  // range or calendar month is currently being browsed.
+  const currentWeekTrades = useMemo(() => {
+    const from = startOfWeek(new Date());
+    const to = endOfWeek(new Date());
+    return trades.filter(t => {
+      const tradeDate = new Date(t.entryTime);
+      return tradeDate >= from && tradeDate <= to;
+    });
+  }, [trades]);
+
   const dashboardModel = useMemo(() => {
     return buildDashboardModel(
       trades,
@@ -225,14 +244,14 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
   const monthYearLabel = currentDate.toLocaleString('default', { month: 'long', year: 'numeric' });
 
   const fetchMentorFeedback = useCallback(async () => {
-    if (filteredTrades.length === 0) {
+    if (currentWeekTrades.length === 0) {
       setRuleBasedInsight(null);
       return;
     }
 
     setIsMentorLoading(true);
     try {
-      const sessionMetrics = buildSessionMetrics(filteredTrades);
+      const sessionMetrics = buildSessionMetrics(currentWeekTrades);
       const insight = RuleBasedMentorService.generateInsights(sessionMetrics);
       setRuleBasedInsight(insight);
     } catch (error: any) {
@@ -241,7 +260,7 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
     } finally {
       setIsMentorLoading(false);
     }
-  }, [filteredTrades]);
+  }, [currentWeekTrades]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
