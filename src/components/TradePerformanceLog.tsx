@@ -279,7 +279,19 @@ export function TradePerformanceLog({ trades, title, subtitle, readOnly, ownerId
     bestExitTime: ''
   });
   const [isSavingReview, setIsSavingReview] = useState(false);
-  const [isLoadingReview, setIsLoadingReview] = useState(false);
+  // Starts true, not false — the real bug this guards against: the note
+  // editor is meant to stay hidden behind "Loading notes..." until the
+  // trade_reviews fetch resolves, but starting false meant the very FIRST
+  // render (which always commits before any effect can run) already
+  // mounted RichTextEditor with default/empty review data. RichTextEditor
+  // is deliberately uncontrolled — it syncs its initial value into the DOM
+  // once on mount and never again — so that premature first mount
+  // permanently locked the editor to empty/stale content even after the
+  // real note finished loading a moment later (confirmed by hand: the
+  // note's actual body was simply never editable/visible again for
+  // that trade). Starting true guarantees RichTextEditor never mounts
+  // until real data is already in `review`.
+  const [isLoadingReview, setIsLoadingReview] = useState(true);
   const [isUpdatingRating, setIsUpdatingRating] = useState(false);
 
   const filteredTrades = useMemo(() => {
@@ -393,7 +405,15 @@ export function TradePerformanceLog({ trades, title, subtitle, readOnly, ownerId
           });
         }
       } catch (error) {
+        // Was silently swallowed — console.error only, nothing shown in
+        // the UI. A trader hitting this (e.g. a permission-denied read on
+        // a malformed/legacy trade_reviews doc) saw the note area render
+        // as if their note had simply disappeared, with no indication
+        // anything had gone wrong, no way to tell "empty note" apart from
+        // "failed to load."
         console.error('Error loading trade review:', error);
+        setToast({ message: "Couldn't load this trade's note — try reopening it.", type: 'error' });
+        setTimeout(() => setToast(null), 4000);
       } finally {
         setIsLoadingReview(false);
       }
@@ -740,7 +760,21 @@ export function TradePerformanceLog({ trades, title, subtitle, readOnly, ownerId
       <div className="space-y-2">
         <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Trade Note</label>
         <RichTextEditor
-          key={`note-${selectedTrade.id}`}
+          // RichTextEditor is deliberately uncontrolled (see its own
+          // comment) — it syncs `initialValue` into the DOM once on mount
+          // and never again, relying on the caller to force a remount via
+          // `key` whenever the "real" initial value changes. `isLoadingReview`
+          // starts false, so on a freshly-opened trade the very first render
+          // could mount this with review.verdict still empty/default,
+          // *before* the async trade_reviews fetch resolves — and since
+          // that mount-once effect never re-fires and the key only changed
+          // on selectedTrade.id, the freshly-loaded note content never
+          // reached the DOM, leaving the editor permanently stuck empty
+          // (confirmed by hand: reproducible on the first trade opened in a
+          // session). Including isLoadingReview forces exactly one fresh
+          // remount right when loading finishes and review.verdict is
+          // finally the real value.
+          key={`note-${selectedTrade.id}-${isLoadingReview}`}
           initialValue={review.verdict || ''}
           onChange={(html) => setReview(prev => ({ ...prev, verdict: html }))}
           placeholder="What happened in this trade, and what's the takeaway?"
