@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { SectionHeader, Scorecard, Card, Badge, Button, Table, TableHeader, TableRow, TableHead, TableCell, Toast, Input } from '../components/Shared';
 import { EquityCurveChart, PnlByTradeChart, HourlyPerformanceChart, BiasVsOutcome } from '../components/Charts';
-import { BrainCircuit, MessageSquare, BookOpen, TrendingUp, ShieldCheck, Target, AlertCircle, Zap, Clock, Lightbulb, CheckCircle2, ChevronRight, ChevronDown, Loader2, Save, ShieldAlert, AlertTriangle, Info } from 'lucide-react';
+import { BrainCircuit, BookOpen, TrendingUp, ShieldCheck, Target, AlertCircle, Zap, Clock, Lightbulb, CheckCircle2, ChevronRight, ChevronDown, Loader2, Save, ShieldAlert, AlertTriangle, Info } from 'lucide-react';
 import { cn, omitUndefined } from '@/src/utils';
 
 import { useDateRange } from '../context/DateContext';
@@ -13,7 +13,6 @@ import { TradePerformanceLog } from '../components/TradePerformanceLog';
 import { MentorService, StructuredInsight } from '../services/mentorService';
 import { RuleBasedMentorService, RuleBasedInsight } from '../services/RuleBasedMentorService';
 import { RuleBasedMentor } from '../components/RuleBasedMentor';
-import { DictationTextarea } from '../components/DictationTextarea';
 import { RichTextEditor } from '../components/RichTextEditor';
 import { AnthropicProvider } from '../services/aiProviders';
 import { TradeIntent, JournalEntry, SessionCategory } from '../types';
@@ -55,11 +54,8 @@ export default function SessionDetailScreen() {
   const [journalDraft, setJournalDraft] = useState<{
     journalId: string | null;
     content: string;
-    whatWentWell: string;
-    whatHurt: string;
-    correctiveAction: string;
     sessionCategory: SessionCategory | '';
-  }>({ journalId: null, content: '', whatWentWell: '', whatHurt: '', correctiveAction: '', sessionCategory: '' });
+  }>({ journalId: null, content: '', sessionCategory: '' });
   const [isSavingJournal, setIsSavingJournal] = useState(false);
   const [isJournalMediaUploading, setIsJournalMediaUploading] = useState(false);
   const [intents, setIntents] = useState<TradeIntent[]>([]);
@@ -110,14 +106,11 @@ export default function SessionDetailScreen() {
         setJournalDraft({
           journalId: existing.id,
           content: existing.content || '',
-          whatWentWell: existing.whatWentWell || '',
-          whatHurt: existing.whatHurt || '',
-          correctiveAction: existing.correctiveAction || '',
           sessionCategory: existing.sessionCategory || '',
         });
         setSessionMeta({ createdAt: existing.createdAt, updatedAt: existing.updatedAt });
       } else {
-        setJournalDraft({ journalId: null, content: '', whatWentWell: '', whatHurt: '', correctiveAction: '', sessionCategory: '' });
+        setJournalDraft({ journalId: null, content: '', sessionCategory: '' });
         setSessionMeta({});
       }
     };
@@ -177,9 +170,6 @@ export default function SessionDetailScreen() {
       // as "New Sessions Recap" does at creation time.
       const journalFields = omitUndefined({
         content: journalDraft.content,
-        whatWentWell: journalDraft.whatWentWell || undefined,
-        whatHurt: journalDraft.whatHurt || undefined,
-        correctiveAction: journalDraft.correctiveAction || undefined,
         sessionCategory: journalDraft.sessionCategory || undefined,
         recapStats: computeRecapStats(filteredTrades),
       });
@@ -790,9 +780,9 @@ export default function SessionDetailScreen() {
         )}
       </div>
 
-      {/* Row 9: Journal — Session Journal and Self Review are the same
-          Sessions Recap journal entry (see journalDraft above), so they're
-          one card, not two side by side. */}
+      {/* Row 9: Journal — the same Sessions Recap journal entry the
+          "New Sessions Recap" flow on the Journal page creates for this
+          exact date range + account scope. */}
       <Card>
         <div className="flex items-center justify-between mb-8">
           <div className="flex items-center space-x-3">
@@ -839,41 +829,6 @@ export default function SessionDetailScreen() {
               userId={user?.uid}
               onUploadingChange={setIsJournalMediaUploading}
             />
-          </div>
-          <div className="space-y-2">
-            <div className="flex items-center space-x-2">
-              <MessageSquare className="w-4 h-4 text-muted-foreground" />
-              <h4 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Self Review</h4>
-            </div>
-          </div>
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="space-y-2">
-              <label className="text-[10px] font-bold uppercase tracking-widest text-emerald-600">What went well?</label>
-              <DictationTextarea
-                className="w-full h-20 p-4 bg-emerald-500/5 border border-emerald-500/10 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 resize-none"
-                placeholder="List your wins and good habits..."
-                value={journalDraft.whatWentWell}
-                onChange={(e) => setJournalDraft(prev => ({ ...prev, whatWentWell: e.target.value }))}
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-[10px] font-bold uppercase tracking-widest text-rose-600">What hurt?</label>
-              <DictationTextarea
-                className="w-full h-20 p-4 bg-rose-500/5 border border-rose-500/10 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-rose-500/20 resize-none"
-                placeholder="What mistakes did you make?"
-                value={journalDraft.whatHurt}
-                onChange={(e) => setJournalDraft(prev => ({ ...prev, whatHurt: e.target.value }))}
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-[10px] font-bold uppercase tracking-widest text-indigo-600">Corrective Action</label>
-              <DictationTextarea
-                className="w-full h-20 p-4 bg-indigo-500/5 border border-indigo-500/10 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 resize-none"
-                placeholder="What will you do differently tomorrow?"
-                value={journalDraft.correctiveAction}
-                onChange={(e) => setJournalDraft(prev => ({ ...prev, correctiveAction: e.target.value }))}
-              />
-            </div>
           </div>
         </div>
       </Card>

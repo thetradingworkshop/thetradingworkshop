@@ -969,36 +969,6 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
                   <Badge variant="info">{SESSION_CATEGORY_LABEL[selectedJournal.sessionCategory]}</Badge>
                 )}
 
-                {/* Self Review — Daily Journal and Sessions Recap notes only
-                    (not trade notes, which have their own entryReason/
-                    followedPlan/improvements above). This is what used to
-                    be a separate Session Journal/Self Review system on the
-                    Sessions page — merged in here so it's visible/
-                    commentable like any other journal content. */}
-                {!linkedTrade && (selectedJournal.whatWentWell || selectedJournal.whatHurt || selectedJournal.correctiveAction) && (
-                <div className="p-6 rounded-3xl bg-muted border border-border space-y-6">
-                  <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Self Review</h4>
-                  {selectedJournal.whatWentWell && (
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest">What went well?</label>
-                      <p className="text-sm font-medium text-foreground leading-relaxed">{selectedJournal.whatWentWell}</p>
-                    </div>
-                  )}
-                  {selectedJournal.whatHurt && (
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-bold text-rose-600 uppercase tracking-widest">What hurt?</label>
-                      <p className="text-sm font-medium text-foreground leading-relaxed">{selectedJournal.whatHurt}</p>
-                    </div>
-                  )}
-                  {selectedJournal.correctiveAction && (
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest">Corrective Action</label>
-                      <p className="text-sm font-medium text-foreground leading-relaxed">{selectedJournal.correctiveAction}</p>
-                    </div>
-                  )}
-                </div>
-                )}
-
                 <div className="max-w-none">
                   {selectedJournal.content ? (
                     <div
@@ -1345,57 +1315,25 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
             </>
             )}
 
-            {/* Session Category + Self Review — Daily Journal and Sessions
-                Recap notes (not trade notes, which have entryReason/
-                followedPlan/improvements above instead). Merged in from
-                what used to be a separate Session Journal/Self Review
-                system on the Sessions page — same fields, editable from
-                either screen. */}
+            {/* Session Category — Daily Journal and Sessions Recap notes
+                (not trade notes, which have entryReason/followedPlan/
+                improvements above instead). Editable from either this
+                screen or the Sessions page. */}
             {!draft.tradeId && (
-              <div className="p-4 rounded-2xl border border-border bg-accent/10 space-y-5">
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Session Category</label>
-                  <select
-                    className="w-full h-11 px-4 bg-background border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
-                    value={draft.sessionCategory || ''}
-                    onChange={(e) => setDraft(prev => prev && ({ ...prev, sessionCategory: (e.target.value || undefined) as JournalEntry['sessionCategory'] }))}
-                  >
-                    <option value="">No category</option>
-                    <option value="NY_AM">NY AM</option>
-                    <option value="NY_PM">NY PM</option>
-                    <option value="ASIA">Asia</option>
-                    <option value="LONDON">London</option>
-                    <option value="WEEKLY">Weekly</option>
-                  </select>
-                </div>
-                <h4 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Self Review</h4>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold uppercase tracking-widest text-emerald-600">What went well?</label>
-                  <DictationTextarea
-                    className="w-full h-16 p-4 bg-emerald-500/5 border border-emerald-500/10 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 resize-none"
-                    placeholder="List your wins and good habits..."
-                    value={draft.whatWentWell || ''}
-                    onChange={(e) => setDraft(prev => prev && ({ ...prev, whatWentWell: e.target.value }))}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold uppercase tracking-widest text-rose-600">What hurt?</label>
-                  <DictationTextarea
-                    className="w-full h-16 p-4 bg-rose-500/5 border border-rose-500/10 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-rose-500/20 resize-none"
-                    placeholder="What mistakes did you make?"
-                    value={draft.whatHurt || ''}
-                    onChange={(e) => setDraft(prev => prev && ({ ...prev, whatHurt: e.target.value }))}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold uppercase tracking-widest text-indigo-600">Corrective Action</label>
-                  <DictationTextarea
-                    className="w-full h-16 p-4 bg-indigo-500/5 border border-indigo-500/10 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 resize-none"
-                    placeholder="What will you do differently next time?"
-                    value={draft.correctiveAction || ''}
-                    onChange={(e) => setDraft(prev => prev && ({ ...prev, correctiveAction: e.target.value }))}
-                  />
-                </div>
+              <div className="p-4 rounded-2xl border border-border bg-accent/10 space-y-2">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Session Category</label>
+                <select
+                  className="w-full h-11 px-4 bg-background border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+                  value={draft.sessionCategory || ''}
+                  onChange={(e) => setDraft(prev => prev && ({ ...prev, sessionCategory: (e.target.value || undefined) as JournalEntry['sessionCategory'] }))}
+                >
+                  <option value="">No category</option>
+                  <option value="NY_AM">NY AM</option>
+                  <option value="NY_PM">NY PM</option>
+                  <option value="ASIA">Asia</option>
+                  <option value="LONDON">London</option>
+                  <option value="WEEKLY">Weekly</option>
+                </select>
               </div>
             )}
 

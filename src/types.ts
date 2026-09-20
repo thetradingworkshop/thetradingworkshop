@@ -611,12 +611,12 @@ export interface Session {
   reentryCount?: number;
   maxLosingStreak?: number;
 
-  // Journaling — premarketPlan/sessionNotes/whatWentWell/whatHurt/
-  // correctiveAction/sessionCategory used to live here, but moved onto the
-  // session's Sessions Recap / Daily Journal entry (journals/{id}, see
-  // JournalEntry) so there's one journaling system: the same field,
-  // editable from both the Sessions page and the Journal page, instead of
-  // sessionCategory being the one piece still split across two documents.
+  // Journaling — premarketPlan/sessionNotes/sessionCategory used to live
+  // here, but moved onto the session's Sessions Recap / Daily Journal entry
+  // (journals/{id}, see JournalEntry) so there's one journaling system: the
+  // same field, editable from both the Sessions page and the Journal page,
+  // instead of sessionCategory being the one piece still split across two
+  // documents.
   sessionCategory?: SessionCategory;
 
   // Trades
@@ -684,15 +684,6 @@ export interface JournalEntry {
   entryReason?: string;
   followedPlan?: boolean;
   improvements?: string;
-  // Daily Journal and Sessions Recap notes only (not trade notes, which
-  // have entryReason/followedPlan/improvements above instead) — merged in
-  // from what used to be a separate Self Review system on the Sessions
-  // page, so it lives on the same note as everything else, visible/
-  // commentable by mentors like any other journal entry instead of
-  // sitting in the sessions collection where mentor tooling never looked.
-  whatWentWell?: string;
-  whatHurt?: string;
-  correctiveAction?: string;
   sessionCategory?: SessionCategory;
   status?: 'private' | 'shared';
   createdAt: string;
