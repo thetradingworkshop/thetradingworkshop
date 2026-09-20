@@ -53,6 +53,17 @@ import { getPointValue } from '../contractSpecs';
 import { subscribeShareLink, createShareLink, revokeShareLink, shareUrl } from '../lib/shareLinks';
 import { MessageCircle } from 'lucide-react';
 
+// Verdict/Summary and Lesson Learned used to be two separate fields/editors
+// — merged into one "Trade Note" field (still stored under `verdict`,
+// `lessonLearned` kept in the type only for this migration read). A trade
+// reviewed before the merge folds its old lessonLearned content in here so
+// nothing written before is silently hidden.
+function mergeLegacyNote(verdict?: string, lessonLearned?: string): string {
+  if (isContentEmpty(lessonLearned)) return verdict || '';
+  if (isContentEmpty(verdict)) return lessonLearned || '';
+  return `${verdict}${lessonLearned}`;
+}
+
 interface TradePerformanceLogProps {
   trades: Trade[];
   title?: string;
@@ -259,7 +270,6 @@ export function TradePerformanceLog({ trades, title, subtitle, readOnly, ownerId
     behaviorFlags: [],
     tags: [],
     verdict: '',
-    lessonLearned: '',
     diagnostics: undefined,
     strategy: '',
     starRating: undefined,
@@ -360,7 +370,8 @@ export function TradePerformanceLog({ trades, title, subtitle, readOnly, ownerId
         // can't stand in for it the way it can for every other field.
         const reviewSnap = await getDoc(doc(db, 'trade_reviews', selectedTrade.id));
         if (reviewSnap.exists()) {
-          setReview(reviewSnap.data() as TradeReview);
+          const data = reviewSnap.data() as TradeReview;
+          setReview({ ...data, verdict: mergeLegacyNote(data.verdict, data.lessonLearned) });
         } else {
           // Initialize with trade data if available
           setReview({
@@ -371,8 +382,7 @@ export function TradePerformanceLog({ trades, title, subtitle, readOnly, ownerId
             timingScore: selectedTrade.timingScore || 50,
             behaviorFlags: selectedTrade.behaviorFlags || [],
             tags: selectedTrade.tags || [],
-            verdict: selectedTrade.verdict || '',
-            lessonLearned: selectedTrade.lessonLearned || '',
+            verdict: mergeLegacyNote(selectedTrade.verdict, selectedTrade.lessonLearned),
             diagnostics: selectedTrade.diagnostics,
             strategy: selectedTrade.strategy || '',
             starRating: selectedTrade.starRating,
@@ -456,20 +466,13 @@ export function TradePerformanceLog({ trades, title, subtitle, readOnly, ownerId
     setTimeout(() => setToast(null), 3000);
   };
 
-  // Keeps this trade's Verdict/Summary and Lesson Learned in sync with a
-  // tradeId-linked entry in the `journals` collection, so they show up as a
-  // "Trade Note" in the Notebook instead of being invisible outside this
-  // drawer. Looks the entry up by tradeId (rather than a deterministic doc
-  // id) since a Trade Note for this trade may already exist from before this
-  // syncing existed.
-  const syncTradeNote = async (verdict: string, lessonLearned: string) => {
-    if (!selectedTrade || !user) return;
-    const sections: string[] = [];
-    if (!isContentEmpty(verdict)) sections.push(`<p><strong>Verdict / Summary</strong></p>${verdict}`);
-    if (!isContentEmpty(lessonLearned)) sections.push(`<p><strong>Lesson Learned</strong></p>${lessonLearned}`);
-    if (sections.length === 0) return;
-
-    const content = sections.join('');
+  // Keeps this trade's note in sync with a tradeId-linked entry in the
+  // `journals` collection, so it shows up as a "Trade Note" in the Notebook
+  // instead of being invisible outside this drawer. Looks the entry up by
+  // tradeId (rather than a deterministic doc id) since a Trade Note for
+  // this trade may already exist from before this syncing existed.
+  const syncTradeNote = async (content: string) => {
+    if (!selectedTrade || !user || isContentEmpty(content)) return;
     const now = new Date().toISOString();
     const q = query(collection(db, 'journals'), where('userId', '==', user.uid), where('tradeId', '==', selectedTrade.id));
     const existing = await getDocs(q);
@@ -496,15 +499,20 @@ export function TradePerformanceLog({ trades, title, subtitle, readOnly, ownerId
     setIsSavingReview(true);
     try {
       const reviewRef = doc(db, 'trade_reviews', selectedTrade.id);
-      const reviewData = omitUndefined({
+      const reviewData: Record<string, unknown> = omitUndefined({
         ...review,
         tradeId: selectedTrade.id,
         sessionId: selectedTrade.sessionId,
         userId: user.uid,
         updatedAt: new Date().toISOString()
       });
+      // Verdict/Summary and Lesson Learned are now one field (see
+      // mergeLegacyNote) — actually clear the old one instead of just no
+      // longer writing it, so it doesn't linger stale in Firestore once a
+      // trade has been re-saved through the merged editor.
+      reviewData.lessonLearned = deleteField();
       await setDoc(reviewRef, reviewData, { merge: true });
-      await syncTradeNote(review.verdict || '', review.lessonLearned || '');
+      await syncTradeNote(review.verdict || '');
 
       // Also merge the reviewable fields back onto the trade itself — otherwise a
       // manual score change here never shows up in the Trades table or anywhere
@@ -513,7 +521,7 @@ export function TradePerformanceLog({ trades, title, subtitle, readOnly, ownerId
       // it's auto-computed by applyBatchDerivedGrading() at reconstruction time,
       // not user-editable, so it must never be overwritten here.
       const tradeRef = doc(db, 'trades', selectedTrade.id);
-      await setDoc(tradeRef, omitUndefined({
+      const tradeUpdate: Record<string, unknown> = omitUndefined({
         executionQuality: review.executionQuality,
         strategyQuality: review.strategyQuality,
         entryQuality: review.entryQuality,
@@ -522,7 +530,6 @@ export function TradePerformanceLog({ trades, title, subtitle, readOnly, ownerId
         behaviorFlags: review.behaviorFlags,
         tags: review.tags,
         verdict: review.verdict,
-        lessonLearned: review.lessonLearned,
         strategy: review.strategy,
         starRating: review.starRating,
         initialTarget: review.initialTarget,
@@ -530,7 +537,9 @@ export function TradePerformanceLog({ trades, title, subtitle, readOnly, ownerId
         plannedRMultiple: review.plannedRMultiple,
         bestExitTime: review.bestExitTime,
         updatedAt: serverTimestamp()
-      }), { merge: true });
+      });
+      tradeUpdate.lessonLearned = deleteField();
+      await setDoc(tradeRef, tradeUpdate, { merge: true });
 
       if (!silent) setToast({ message: 'Trade review saved successfully', type: 'success' });
     } catch (error) {
@@ -710,57 +719,30 @@ export function TradePerformanceLog({ trades, title, subtitle, readOnly, ownerId
     if (!selectedTrade) return null;
     if (isLoadingReview) return <p className="text-xs text-muted-foreground italic">Loading notes...</p>;
     if (readOnly) {
-      const hasVerdict = !isContentEmpty(review.verdict);
-      const hasLesson = !isContentEmpty(review.lessonLearned);
-      if (!hasVerdict && !hasLesson) {
-        return <p className="text-xs text-muted-foreground italic">No verdict or lesson recorded on this trade.</p>;
+      if (isContentEmpty(review.verdict)) {
+        return <p className="text-xs text-muted-foreground italic">No notes recorded on this trade.</p>;
       }
       return (
-        <>
-          {hasVerdict && (
-            <div className="space-y-2">
-              <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Verdict / Summary</label>
-              <div
-                className="text-sm text-muted-foreground leading-relaxed prose-sm max-w-none [&_img]:rounded-lg [&_img]:my-2 [&_img]:max-w-full"
-                dangerouslySetInnerHTML={{ __html: review.verdict || '' }}
-              />
-            </div>
-          )}
-          {hasLesson && (
-            <div className="space-y-2">
-              <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Lesson Learned</label>
-              <div
-                className="text-sm text-muted-foreground leading-relaxed prose-sm max-w-none [&_img]:rounded-lg [&_img]:my-2 [&_img]:max-w-full"
-                dangerouslySetInnerHTML={{ __html: review.lessonLearned || '' }}
-              />
-            </div>
-          )}
-        </>
+        <div className="space-y-2">
+          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Trade Note</label>
+          <div
+            className="text-sm text-muted-foreground leading-relaxed prose-sm max-w-none [&_img]:rounded-lg [&_img]:my-2 [&_img]:max-w-full"
+            dangerouslySetInnerHTML={{ __html: review.verdict || '' }}
+          />
+        </div>
       );
     }
     return (
-      <>
-        <div className="space-y-2">
-          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Verdict / Summary</label>
-          <RichTextEditor
-            key={`verdict-${selectedTrade.id}`}
-            initialValue={review.verdict || ''}
-            onChange={(html) => setReview(prev => ({ ...prev, verdict: html }))}
-            placeholder="What happened in this trade?"
-            minHeightClass="min-h-[96px]"
-          />
-        </div>
-        <div className="space-y-2">
-          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Lesson Learned</label>
-          <RichTextEditor
-            key={`lesson-${selectedTrade.id}`}
-            initialValue={review.lessonLearned || ''}
-            onChange={(html) => setReview(prev => ({ ...prev, lessonLearned: html }))}
-            placeholder="What is the key takeaway?"
-            minHeightClass="min-h-[96px]"
-          />
-        </div>
-      </>
+      <div className="space-y-2">
+        <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Trade Note</label>
+        <RichTextEditor
+          key={`note-${selectedTrade.id}`}
+          initialValue={review.verdict || ''}
+          onChange={(html) => setReview(prev => ({ ...prev, verdict: html }))}
+          placeholder="What happened in this trade, and what's the takeaway?"
+          minHeightClass="min-h-[200px]"
+        />
+      </div>
     );
   };
 
