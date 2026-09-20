@@ -9,7 +9,7 @@ import { db } from '../firebase';
 import { useTrades } from '../context/TradeContext';
 import { useAuth } from '../context/AuthContext';
 import { useDateRange } from '../context/DateContext';
-import { JournalEntry, JournalTemplate, Trade, ShareLink } from '../types';
+import { JournalEntry, JournalTemplate, Trade, ShareLink, SessionCategory } from '../types';
 import { RichTextEditor, isContentEmpty, stripHtml } from '../components/RichTextEditor';
 import { useMentorComments, postMentorComment, markMentorCommentsRead, fmtCommentTimestamp } from '../hooks/useMentorComments';
 import { subscribeJournalTemplates, createJournalTemplate, updateJournalTemplate, deleteJournalTemplate } from '../lib/journalTemplates';
@@ -71,11 +71,12 @@ interface RecapDraft {
   startDate: string;
   endDate: string;
   accountKey: string;
+  sessionCategory: SessionCategory | '';
 }
 
 function emptyRecapDraft(): RecapDraft {
   const today = new Date().toISOString().slice(0, 10);
-  return { startDate: today, endDate: today, accountKey: '' };
+  return { startDate: today, endDate: today, accountKey: '', sessionCategory: '' };
 }
 
 // formatRecapTitle/computeRecapStats/localDateOf/getRecapStatsForDisplay
@@ -467,6 +468,7 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
         accountId: account?.accountId,
         connectionId: account?.connectionId,
         brokerName: account?.brokerName,
+        sessionCategory: recapDraft.sessionCategory || undefined,
         recapStats,
         createdAt: now,
         updatedAt: now,
@@ -1410,6 +1412,22 @@ export default function JournalScreen({ setActivePage }: { setActivePage: (page:
                 </select>
               </div>
             )}
+
+            <div className="space-y-2">
+              <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Session Category</label>
+              <select
+                value={recapDraft.sessionCategory}
+                onChange={(e) => setRecapDraft(prev => prev && ({ ...prev, sessionCategory: e.target.value as SessionCategory | '' }))}
+                className="w-full bg-accent/30 border border-border rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+              >
+                <option value="">No category</option>
+                <option value="NY_AM">NY AM</option>
+                <option value="NY_PM">NY PM</option>
+                <option value="ASIA">Asia</option>
+                <option value="LONDON">London</option>
+                <option value="WEEKLY">Weekly</option>
+              </select>
+            </div>
 
             <p className="text-xs text-muted-foreground">
               Net P&L, contracts traded, volume, commissions, and ROI are pulled automatically from your trades in this range.
