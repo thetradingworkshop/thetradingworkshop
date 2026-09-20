@@ -368,41 +368,47 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
             value={stats && !isNaN(stats.netPnlDollars) ? `${stats.netPnlDollars >= 0 ? '+' : ''}$${stats.netPnlDollars.toLocaleString()}` : "$0.00"}
             trend={undefined}
             className="border-emerald-500/20 bg-emerald-500/5 hover:bg-emerald-500/10 transition-colors"
+            compact
           />
-          <Scorecard 
-            label="Win Rate" 
-            value={stats && !isNaN(stats.winRate) ? `${stats.winRate.toFixed(1)}%` : "0.0%"} 
-            trend={undefined} 
+          <Scorecard
+            label="Win Rate"
+            value={stats && !isNaN(stats.winRate) ? `${stats.winRate.toFixed(1)}%` : "0.0%"}
+            trend={undefined}
+            compact
           />
-          <Scorecard 
-            label="Profit Factor" 
-            value={stats && !isNaN(stats.profitFactor) ? stats.profitFactor.toFixed(2) : "0.00"} 
-            trend={undefined} 
+          <Scorecard
+            label="Profit Factor"
+            value={stats && !isNaN(stats.profitFactor) ? stats.profitFactor.toFixed(2) : "0.00"}
+            trend={undefined}
+            compact
           />
-          <Scorecard 
-            label="Avg Winner" 
-            value={stats && !isNaN(stats.avgWinner) ? stats.avgWinner.toFixed(2) : "0.00"} 
-            secondary={stats && !isNaN(stats.avgLoser) ? `Avg Loser: ${stats.avgLoser.toFixed(2)}` : "Avg Loser: 0.00"} 
+          <Scorecard
+            label="Avg Winner"
+            value={stats && !isNaN(stats.avgWinner) ? stats.avgWinner.toFixed(2) : "0.00"}
+            secondary={stats && !isNaN(stats.avgLoser) ? `Avg Loser: ${stats.avgLoser.toFixed(2)}` : "Avg Loser: 0.00"}
+            compact
           />
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           <div className="lg:col-span-8">
-            <EquityCurveChart className="h-full" data={stats?.equityDataDollars} />
+            <EquityCurveChart className="h-full" data={stats?.equityDataDollars} compact />
           </div>
           <div className="lg:col-span-4 flex flex-col gap-6">
-            <Scorecard 
-              label="Discipline Score" 
-              value={`${behaviorMetrics.disciplineScore}/100`} 
-              secondary={behaviorMetrics.disciplineTrend > 0 ? "Improving adherence" : "Decreasing adherence"} 
-              trend={{ value: Math.abs(behaviorMetrics.disciplineTrend), label: 'trend', positive: behaviorMetrics.disciplineTrend >= 0 }} 
-              className="bg-indigo-500/5 border-indigo-500/20" 
+            <Scorecard
+              label="Discipline Score"
+              value={`${behaviorMetrics.disciplineScore}/100`}
+              secondary={behaviorMetrics.disciplineTrend > 0 ? "Improving adherence" : "Decreasing adherence"}
+              trend={{ value: Math.abs(behaviorMetrics.disciplineTrend), label: 'trend', positive: behaviorMetrics.disciplineTrend >= 0 }}
+              className="bg-indigo-500/5 border-indigo-500/20"
+              compact
             />
             <Scorecard
               label="Payoff Ratio Score"
               value={`${behaviorMetrics.payoffRatioScore}/100`}
               secondary={behaviorMetrics.payoffRatioTrend > 0 ? "Improving payoff ratio" : "Declining payoff ratio"}
               trend={{ value: Math.abs(behaviorMetrics.payoffRatioTrend), label: 'trend', positive: behaviorMetrics.payoffRatioTrend >= 0 }}
+              compact
             />
             <Scorecard
               label="Entry Timing Score"
@@ -410,6 +416,7 @@ export default function DashboardScreen({ setActivePage }: { setActivePage?: (pa
               secondary={behaviorMetrics.entryTimingTrend > 0 ? "Improving entry timing" : "Declining entry timing"}
               trend={{ value: Math.abs(behaviorMetrics.entryTimingTrend), label: 'trend', positive: behaviorMetrics.entryTimingTrend >= 0 }}
               className={behaviorMetrics.entryTimingTrend < 0 ? "bg-rose-500/5 border-rose-500/20" : "bg-emerald-500/5 border-emerald-500/20"}
+              compact
             />
           </div>
         </div>

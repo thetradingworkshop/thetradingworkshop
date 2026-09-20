@@ -18,7 +18,7 @@ const data = [
   { name: '15:00', value: 3200 },
 ];
 
-export function EquityCurveChart({ className, data: propData }: { className?: string, data?: { name: string, value: number }[] }) {
+export function EquityCurveChart({ className, data: propData, compact }: { className?: string, data?: { name: string, value: number }[], compact?: boolean }) {
   const chartData = propData || [];
 
   const peak = chartData.length > 0 ? Math.max(...chartData.map(d => d.value)) : 0;
@@ -37,7 +37,7 @@ export function EquityCurveChart({ className, data: propData }: { className?: st
     const isFirstOccurrence = firstLabelIndex.get(payload.value) === payload.index;
     if (!isFirstOccurrence) return <g />;
     return (
-      <text x={x} y={y + 10} textAnchor="middle" fontSize={11} fontWeight={500} fill="#71717a">
+      <text x={x} y={y + 10} textAnchor="middle" fontSize={compact ? 10 : 11} fontWeight={500} fill="#71717a">
         {payload.value}
       </text>
     );
@@ -45,25 +45,25 @@ export function EquityCurveChart({ className, data: propData }: { className?: st
 
   return (
     <Card className={cn("flex flex-col", className)}>
-      <div className="p-8 border-b border-border/50 flex items-center justify-between">
+      <div className={cn("border-b border-border/50 flex items-center justify-between", compact ? "p-5" : "p-8")}>
         <div>
-          <h3 className="text-lg font-bold tracking-tight">Equity Curve</h3>
-          <p className="text-xs text-muted-foreground font-medium mt-0.5">Cumulative performance over time</p>
+          <h3 className={cn("font-bold tracking-tight", compact ? "text-sm" : "text-lg")}>Equity Curve</h3>
+          <p className={cn("text-muted-foreground font-medium mt-0.5", compact ? "text-[10px]" : "text-xs")}>Cumulative performance over time</p>
         </div>
-        <div className="flex items-center space-x-6">
+        <div className={cn("flex items-center", compact ? "space-x-4" : "space-x-6")}>
           <div className="text-right">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/80">Current P&L</p>
-            <p className={cn("text-sm font-bold mt-0.5", current >= 0 ? "text-emerald-500" : "text-rose-500")}>
+            <p className={cn("font-bold uppercase tracking-widest text-muted-foreground/80", compact ? "text-[9px]" : "text-[10px]")}>Current P&L</p>
+            <p className={cn("font-bold mt-0.5", compact ? "text-xs" : "text-sm", current >= 0 ? "text-emerald-500" : "text-rose-500")}>
               {current >= 0 ? '+' : ''}${current.toLocaleString(undefined, { minimumFractionDigits: 2 })}
             </p>
           </div>
           <div className="text-right">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/80">Peak P&L</p>
-            <p className="text-sm font-bold text-emerald-500 mt-0.5">+${peak.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+            <p className={cn("font-bold uppercase tracking-widest text-muted-foreground/80", compact ? "text-[9px]" : "text-[10px]")}>Peak P&L</p>
+            <p className={cn("font-bold text-emerald-500 mt-0.5", compact ? "text-xs" : "text-sm")}>+${peak.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
           </div>
         </div>
       </div>
-      <div className="h-[340px] w-full p-6 flex items-center justify-center">
+      <div className={cn("w-full flex items-center justify-center", compact ? "h-[220px] p-4" : "h-[340px] p-6")}>
         {chartData.length > 0 ? (
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
@@ -81,10 +81,10 @@ export function EquityCurveChart({ className, data: propData }: { className?: st
                 tick={renderTick}
                 interval={0}
               />
-              <YAxis 
-                axisLine={false} 
-                tickLine={false} 
-                tick={{ fontSize: 11, fill: '#71717a', fontWeight: 500 }}
+              <YAxis
+                axisLine={false}
+                tickLine={false}
+                tick={{ fontSize: compact ? 10 : 11, fill: '#71717a', fontWeight: 500 }}
                 tickFormatter={(value) => `$${value}`}
                 dx={-10}
               />

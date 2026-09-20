@@ -42,21 +42,30 @@ export function Card({ children, className, noPadding }: { children: React.React
   );
 }
 
-export function Scorecard({ label, value, secondary, trend, className }: { 
-  label: string; 
-  value: string | number; 
+export function Scorecard({ label, value, secondary, trend, className, compact }: {
+  label: string;
+  value: string | number;
   secondary?: string;
   trend?: { value: number; label: string; positive: boolean };
   className?: string;
+  // Smaller padding/type scale for pages that pack several of these into
+  // one screen (Dashboard's top-of-page rows) — default size unchanged for
+  // everywhere else (Sessions, Range Analysis) that wasn't asked to shrink.
+  compact?: boolean;
 }) {
   return (
-    <Card className={cn("flex flex-col justify-between min-h-[140px] hover:border-border/80 transition-all", className)}>
+    <Card className={cn(
+      "flex flex-col justify-between hover:border-border/80 transition-all",
+      compact ? "min-h-[104px] p-4" : "min-h-[140px]",
+      className
+    )}>
       <div>
         <div className="flex items-center justify-between mb-2">
-          <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/70">{label}</p>
+          <p className={cn("font-bold uppercase tracking-wider text-muted-foreground/70", compact ? "text-[9px]" : "text-[11px]")}>{label}</p>
           {trend && (
             <div className={cn(
-              "flex items-center text-[10px] font-bold px-2 py-0.5 rounded-full",
+              "flex items-center font-bold rounded-full",
+              compact ? "text-[9px] px-1.5 py-0.5" : "text-[10px] px-2 py-0.5",
               trend.positive ? "text-emerald-600 bg-emerald-500/10" : "text-rose-600 bg-rose-500/10"
             )}>
               {trend.positive ? <ArrowUpRight className="w-3 h-3 mr-0.5" /> : <ArrowDownRight className="w-3 h-3 mr-0.5" />}
@@ -64,12 +73,12 @@ export function Scorecard({ label, value, secondary, trend, className }: {
             </div>
           )}
         </div>
-        <h3 className="text-3xl font-bold tracking-tight text-foreground">{value}</h3>
+        <h3 className={cn("font-bold tracking-tight text-foreground", compact ? "text-xl" : "text-3xl")}>{value}</h3>
       </div>
       {(secondary || trend) && (
-        <div className="mt-4 flex items-center justify-between border-t border-border/40 pt-3">
-          {secondary && <p className="text-[12px] font-medium text-muted-foreground/80 leading-none">{secondary}</p>}
-          {trend && <p className="text-[11px] text-muted-foreground/60 font-medium ml-auto">{trend.label}</p>}
+        <div className={cn("flex items-center justify-between border-t border-border/40", compact ? "mt-2 pt-2" : "mt-4 pt-3")}>
+          {secondary && <p className={cn("font-medium text-muted-foreground/80 leading-none", compact ? "text-[10px]" : "text-[12px]")}>{secondary}</p>}
+          {trend && <p className={cn("text-muted-foreground/60 font-medium ml-auto", compact ? "text-[10px]" : "text-[11px]")}>{trend.label}</p>}
         </div>
       )}
     </Card>
