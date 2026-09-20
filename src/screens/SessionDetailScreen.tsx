@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { SectionHeader, Scorecard, Card, Badge, Button, Table, TableHeader, TableRow, TableHead, TableCell, Toast, Input } from '../components/Shared';
 import { EquityCurveChart, PnlByTradeChart, HourlyPerformanceChart, BiasVsOutcome } from '../components/Charts';
 import { BrainCircuit, MessageSquare, BookOpen, TrendingUp, ShieldCheck, Target, AlertCircle, Zap, Clock, Lightbulb, CheckCircle2, ChevronRight, ChevronDown, Loader2, Save, ShieldAlert, AlertTriangle, Info } from 'lucide-react';
-import { cn } from '@/src/utils';
+import { cn, omitUndefined } from '@/src/utils';
 
 import { useDateRange } from '../context/DateContext';
 import { useTrades } from '../context/TradeContext';
@@ -14,9 +14,10 @@ import { MentorService, StructuredInsight } from '../services/mentorService';
 import { RuleBasedMentorService, RuleBasedInsight } from '../services/RuleBasedMentorService';
 import { RuleBasedMentor } from '../components/RuleBasedMentor';
 import { DictationTextarea } from '../components/DictationTextarea';
+import { RichTextEditor } from '../components/RichTextEditor';
 import { AnthropicProvider } from '../services/aiProviders';
-import { Session, TradeIntent } from '../types';
-import { doc, getDoc, setDoc, collection, query, where, getDocs, serverTimestamp } from 'firebase/firestore';
+import { Session, TradeIntent, JournalEntry } from '../types';
+import { doc, getDoc, setDoc, updateDoc, addDoc, deleteField, collection, query, where, getDocs, serverTimestamp } from 'firebase/firestore';
 import { db } from '../firebase';
 
 export default function SessionDetailScreen() {
@@ -32,22 +33,29 @@ export default function SessionDetailScreen() {
   const [isMentorLoading, setIsMentorLoading] = useState(false);
   const [cooldownRemaining, setCooldownRemaining] = useState(0);
 
-  const [sessionJournal, setSessionJournal] = useState<{
+  // Session Journal + Self Review content now lives on the same Daily
+  // Journal entry Journal screen's own find-or-create would land on for
+  // this date (journals/{id} with sessionId set, no tradeId) — merged
+  // from what used to be a separate sessions-collection field set so
+  // there's one journaling system, and so a mentor's existing journals
+  // read/comment access (MentorDashboardScreen, useMentorComments) covers
+  // this content too instead of it sitting somewhere mentor tooling never
+  // looked. `journalId` is null until the first save, matching
+  // JournalScreen's own create-vs-update branch.
+  const [journalDraft, setJournalDraft] = useState<{
+    journalId: string | null;
+    content: string;
     premarketPlan: string;
-    sessionNotes: string;
     whatWentWell: string;
     whatHurt: string;
     correctiveAction: string;
-    sessionCategory: NonNullable<Session['sessionCategory']> | '';
-  }>({
-    premarketPlan: '',
-    sessionNotes: '',
-    whatWentWell: '',
-    whatHurt: '',
-    correctiveAction: '',
-    sessionCategory: ''
-  });
+  }>({ journalId: null, content: '', premarketPlan: '', whatWentWell: '', whatHurt: '', correctiveAction: '' });
+  // sessionCategory is session-level classification, not journal content —
+  // it stays on the `sessions` doc, same as every other trade-derived
+  // stat on that document.
+  const [sessionCategory, setSessionCategory] = useState<NonNullable<Session['sessionCategory']> | ''>('');
   const [isSavingJournal, setIsSavingJournal] = useState(false);
+  const [isJournalMediaUploading, setIsJournalMediaUploading] = useState(false);
   const [intents, setIntents] = useState<TradeIntent[]>([]);
   const [sessionMeta, setSessionMeta] = useState<{ createdAt?: string; updatedAt?: string }>({});
   // Tracks whether a `sessions` doc already exists for the currently-loaded
@@ -60,39 +68,47 @@ export default function SessionDetailScreen() {
 
   const sessionDateStr = format(effectiveRange.from, 'yyyy-MM-dd');
 
-  // Load session journal
+  // Load session category (sessions doc) + journal content (journals doc)
   useEffect(() => {
     if (!user) return;
+    const sessionId = `${user.uid}_${sessionDateStr}`;
     const loadSession = async () => {
-      const sessionId = `${user.uid}_${sessionDateStr}`;
       const sessionRef = doc(db, 'sessions', sessionId);
       const sessionSnap = await getDoc(sessionRef);
       if (sessionSnap.exists()) {
-        const data = sessionSnap.data() as Session;
         sessionExistsRef.current = true;
-        setSessionJournal({
-          premarketPlan: data.premarketPlan || '',
-          sessionNotes: data.sessionNotes || '',
-          whatWentWell: data.whatWentWell || '',
-          whatHurt: data.whatHurt || '',
-          correctiveAction: data.correctiveAction || '',
-          sessionCategory: data.sessionCategory || ''
-        });
-        setSessionMeta({ createdAt: data.createdAt, updatedAt: data.updatedAt });
+        setSessionCategory((sessionSnap.data() as Session).sessionCategory || '');
       } else {
         sessionExistsRef.current = false;
-        setSessionJournal({
-          premarketPlan: '',
-          sessionNotes: '',
-          whatWentWell: '',
-          whatHurt: '',
-          correctiveAction: '',
-          sessionCategory: ''
+        setSessionCategory('');
+      }
+    };
+    const loadJournal = async () => {
+      // Same match Journal screen's own find-or-create uses: this
+      // session's Daily Journal entry is the one with no tradeId (a Trade
+      // Note can also carry this sessionId, so tradeId is what tells them
+      // apart).
+      const journalsSnap = await getDocs(query(collection(db, 'journals'), where('sessionId', '==', sessionId)));
+      const existing = journalsSnap.docs
+        .map(d => ({ id: d.id, ...d.data() } as JournalEntry))
+        .find(j => !j.tradeId);
+      if (existing) {
+        setJournalDraft({
+          journalId: existing.id,
+          content: existing.content || '',
+          premarketPlan: existing.premarketPlan || '',
+          whatWentWell: existing.whatWentWell || '',
+          whatHurt: existing.whatHurt || '',
+          correctiveAction: existing.correctiveAction || '',
         });
+        setSessionMeta({ createdAt: existing.createdAt, updatedAt: existing.updatedAt });
+      } else {
+        setJournalDraft({ journalId: null, content: '', premarketPlan: '', whatWentWell: '', whatHurt: '', correctiveAction: '' });
         setSessionMeta({});
       }
     };
     loadSession();
+    loadJournal();
   }, [user, sessionDateStr]);
 
   // Load intents for the session
@@ -132,21 +148,57 @@ export default function SessionDetailScreen() {
 
   const saveSessionJournal = async () => {
     if (!user) return;
+    if (isJournalMediaUploading) {
+      setToast({ message: 'Wait for the video upload to finish before saving', type: 'error' });
+      setTimeout(() => setToast(null), 3000);
+      return;
+    }
     setIsSavingJournal(true);
     try {
       const sessionId = `${user.uid}_${sessionDateStr}`;
-      const sessionRef = doc(db, 'sessions', sessionId);
       const now = new Date().toISOString();
-      const isFirstWrite = !sessionExistsRef.current;
-      await setDoc(sessionRef, {
-        ...sessionJournal,
+
+      // sessionCategory: small separate write to the `sessions` doc —
+      // unrelated to journal content, same document every other
+      // trade-derived session stat already lives on.
+      const isFirstSessionWrite = !sessionExistsRef.current;
+      await setDoc(doc(db, 'sessions', sessionId), {
         userId: user.uid,
         date: sessionDateStr,
-        ...(isFirstWrite && { createdAt: now }),
+        sessionCategory: sessionCategory || deleteField(),
+        ...(isFirstSessionWrite && { createdAt: now }),
         updatedAt: now
       }, { merge: true });
       sessionExistsRef.current = true;
-      setSessionMeta(prev => ({ createdAt: isFirstWrite ? now : prev.createdAt, updatedAt: now }));
+
+      // Journal content: the same Daily Journal entry Journal screen
+      // would find-or-create for this date.
+      const journalFields = omitUndefined({
+        content: journalDraft.content,
+        premarketPlan: journalDraft.premarketPlan || undefined,
+        whatWentWell: journalDraft.whatWentWell || undefined,
+        whatHurt: journalDraft.whatHurt || undefined,
+        correctiveAction: journalDraft.correctiveAction || undefined,
+      });
+      if (journalDraft.journalId) {
+        await updateDoc(doc(db, 'journals', journalDraft.journalId), { ...journalFields, updatedAt: now });
+        setSessionMeta(prev => ({ ...prev, updatedAt: now }));
+      } else {
+        const docRef = await addDoc(collection(db, 'journals'), {
+          userId: user.uid,
+          sessionId,
+          title: `Daily Journal — ${sessionDateStr}`,
+          date: sessionDateStr,
+          tags: [],
+          status: 'private',
+          ...journalFields,
+          createdAt: now,
+          updatedAt: now,
+        });
+        setJournalDraft(prev => ({ ...prev, journalId: docRef.id }));
+        setSessionMeta({ createdAt: now, updatedAt: now });
+      }
+
       setToast({ message: 'Session journal saved successfully', type: 'success' });
     } catch (error) {
       console.error('Error saving session journal:', error);
@@ -752,8 +804,8 @@ export default function SessionDetailScreen() {
               <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Session Category</label>
               <select
                 className="w-full p-3 bg-accent/30 border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
-                value={sessionJournal.sessionCategory}
-                onChange={(e) => setSessionJournal(prev => ({ ...prev, sessionCategory: e.target.value as typeof prev.sessionCategory }))}
+                value={sessionCategory}
+                onChange={(e) => setSessionCategory(e.target.value as typeof sessionCategory)}
               >
                 <option value="">No category</option>
                 <option value="NY_AM">NY AM</option>
@@ -768,17 +820,20 @@ export default function SessionDetailScreen() {
               <DictationTextarea
                 className="w-full h-24 p-4 bg-accent/30 border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
                 placeholder="What was your plan for today?"
-                value={sessionJournal.premarketPlan}
-                onChange={(e) => setSessionJournal(prev => ({ ...prev, premarketPlan: e.target.value }))}
+                value={journalDraft.premarketPlan}
+                onChange={(e) => setJournalDraft(prev => ({ ...prev, premarketPlan: e.target.value }))}
               />
             </div>
             <div className="space-y-2">
               <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Session Notes</label>
-              <DictationTextarea
-                className="w-full h-32 p-4 bg-accent/30 border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
+              <RichTextEditor
+                key={journalDraft.journalId || sessionDateStr}
+                initialValue={journalDraft.content}
+                onChange={(html) => setJournalDraft(prev => ({ ...prev, content: html }))}
                 placeholder="General notes about the session..."
-                value={sessionJournal.sessionNotes}
-                onChange={(e) => setSessionJournal(prev => ({ ...prev, sessionNotes: e.target.value }))}
+                minHeightClass="min-h-[128px]"
+                userId={user?.uid}
+                onUploadingChange={setIsJournalMediaUploading}
               />
             </div>
           </div>
@@ -789,6 +844,7 @@ export default function SessionDetailScreen() {
               <MessageSquare className="w-5 h-5 text-primary" />
             </div>
             <h3 className="font-bold text-foreground">Self Review</h3>
+            <span className="text-xs text-muted-foreground italic">Saved to your Daily Journal — visible to your mentor</span>
           </div>
           <div className="space-y-6">
             <div className="space-y-2">
@@ -796,8 +852,8 @@ export default function SessionDetailScreen() {
               <DictationTextarea
                 className="w-full h-20 p-4 bg-emerald-500/5 border border-emerald-500/10 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 resize-none"
                 placeholder="List your wins and good habits..."
-                value={sessionJournal.whatWentWell}
-                onChange={(e) => setSessionJournal(prev => ({ ...prev, whatWentWell: e.target.value }))}
+                value={journalDraft.whatWentWell}
+                onChange={(e) => setJournalDraft(prev => ({ ...prev, whatWentWell: e.target.value }))}
               />
             </div>
             <div className="space-y-2">
@@ -805,8 +861,8 @@ export default function SessionDetailScreen() {
               <DictationTextarea
                 className="w-full h-20 p-4 bg-rose-500/5 border border-rose-500/10 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-rose-500/20 resize-none"
                 placeholder="What mistakes did you make?"
-                value={sessionJournal.whatHurt}
-                onChange={(e) => setSessionJournal(prev => ({ ...prev, whatHurt: e.target.value }))}
+                value={journalDraft.whatHurt}
+                onChange={(e) => setJournalDraft(prev => ({ ...prev, whatHurt: e.target.value }))}
               />
             </div>
             <div className="space-y-2">
@@ -814,8 +870,8 @@ export default function SessionDetailScreen() {
               <DictationTextarea
                 className="w-full h-20 p-4 bg-indigo-500/5 border border-indigo-500/10 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 resize-none"
                 placeholder="What will you do differently tomorrow?"
-                value={sessionJournal.correctiveAction}
-                onChange={(e) => setSessionJournal(prev => ({ ...prev, correctiveAction: e.target.value }))}
+                value={journalDraft.correctiveAction}
+                onChange={(e) => setJournalDraft(prev => ({ ...prev, correctiveAction: e.target.value }))}
               />
             </div>
           </div>

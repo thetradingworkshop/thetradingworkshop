@@ -607,12 +607,12 @@ export interface Session {
   reentryCount?: number;
   maxLosingStreak?: number;
 
-  // Journaling
-  premarketPlan?: string;
-  sessionNotes?: string;
-  whatWentWell?: string;
-  whatHurt?: string;
-  correctiveAction?: string;
+  // Journaling — premarketPlan/sessionNotes/whatWentWell/whatHurt/
+  // correctiveAction used to live here, but moved onto the session's
+  // Daily Journal entry (journals/{id}, see JournalEntry) so there's one
+  // journaling system and mentors' existing journals access covers this
+  // content too. sessionCategory stays — it's session classification,
+  // not journal content.
   sessionCategory?: 'NY_AM' | 'NY_PM' | 'ASIA' | 'LONDON' | 'WEEKLY';
 
   // Trades
@@ -680,6 +680,16 @@ export interface JournalEntry {
   entryReason?: string;
   followedPlan?: boolean;
   improvements?: string;
+  // Daily Journal only (sessionId set, no tradeId) — merged in from what
+  // used to be a separate Session Journal/Self Review system on the
+  // Sessions page, so a session's pre-market plan and self-review live on
+  // the same note as everything else, visible/commentable by mentors like
+  // any other journal entry instead of sitting in the sessions collection
+  // where mentor tooling never looked.
+  premarketPlan?: string;
+  whatWentWell?: string;
+  whatHurt?: string;
+  correctiveAction?: string;
   status?: 'private' | 'shared';
   createdAt: string;
   updatedAt: string;
