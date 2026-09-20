@@ -26,6 +26,17 @@ export function subscribeStrategies(userId: string, onChange: (strategies: Strat
   });
 }
 
+// A Student's "Shared with me" tab — strategies their own assigned mentor
+// has opted into sharing. See isMyAssignedMentor() in firestore.rules for
+// what actually enforces that this can only ever return the caller's own
+// mentor's shared strategies, never an arbitrary mentor's.
+export function subscribeSharedStrategies(mentorId: string, onChange: (strategies: Strategy[]) => void): () => void {
+  const q = query(collection(db, 'strategies'), where('userId', '==', mentorId), where('sharedWithStudents', '==', true));
+  return onSnapshot(q, snap => {
+    onChange(snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<Strategy, 'id'>) })));
+  });
+}
+
 export async function createStrategy(userId: string, name: string, icon: string | undefined, description: string | undefined, categories: StrategyCategory[]): Promise<string> {
   const now = new Date().toISOString();
   const docRef = await addDoc(collection(db, 'strategies'), {
@@ -47,7 +58,7 @@ export async function createStrategy(userId: string, name: string, icon: string 
 // outright, and unlike createStrategy's conditional spread (which omits
 // the field to keep new documents free of empty-string clutter), an edit
 // needs to be able to explicitly clear a field the strategy already has.
-export async function updateStrategy(id: string, patch: Partial<Pick<Strategy, 'name' | 'icon' | 'description' | 'status' | 'categories'>>): Promise<void> {
+export async function updateStrategy(id: string, patch: Partial<Pick<Strategy, 'name' | 'icon' | 'description' | 'status' | 'categories' | 'sharedWithStudents'>>): Promise<void> {
   await updateDoc(doc(db, 'strategies', id), { ...patch, updatedAt: new Date().toISOString() });
 }
 

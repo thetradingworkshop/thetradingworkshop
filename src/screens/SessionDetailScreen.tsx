@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { SectionHeader, Scorecard, Card, Badge, Button, Table, TableHeader, TableRow, TableHead, TableCell, Toast, Input } from '../components/Shared';
 import { EquityCurveChart, PnlByTradeChart, HourlyPerformanceChart, BiasVsOutcome } from '../components/Charts';
 import { BrainCircuit, BookOpen, TrendingUp, ShieldCheck, Target, AlertCircle, Zap, Clock, Lightbulb, CheckCircle2, ChevronRight, ChevronDown, Loader2, Save, ShieldAlert, AlertTriangle, Info, Share2, Link as LinkIcon } from 'lucide-react';
@@ -21,6 +21,7 @@ import { db } from '../firebase';
 import { formatRecapTitle, computeRecapStats } from '../lib/journalRecap';
 import { usePersistedState } from '../hooks/usePersistedState';
 import { subscribeShareLink, createShareLink, revokeShareLink, shareUrl } from '../lib/shareLinks';
+import { exportSessionPdf } from '../lib/exportPdf';
 import { Mood, MOOD_OPTIONS } from '../lib/moods';
 
 export default function SessionDetailScreen() {
@@ -28,6 +29,8 @@ export default function SessionDetailScreen() {
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [isReentryCollapsed, setIsReentryCollapsed] = usePersistedState('reentryTradesCollapsed', false);
   const [isScaledCollapsed, setIsScaledCollapsed] = usePersistedState('scaledTradesCollapsed', false);
+  const exportRef = useRef<HTMLDivElement>(null);
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
   const { getEffectiveRange } = useDateRange();
   const { filteredTrades: trades, accountFilter, accountOptions } = useTrades();
   const effectiveRange = getEffectiveRange('sessions');
@@ -229,13 +232,38 @@ export default function SessionDetailScreen() {
     return subscribeShareLink(user.uid, 'journal', journalDraft.journalId, setActiveShareLink);
   }, [user, journalDraft.journalId]);
 
+  const handleExportPdf = async () => {
+    if (!exportRef.current) return;
+    setIsExportingPdf(true);
+    try {
+      await exportSessionPdf(exportRef.current, {
+        dateRangeLabel: `${format(effectiveRange.from, 'MMM d, yyyy')} - ${format(effectiveRange.to, 'MMM d, yyyy')}`,
+      });
+    } catch (error) {
+      console.error('Failed to export PDF:', error);
+      setToast({ message: 'Failed to export PDF', type: 'error' });
+      setTimeout(() => setToast(null), 3000);
+    } finally {
+      setIsExportingPdf(false);
+    }
+  };
+
   const handleShareSession = async () => {
     if (!user || !journalDraft.journalId) return;
     setIsShareBusy(true);
     try {
       const token = await createShareLink(user.uid, 'journal', journalDraft.journalId);
-      await navigator.clipboard.writeText(shareUrl(token));
-      setToast({ message: 'Session shared — link copied to clipboard', type: 'success' });
+      // Copying to the clipboard can fail on its own (permissions, an
+      // insecure context, an automated browser) even when the share
+      // itself succeeded — that's not a failure to share, so it gets its
+      // own catch rather than one try/catch claiming the whole thing
+      // failed when only the copy did.
+      try {
+        await navigator.clipboard.writeText(shareUrl(token));
+        setToast({ message: 'Session shared — link copied to clipboard', type: 'success' });
+      } catch {
+        setToast({ message: 'Session shared — copy the link from the button above', type: 'success' });
+      }
     } catch (error) {
       console.error('Failed to share session:', error);
       setToast({ message: 'Failed to share session', type: 'error' });
@@ -245,10 +273,14 @@ export default function SessionDetailScreen() {
     }
   };
 
-  const handleCopyShareLink = () => {
+  const handleCopyShareLink = async () => {
     if (!activeShareLink) return;
-    navigator.clipboard.writeText(shareUrl(activeShareLink.id));
-    setToast({ message: 'Link copied', type: 'success' });
+    try {
+      await navigator.clipboard.writeText(shareUrl(activeShareLink.id));
+      setToast({ message: 'Link copied', type: 'success' });
+    } catch {
+      setToast({ message: "Couldn't copy — your browser blocked clipboard access", type: 'error' });
+    }
     setTimeout(() => setToast(null), 3000);
   };
 
@@ -351,7 +383,9 @@ export default function SessionDetailScreen() {
         }
         rightElement={
           <div className="flex flex-wrap items-center gap-3">
-            <Button variant="outline" disabled title="PDF export isn't built yet">Export PDF</Button>
+            <Button variant="outline" onClick={handleExportPdf} disabled={isExportingPdf}>
+              {isExportingPdf ? 'Exporting...' : 'Export PDF'}
+            </Button>
             {activeShareLink ? (
               <div className="flex items-center gap-2">
                 <Button variant="outline" icon={Share2} onClick={handleCopyShareLink}>Copy Share Link</Button>
@@ -380,6 +414,12 @@ export default function SessionDetailScreen() {
           </div>
         }
       />
+
+      {/* Export PDF captures everything inside this ref — Rows 1-8, Scorecards
+          through the winners/losers trade tables — as a single wrapping div.
+          SectionHeader (nav/buttons/date picker) stays a sibling outside it,
+          so it's naturally excluded with no separate print layout needed. */}
+      <div ref={exportRef} className="space-y-8">
 
       {/* Row 1: Key Performance Scorecards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -882,6 +922,9 @@ export default function SessionDetailScreen() {
           </Table>
         </Card>
       </div>
+
+      </div>
+      {/* End of Export PDF region */}
 
       {/* Row 9: Re-entry + Scaling */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

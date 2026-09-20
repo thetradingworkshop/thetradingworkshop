@@ -459,10 +459,14 @@ export function TradePerformanceLog({ trades, title, subtitle, readOnly, ownerId
     }
   };
 
-  const handleCopyTradeShareLink = () => {
+  const handleCopyTradeShareLink = async () => {
     if (!activeShareLink) return;
-    navigator.clipboard.writeText(shareUrl(activeShareLink.id));
-    setToast({ message: 'Link copied', type: 'success' });
+    try {
+      await navigator.clipboard.writeText(shareUrl(activeShareLink.id));
+      setToast({ message: 'Link copied', type: 'success' });
+    } catch {
+      setToast({ message: "Couldn't copy — your browser blocked clipboard access", type: 'error' });
+    }
     setTimeout(() => setToast(null), 3000);
   };
 

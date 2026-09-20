@@ -6,12 +6,13 @@ import { db } from '../firebase';
 import { SectionHeader, Card, Badge, Button, Table, TableHeader, TableRow, TableHead, TableCell } from '../components/Shared';
 import { stripHtml } from '../components/RichTextEditor';
 import { Users, TrendingUp, AlertCircle, FileText, User, CheckCircle2, Trophy, ArrowUpRight, ArrowDownRight, Target, BrainCircuit, ChevronRight, ChevronLeft, BarChart3, BookOpen, Loader2 } from 'lucide-react';
-import { computeDisciplineScore, computeConsistencyScore } from '../services/analyticsService';
+import { computeDisciplineScore, computeConsistencyScore, buildDashboardModel } from '../services/analyticsService';
 import { useAuth } from '../context/AuthContext';
 import { Trade, JournalEntry } from '../types';
 import { TradePerformanceLog } from '../components/TradePerformanceLog';
 import { NoteCommentThread } from '../components/NoteCommentThread';
 import { GenerateReportModal } from '../components/GenerateReportModal';
+import { requestGroupPatternAnalysis, GroupPatternResult } from '../lib/mentorGroupAnalysis';
 
 // This screen used to genuinely query real students, then read
 // `s.discipline`/`s.consistency`/`s.lastSession`/`s.trend` — fields nothing
@@ -96,6 +97,26 @@ export default function MentorDashboardScreen() {
   const [notesLoading, setNotesLoading] = useState(false);
   const [notesError, setNotesError] = useState<string | null>(null);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+
+  // Filter Group — narrows the roster/leaderboard/pattern-analysis to one
+  // cohort. Purely a UI narrowing of the already-permitted student set
+  // (mentorId-scoped above); groups themselves grant no extra access (see
+  // firestore.rules' comment on the groups collection).
+  const [groups, setGroups] = useState<{ id: string; name: string }[]>([]);
+  const [selectedGroupId, setSelectedGroupId] = useState<string>('all');
+  // View Full Rankings — same leaderboard data, just not truncated to 3.
+  const [showAllRankings, setShowAllRankings] = useState(false);
+  // Group Pattern Analysis — computed on demand (only when requested), not
+  // eagerly for every render, since it's not otherwise displayed anywhere.
+  const [patternResult, setPatternResult] = useState<GroupPatternResult | null>(null);
+  const [patternLoading, setPatternLoading] = useState(false);
+  const [patternError, setPatternError] = useState<string | null>(null);
+
+  useEffect(() => {
+    return onSnapshot(collection(db, 'groups'), (snap) => {
+      setGroups(snap.docs.map(d => ({ id: d.id, name: (d.data() as any).name })));
+    });
+  }, []);
 
   useEffect(() => {
     if (!selectedStudentId) { setStudentNotes(null); setNotesError(null); return; }
@@ -205,9 +226,14 @@ export default function MentorDashboardScreen() {
     return targets;
   }, [students, role, user]);
 
+  const filteredStudents = useMemo(
+    () => selectedGroupId === 'all' ? students : students.filter(s => s.groupId === selectedGroupId),
+    [students, selectedGroupId]
+  );
+
   const studentRows: StudentRow[] = useMemo(
-    () => students.map(s => buildStudentRow(s, studentTrades[s.id] || [])),
-    [students, studentTrades]
+    () => filteredStudents.map(s => buildStudentRow(s, studentTrades[s.id] || [])),
+    [filteredStudents, studentTrades]
   );
 
   const selectedStudent = selectedStudentId ? studentRows.find(s => s.id === selectedStudentId) || null : null;
@@ -234,6 +260,41 @@ export default function MentorDashboardScreen() {
     : (improvingCount === 0 && decliningCount === 0)
       ? 'Stable'
       : improvingCount > decliningCount ? 'Improving' : improvingCount < decliningCount ? 'Needs Attention' : 'Mixed';
+
+  // Group Pattern Analysis — only computes the richer buildDashboardModel
+  // fields (not otherwise displayed on this screen) when actually
+  // requested, over the group-filtered active students, then asks the
+  // server to narrate real cross-student patterns (never invented here or
+  // by the model — see /api/mentor/group-pattern-analysis).
+  const handleGeneratePatternAnalysis = async () => {
+    setPatternLoading(true);
+    setPatternError(null);
+    setPatternResult(null);
+    try {
+      const payload = activeStudents.map(s => {
+        const model = buildDashboardModel(studentTrades[s.id] || [], studentTrades[s.id] || [], new Date(), true);
+        return {
+          id: s.id,
+          name: s.name,
+          discipline: model.behaviorMetrics.disciplineScore,
+          consistency: model.behaviorMetrics.consistencyScore,
+          payoffRatioScore: model.behaviorMetrics.payoffRatioScore,
+          entryTimingScore: model.behaviorMetrics.entryTimingScore,
+          sessionVerdict: model.behaviorMetrics.sessionVerdict,
+          lossPatterns: model.behaviorMetrics.lossPatterns.details,
+          timingInsight: model.behaviorMetrics.timingInsight.details,
+          keyPatterns: model.behaviorMetrics.keyPatterns.details,
+        };
+      });
+      const result = await requestGroupPatternAnalysis(payload);
+      setPatternResult(result);
+    } catch (err) {
+      console.error('Group pattern analysis failed:', err);
+      setPatternError("Couldn't generate the analysis. Try again shortly.");
+    } finally {
+      setPatternLoading(false);
+    }
+  };
 
   const getScoreColor = (score: number) => {
     if (score >= 90) return "text-emerald-500";
@@ -371,7 +432,16 @@ export default function MentorDashboardScreen() {
         subtitle="Coaching overview for Group Alpha & Beta"
         rightElement={
           <div className="flex flex-wrap items-center gap-3">
-            <Button variant="outline" size="sm" disabled title="Multi-group filtering isn't built yet">Filter Group</Button>
+            {groups.length > 0 && (
+              <select
+                value={selectedGroupId}
+                onChange={(e) => setSelectedGroupId(e.target.value)}
+                className="h-9 rounded-xl border border-border bg-background px-3 text-xs font-bold"
+              >
+                <option value="all">All Groups</option>
+                {groups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+              </select>
+            )}
             <Button variant="primary" size="sm" icon={FileText} onClick={() => setIsReportModalOpen(true)} disabled={studentRows.length === 0}>Weekly Report</Button>
           </div>
         }
@@ -529,7 +599,7 @@ export default function MentorDashboardScreen() {
             </div>
 
             <div className="space-y-4">
-              {activeStudents.length > 0 ? [...activeStudents].sort((a, b) => (b.discipline + b.consistency) - (a.discipline + a.consistency)).slice(0, 3).map((s, i) => (
+              {activeStudents.length > 0 ? [...activeStudents].sort((a, b) => (b.discipline + b.consistency) - (a.discipline + a.consistency)).slice(0, showAllRankings ? undefined : 3).map((s, i) => (
                 <div
                   key={s.id}
                   onClick={() => openStudent(s.id)}
@@ -571,15 +641,16 @@ export default function MentorDashboardScreen() {
               )}
             </div>
 
-            <Button
-              variant="outline"
-              size="sm"
-              className="w-full mt-8 border-primary/20 font-bold text-xs"
-              disabled
-              title="A full rankings view isn't built yet — this shows the top 3"
-            >
-              View Full Rankings
-            </Button>
+            {activeStudents.length > 3 && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full mt-8 border-primary/20 font-bold text-xs"
+                onClick={() => setShowAllRankings(v => !v)}
+              >
+                {showAllRankings ? 'Show Top 3 Only' : 'View Full Rankings'}
+              </Button>
+            )}
           </Card>
         </div>
       </div>
@@ -662,7 +733,8 @@ export default function MentorDashboardScreen() {
         </Card>
       </div>
 
-      {/* Row 4: Group Pattern Analysis — honestly unavailable rather than fabricated narrative */}
+      {/* Row 4: Group Pattern Analysis — real cross-student narrative, built
+          from real per-student metrics (buildDashboardModel), on demand */}
       <Card className="bg-indigo-500/5 border-indigo-500/20 relative overflow-hidden group" noPadding>
         <div className="absolute top-0 right-0 p-8 opacity-[0.03] pointer-events-none transition-transform group-hover:scale-110 group-hover:rotate-6 duration-700">
           <BrainCircuit className="w-64 h-64 text-indigo-500" />
@@ -674,29 +746,63 @@ export default function MentorDashboardScreen() {
             </div>
             <div>
               <h3 className="text-xl font-bold text-foreground tracking-tight">Group Pattern Analysis</h3>
-              <p className="text-[11px] text-muted-foreground uppercase tracking-widest font-medium">AI-driven insights across all groups</p>
+              <p className="text-[11px] text-muted-foreground uppercase tracking-widest font-medium">AI-driven insights across {selectedGroupId === 'all' ? 'all groups' : 'this group'}</p>
             </div>
           </div>
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
             <div className="lg:col-span-8">
-              <p className="text-sm leading-relaxed text-muted-foreground/90 italic">
-                Cross-student AI pattern analysis isn't built yet — this section doesn't reflect real group behavior. Individual student discipline/consistency scores above are real.
-              </p>
+              {patternLoading ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="w-4 h-4 animate-spin" /> Analyzing {activeStudents.length} students...
+                </div>
+              ) : patternError ? (
+                <p className="text-sm text-rose-500">{patternError}</p>
+              ) : patternResult?.insufficientData ? (
+                <p className="text-sm leading-relaxed text-muted-foreground/90 italic">
+                  Need at least 2 students with logged trades to find a real cross-student pattern — right now there's only {activeStudents.length}.
+                </p>
+              ) : patternResult ? (
+                <div className="space-y-4">
+                  <p className="text-sm leading-relaxed text-foreground/90">{patternResult.groupSummary}</p>
+                  {!!patternResult.commonStrengths?.length && (
+                    <div>
+                      <p className="text-[11px] font-bold uppercase text-emerald-500 mb-1">Common Strengths</p>
+                      <ul className="space-y-1">
+                        {patternResult.commonStrengths.map((s, i) => <li key={i} className="text-xs text-muted-foreground flex items-start gap-1.5"><span className="mt-0.5">&bull;</span>{s}</li>)}
+                      </ul>
+                    </div>
+                  )}
+                  {!!patternResult.commonWeaknesses?.length && (
+                    <div>
+                      <p className="text-[11px] font-bold uppercase text-rose-500 mb-1">Common Weaknesses</p>
+                      <ul className="space-y-1">
+                        {patternResult.commonWeaknesses.map((s, i) => <li key={i} className="text-xs text-muted-foreground flex items-start gap-1.5"><span className="mt-0.5">&bull;</span>{s}</li>)}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <p className="text-sm leading-relaxed text-muted-foreground/90 italic">
+                  Real cross-student patterns, computed from each active student's actual discipline/consistency/timing data — nothing here is invented. Generate an analysis to see it.
+                </p>
+              )}
             </div>
             <div className="lg:col-span-4 p-8 bg-indigo-500/10 rounded-2xl border border-indigo-500/20 flex flex-col justify-between shadow-sm">
               <div>
                 <h4 className="text-[10px] font-bold uppercase tracking-widest text-indigo-600 mb-3">Coaching Focus</h4>
                 <p className="text-sm font-medium leading-tight text-muted-foreground italic">
-                  Not available yet
+                  {patternResult?.recommendedFocus || 'Not generated yet'}
                 </p>
               </div>
               <Button
                 variant="outline"
                 size="md"
-                className="w-full mt-8 border-indigo-500/30 text-indigo-600/50 font-bold text-xs cursor-not-allowed"
-                disabled
+                className="w-full mt-8 border-indigo-500/30 text-indigo-600 font-bold text-xs"
+                onClick={handleGeneratePatternAnalysis}
+                disabled={patternLoading || activeStudents.length < 2}
+                title={activeStudents.length < 2 ? 'Needs at least 2 students with logged trades' : undefined}
               >
-                Coming Soon
+                {patternLoading ? 'Generating...' : patternResult ? 'Regenerate' : 'Generate Analysis'}
               </Button>
             </div>
           </div>

@@ -83,6 +83,8 @@ export async function createShareLink(
 
   if (resourceType === 'journal') {
     batch.update(doc(db, 'journals', resourceId), { status: 'shared' });
+  } else if (resourceType === 'report') {
+    batch.update(doc(db, 'reports', resourceId), { status: 'shared' });
   } else {
     batch.update(doc(db, 'trades', resourceId), { status: 'shared' });
     const linkedNote = await findLinkedNote(userId, resourceId);
@@ -104,6 +106,8 @@ export async function revokeShareLink(link: ShareLink): Promise<void> {
 
   if (link.resourceType === 'journal') {
     batch.update(doc(db, 'journals', link.resourceId), { status: 'private' });
+  } else if (link.resourceType === 'report') {
+    batch.update(doc(db, 'reports', link.resourceId), { status: 'private' });
   } else {
     batch.update(doc(db, 'trades', link.resourceId), { status: 'private' });
     const linkedNote = await findLinkedNote(link.userId, link.resourceId);

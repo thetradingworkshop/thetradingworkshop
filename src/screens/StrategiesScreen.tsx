@@ -2,12 +2,15 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { cn } from '@/src/utils';
 import { SectionHeader, Card, Badge, Button, Input, Modal, Table, TableHeader, TableRow, TableHead, TableCell, Toast } from '../components/Shared';
 import { DictationTextarea } from '../components/DictationTextarea';
-import { Rocket, Plus, TrendingUp, TrendingDown, Activity, Award, MoreVertical, Trash2, Archive, ArchiveRestore, Pencil, X, FlaskConical, Percent } from 'lucide-react';
+import { Rocket, Plus, TrendingUp, TrendingDown, Activity, Award, MoreVertical, Trash2, Archive, ArchiveRestore, Pencil, X, FlaskConical, Percent, Share2, Users, Sparkles } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useTrades } from '../context/TradeContext';
-import { subscribeStrategies, createStrategy, updateStrategy, deleteStrategy } from '../lib/strategies';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '../firebase';
+import { subscribeStrategies, subscribeSharedStrategies, createStrategy, updateStrategy, deleteStrategy } from '../lib/strategies';
+import { subscribeStrategyTemplates, createStrategyTemplate, updateStrategyTemplate, deleteStrategyTemplate } from '../lib/strategyTemplates';
 import { subscribeBacktestScenarios, createBacktestScenario, updateBacktestScenario, deleteBacktestScenario } from '../lib/backtestScenarios';
-import { Strategy, StrategyCategory, BacktestScenario } from '../types';
+import { Strategy, StrategyCategory, StrategyTemplate, BacktestScenario } from '../types';
 
 type SubTab = 'mine' | 'shared' | 'templates' | 'backtest';
 const SUB_TABS: { id: SubTab; label: string }[] = [
@@ -99,7 +102,7 @@ function emptyDraftCategories(): DraftCategory[] {
 // categories/rules — reusing the exact same ids so editing rule text
 // doesn't orphan any past trade's already-recorded strategyChecklist
 // (which keys off these ids, not array position).
-function draftFromStrategy(s: Strategy): DraftCategory[] {
+function draftFromStrategy(s: { categories: StrategyCategory[] }): DraftCategory[] {
   if (s.categories.length === 0) return emptyDraftCategories();
   return s.categories.map(c => ({
     id: c.id,
@@ -109,7 +112,7 @@ function draftFromStrategy(s: Strategy): DraftCategory[] {
 }
 
 export default function StrategiesScreen() {
-  const { user } = useAuth();
+  const { user, role } = useAuth();
   // filteredTrades (not the raw, all-accounts/all-symbols `trades`) so a
   // strategy's stats respect the header's Filters/Account selection —
   // this page used to silently ignore both, mixing every account and
@@ -130,6 +133,15 @@ export default function StrategiesScreen() {
   const [pendingDeleteScenarioId, setPendingDeleteScenarioId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
+  // "Shared with me" — strategies the signed-in user's own mentor has opted
+  // into sharing. AuthContext doesn't expose mentorId, so look it up once
+  // here (same pattern SettingsScreen uses for riskSettings).
+  const [mentorId, setMentorId] = useState<string | null>(null);
+  const [sharedStrategies, setSharedStrategies] = useState<Strategy[]>([]);
+  const [templates, setTemplates] = useState<StrategyTemplate[]>([]);
+  const [templateFormTarget, setTemplateFormTarget] = useState<'new' | StrategyTemplate | null>(null);
+  const [pendingDeleteTemplateId, setPendingDeleteTemplateId] = useState<string | null>(null);
+
   useEffect(() => {
     if (!user) return;
     return subscribeStrategies(user.uid, setStrategies);
@@ -139,6 +151,18 @@ export default function StrategiesScreen() {
     if (!user) return;
     return subscribeBacktestScenarios(user.uid, setScenarios);
   }, [user]);
+
+  useEffect(() => {
+    if (!user) { setMentorId(null); return; }
+    getDoc(doc(db, 'users', user.uid)).then(snap => setMentorId(snap.data()?.mentorId ?? null));
+  }, [user]);
+
+  useEffect(() => {
+    if (!mentorId) { setSharedStrategies([]); return; }
+    return subscribeSharedStrategies(mentorId, setSharedStrategies);
+  }, [mentorId]);
+
+  useEffect(() => subscribeStrategyTemplates(setTemplates), []);
 
   const statsById = useMemo(() => {
     const map = new Map<string, StrategyStats>();
@@ -195,6 +219,72 @@ export default function StrategiesScreen() {
     } catch (err) {
       console.error('Failed to update strategy:', err);
       setToast({ message: 'Failed to update strategy', type: 'error' });
+      setTimeout(() => setToast(null), 3000);
+    }
+  };
+
+  const toggleShare = async (s: Strategy) => {
+    setOpenMenuId(null);
+    try {
+      await updateStrategy(s.id, { sharedWithStudents: !s.sharedWithStudents });
+      setToast({ message: s.sharedWithStudents ? 'Unshared from students' : 'Shared with your students', type: 'success' });
+    } catch (err) {
+      console.error('Failed to update strategy:', err);
+      setToast({ message: 'Failed to update strategy', type: 'error' });
+    } finally {
+      setTimeout(() => setToast(null), 3000);
+    }
+  };
+
+  const handleUseTemplate = async (t: StrategyTemplate) => {
+    if (!user) return;
+    try {
+      await createStrategy(user.uid, t.name, t.icon, t.description, t.categories);
+      setToast({ message: `"${t.name}" added to My Strategies`, type: 'success' });
+    } catch (err) {
+      console.error('Failed to use template:', err);
+      setToast({ message: 'Failed to add strategy from template', type: 'error' });
+    } finally {
+      setTimeout(() => setToast(null), 3000);
+    }
+  };
+
+  const handleSubmitTemplate = async (name: string, icon: string, description: string, categories: DraftCategory[]) => {
+    if (!templateFormTarget) return;
+    const cleanCategories: StrategyCategory[] = categories
+      .filter(c => c.name.trim())
+      .map(c => ({
+        id: c.id,
+        name: c.name.trim(),
+        rules: c.rules.filter(r => r.text.trim()).map(r => ({ id: r.id, text: r.text.trim(), ...(r.showWhen !== 'always' ? { showWhen: r.showWhen } : {}) })),
+      }));
+    try {
+      if (templateFormTarget === 'new') {
+        await createStrategyTemplate(name.trim(), icon.trim() || undefined, description.trim() || undefined, cleanCategories);
+        setToast({ message: 'Template created', type: 'success' });
+      } else {
+        await updateStrategyTemplate(templateFormTarget.id, { name: name.trim(), icon: icon.trim(), description: description.trim(), categories: cleanCategories });
+        setToast({ message: 'Template updated', type: 'success' });
+      }
+      setTemplateFormTarget(null);
+    } catch (err) {
+      console.error('Failed to save template:', err);
+      setToast({ message: templateFormTarget === 'new' ? 'Failed to create template' : 'Failed to update template', type: 'error' });
+    } finally {
+      setTimeout(() => setToast(null), 3000);
+    }
+  };
+
+  const confirmDeleteTemplate = async () => {
+    if (!pendingDeleteTemplateId) return;
+    try {
+      await deleteStrategyTemplate(pendingDeleteTemplateId);
+      setToast({ message: 'Template deleted', type: 'success' });
+    } catch (err) {
+      console.error('Failed to delete template:', err);
+      setToast({ message: 'Failed to delete template', type: 'error' });
+    } finally {
+      setPendingDeleteTemplateId(null);
       setTimeout(() => setToast(null), 3000);
     }
   };
@@ -270,6 +360,7 @@ export default function StrategiesScreen() {
         rightElement={
           subTab === 'mine' ? <Button variant="primary" icon={Plus} onClick={() => setFormTarget('new')}>Create Strategy</Button>
           : subTab === 'backtest' ? <Button variant="primary" icon={Plus} onClick={() => setScenarioFormTarget('new')}>Log Scenario</Button>
+          : subTab === 'templates' && role === 'Admin' ? <Button variant="primary" icon={Plus} onClick={() => setTemplateFormTarget('new')}>New Template</Button>
           : undefined
         }
       />
@@ -379,10 +470,77 @@ export default function StrategiesScreen() {
             </Table>
           </Card>
         </>
-      ) : subTab !== 'mine' ? (
-        <Card className="text-center py-16">
-          <p className="text-sm text-muted-foreground italic">Coming soon.</p>
-        </Card>
+      ) : subTab === 'shared' ? (
+        sharedStrategies.length === 0 ? (
+          <Card className="text-center py-16">
+            <Users className="w-8 h-8 text-muted-foreground/40 mx-auto mb-3" />
+            <p className="text-sm text-muted-foreground italic">
+              {mentorId ? "Your mentor hasn't shared any strategies yet." : 'Nothing shared yet — this fills in once your mentor shares a strategy with you.'}
+            </p>
+          </Card>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {sharedStrategies.map(s => (
+              <Card key={s.id}>
+                <div className="flex items-center gap-2 font-bold text-foreground mb-1">
+                  <span>{s.icon || '📈'}</span>
+                  {s.name}
+                  <Badge variant="neutral" className="text-[10px]">From your mentor</Badge>
+                </div>
+                {s.description && <p className="text-xs text-muted-foreground mb-3">{s.description}</p>}
+                <div className="space-y-3">
+                  {s.categories.map(c => (
+                    <div key={c.id}>
+                      <p className="text-[11px] font-bold uppercase text-muted-foreground mb-1">{c.name}</p>
+                      <ul className="space-y-1">
+                        {c.rules.map(r => (
+                          <li key={r.id} className="text-sm text-foreground/90 flex items-start gap-1.5">
+                            <span className="text-muted-foreground mt-0.5">&bull;</span>{r.text}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            ))}
+          </div>
+        )
+      ) : subTab === 'templates' ? (
+        templates.length === 0 ? (
+          <Card className="text-center py-16">
+            <Sparkles className="w-8 h-8 text-muted-foreground/40 mx-auto mb-3" />
+            <p className="text-sm text-muted-foreground italic">
+              {role === 'Admin' ? 'No templates yet — create one for everyone to use.' : 'No templates published yet.'}
+            </p>
+          </Card>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {templates.map(t => (
+              <Card key={t.id}>
+                <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center gap-2 font-bold text-foreground">
+                    <span>{t.icon || '📈'}</span>
+                    {t.name}
+                  </div>
+                  {role === 'Admin' && (
+                    <div className="flex items-center gap-1">
+                      <button onClick={() => setTemplateFormTarget(t)} className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground" aria-label="Edit template">
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                      <button onClick={() => setPendingDeleteTemplateId(t.id)} className="p-1.5 rounded-lg hover:bg-rose-500/10 text-muted-foreground hover:text-rose-500" aria-label="Delete template">
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+                {t.description && <p className="text-xs text-muted-foreground mb-3">{t.description}</p>}
+                <p className="text-[11px] text-muted-foreground mb-3">{t.categories.length} categories · {t.categories.reduce((n, c) => n + c.rules.length, 0)} rules</p>
+                <Button variant="outline" size="sm" onClick={() => handleUseTemplate(t)}>Use this template</Button>
+              </Card>
+            ))}
+          </div>
+        )
       ) : (
         <>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -439,6 +597,9 @@ export default function StrategiesScreen() {
                         <div className="flex items-center gap-2 font-bold text-foreground">
                           <span>{s.icon || '📈'}</span>
                           {s.name}
+                          {role === 'Mentor' && s.sharedWithStudents && (
+                            <Badge variant="positive" className="text-[10px]">Shared</Badge>
+                          )}
                         </div>
                         {s.description && <div className="text-xs text-muted-foreground mt-0.5 max-w-xs truncate">{s.description}</div>}
                         <div className="text-[11px] text-muted-foreground mt-0.5">{s.categories.length} categories · {ruleCount} rules</div>
@@ -471,6 +632,15 @@ export default function StrategiesScreen() {
                               <Pencil className="w-3.5 h-3.5" />
                               Edit
                             </button>
+                            {role === 'Mentor' && (
+                              <button
+                                onClick={() => toggleShare(s)}
+                                className="w-full flex items-center gap-2 px-3 py-2.5 text-xs font-bold text-left hover:bg-accent transition-colors"
+                              >
+                                <Share2 className="w-3.5 h-3.5" />
+                                {s.sharedWithStudents ? 'Unshare from students' : 'Share with students'}
+                              </button>
+                            )}
                             <button
                               onClick={() => toggleArchive(s)}
                               className="w-full flex items-center gap-2 px-3 py-2.5 text-xs font-bold text-left hover:bg-accent transition-colors"
@@ -498,6 +668,8 @@ export default function StrategiesScreen() {
       )}
 
       <StrategyFormModal target={formTarget} onClose={() => setFormTarget(null)} onSubmit={handleSubmitForm} />
+
+      <StrategyTemplateFormModal target={templateFormTarget} onClose={() => setTemplateFormTarget(null)} onSubmit={handleSubmitTemplate} />
 
       <BacktestScenarioFormModal
         target={scenarioFormTarget}
@@ -536,6 +708,21 @@ export default function StrategiesScreen() {
         }
       >
         <p className="text-sm text-muted-foreground">This permanently removes this logged scenario.</p>
+      </Modal>
+
+      <Modal
+        isOpen={pendingDeleteTemplateId !== null}
+        onClose={() => setPendingDeleteTemplateId(null)}
+        title="Delete template?"
+        maxWidth="sm"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setPendingDeleteTemplateId(null)}>Cancel</Button>
+            <Button variant="destructive" icon={Trash2} onClick={confirmDeleteTemplate}>Delete</Button>
+          </>
+        }
+      >
+        <p className="text-sm text-muted-foreground">This removes the template from the catalog. Anyone who already used it to create their own strategy keeps that copy.</p>
       </Modal>
 
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
@@ -694,6 +881,137 @@ function StrategyFormModal({ target, onClose, onSubmit }: {
         <div className="flex justify-end space-x-3 pt-2">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
           <Button variant="primary" icon={Rocket} onClick={handleSubmit}>{isEditing ? 'Save Changes' : 'Create Strategy'}</Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// Admin-only — creates/edits a catalog entry in strategy_templates, not a
+// personal Strategy. Same category/rule editing UI as StrategyFormModal
+// (reuses DraftCategory/draftFromStrategy/emptyDraftCategories), just
+// without status/ownership since templates have neither.
+function StrategyTemplateFormModal({ target, onClose, onSubmit }: {
+  target: 'new' | StrategyTemplate | null;
+  onClose: () => void;
+  onSubmit: (name: string, icon: string, description: string, categories: DraftCategory[]) => void;
+}) {
+  const [name, setName] = useState('');
+  const [icon, setIcon] = useState('');
+  const [description, setDescription] = useState('');
+  const [categories, setCategories] = useState<DraftCategory[]>(emptyDraftCategories());
+  const [error, setError] = useState<string | null>(null);
+  const isEditing = target !== null && target !== 'new';
+
+  useEffect(() => {
+    if (target === 'new') {
+      setName('');
+      setIcon('');
+      setDescription('');
+      setCategories(emptyDraftCategories());
+    } else if (target) {
+      setName(target.name);
+      setIcon(target.icon ?? '');
+      setDescription(target.description ?? '');
+      setCategories(draftFromStrategy(target));
+    }
+    setError(null);
+  }, [target]);
+
+  const addCategory = () => setCategories(prev => [...prev, { id: newId(), name: '', rules: [{ id: newId(), text: '', showWhen: 'always' as RuleShowWhen }] }]);
+  const removeCategory = (id: string) => setCategories(prev => prev.filter(c => c.id !== id));
+  const renameCategory = (id: string, value: string) => setCategories(prev => prev.map(c => (c.id === id ? { ...c, name: value } : c)));
+  const addRule = (categoryId: string) => setCategories(prev => prev.map(c => (c.id === categoryId ? { ...c, rules: [...c.rules, { id: newId(), text: '', showWhen: 'always' as RuleShowWhen }] } : c)));
+  const removeRule = (categoryId: string, ruleId: string) => setCategories(prev => prev.map(c => (c.id === categoryId ? { ...c, rules: c.rules.filter(r => r.id !== ruleId) } : c)));
+  const editRule = (categoryId: string, ruleId: string, value: string) => setCategories(prev => prev.map(c => (c.id === categoryId ? { ...c, rules: c.rules.map(r => (r.id === ruleId ? { ...r, text: value } : r)) } : c)));
+  const editRuleShowWhen = (categoryId: string, ruleId: string, value: RuleShowWhen) => setCategories(prev => prev.map(c => (c.id === categoryId ? { ...c, rules: c.rules.map(r => (r.id === ruleId ? { ...r, showWhen: value } : r)) } : c)));
+
+  const handleSubmit = () => {
+    if (!name.trim()) { setError('Give this template a name.'); return; }
+    const hasAnyRule = categories.some(c => c.name.trim() && c.rules.some(r => r.text.trim()));
+    if (!hasAnyRule) { setError('Add at least one category with one rule.'); return; }
+    onSubmit(name, icon, description, categories);
+  };
+
+  return (
+    <Modal isOpen={target !== null} onClose={onClose} title={isEditing ? 'Edit Template' : 'New Template'} maxWidth="lg">
+      <div className="space-y-5">
+        <div className="grid grid-cols-[1fr_100px] gap-4">
+          <div className="space-y-2">
+            <label className="text-xs font-bold uppercase text-muted-foreground">Name</label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Opening Range Breakout" autoFocus />
+          </div>
+          <div className="space-y-2">
+            <label className="text-xs font-bold uppercase text-muted-foreground">Icon</label>
+            <Input value={icon} onChange={(e) => setIcon(e.target.value)} placeholder="📈" maxLength={2} />
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <label className="text-xs font-bold uppercase text-muted-foreground">
+            Description <span className="normal-case text-muted-foreground/70">(optional)</span>
+          </label>
+          <DictationTextarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="What is this strategy, and when do you use it?"
+            className="w-full h-20 p-3 bg-accent/30 border border-border rounded-xl text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/20"
+          />
+        </div>
+
+        <div className="space-y-4 max-h-[420px] overflow-y-auto pr-1">
+          {categories.map(cat => (
+            <div key={cat.id} className="p-4 rounded-2xl border border-border bg-accent/20 space-y-3">
+              <div className="flex items-center gap-2">
+                <Input
+                  value={cat.name}
+                  onChange={(e) => renameCategory(cat.id, e.target.value)}
+                  placeholder="Category name — e.g. Entry Criteria"
+                  className="font-bold"
+                />
+                {categories.length > 1 && (
+                  <button onClick={() => removeCategory(cat.id)} className="p-2 text-muted-foreground hover:text-rose-500 shrink-0" aria-label="Remove category">
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+              <div className="space-y-2 pl-2">
+                {cat.rules.map(rule => (
+                  <div key={rule.id} className="flex items-center gap-2">
+                    <Input
+                      value={rule.text}
+                      onChange={(e) => editRule(cat.id, rule.id, e.target.value)}
+                      placeholder="Rule text — e.g. Clear shift (Displacement) in pre-determined area"
+                      className="text-sm flex-1"
+                    />
+                    <select
+                      value={rule.showWhen}
+                      onChange={(e) => editRuleShowWhen(cat.id, rule.id, e.target.value as RuleShowWhen)}
+                      title="Only show/count this rule when the trade matches this outcome"
+                      className="h-9 shrink-0 rounded-lg border border-border bg-background px-2 text-xs"
+                    >
+                      {SHOW_WHEN_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                    </select>
+                    {cat.rules.length > 1 && (
+                      <button onClick={() => removeRule(cat.id, rule.id)} className="p-1.5 text-muted-foreground hover:text-rose-500 shrink-0" aria-label="Remove rule">
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+                <button onClick={() => addRule(cat.id)} className="text-xs font-bold text-primary hover:underline">+ Add rule</button>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <button onClick={addCategory} className="text-xs font-bold text-primary hover:underline">+ Add category</button>
+
+        {error && <p className="text-xs text-rose-500">{error}</p>}
+
+        <div className="flex justify-end space-x-3 pt-2">
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button variant="primary" icon={Rocket} onClick={handleSubmit}>{isEditing ? 'Save Changes' : 'Create Template'}</Button>
         </div>
       </div>
     </Modal>

@@ -91,6 +91,17 @@ export interface RiskSettings {
   monthlyProfitTarget?: number;
 }
 
+// Per-account mute toggles for the app's two real in-app unread badges
+// (AppShell.tsx) — Admin's unread support-thread count, Student's unread
+// mentor-feedback count. Muting only hides the badge; the underlying
+// unread tracking keeps running so nothing is lost if unmuted later.
+// There's no email/push notification infrastructure anywhere in the app,
+// so this is deliberately scoped to just these two real signals.
+export interface NotificationPrefs {
+  supportBadgeMuted?: boolean;
+  mentorFeedbackBadgeMuted?: boolean;
+}
+
 export interface BrokerAccount {
   id: string;
   connectionId: string;
@@ -510,6 +521,22 @@ export interface Strategy {
   categories: StrategyCategory[];
   createdAt: string;
   updatedAt: string;
+  // Mentor-only: opts this strategy into the Mentor's assigned students'
+  // "Shared with me" tab, read-only. Undefined/false = not shared.
+  sharedWithStudents?: boolean;
+}
+
+// An Admin-curated strategy template — same shape as Strategy minus the
+// per-user ownership/lifecycle fields, since it's global catalog content,
+// not something any one user owns. "Use this template" clones one into the
+// signed-in user's own strategies via createStrategy().
+export interface StrategyTemplate {
+  id: string;
+  name: string;
+  description?: string;
+  icon?: string;
+  categories: StrategyCategory[];
+  createdAt: string;
 }
 
 // A hypothetical/historical trade logged to validate a strategy's edge
@@ -921,9 +948,9 @@ export interface TradeIntent {
   tradeId?: string;
 }
 
-// A public, unauthenticated link to one Journal note or Trade — the app's
-// only surface that works for someone with no account at all. `id` (the
-// Firestore doc ID) IS the token embedded in the share URL
+// A public, unauthenticated link to one Journal note, Trade, or Weekly
+// Report — the app's only surface that works for someone with no account at
+// all. `id` (the Firestore doc ID) IS the token embedded in the share URL
 // (/share/{token}); knowing it is the entire credential (see
 // src/lib/shareLinks.ts and share_links in firestore.rules), so it's a
 // random string, never derived from resourceId. The actual content read is
@@ -932,7 +959,7 @@ export interface TradeIntent {
 export interface ShareLink {
   id: string;
   userId: string;
-  resourceType: 'journal' | 'trade';
+  resourceType: 'journal' | 'trade' | 'report';
   resourceId: string;
   createdAt: string;
   revoked: boolean;

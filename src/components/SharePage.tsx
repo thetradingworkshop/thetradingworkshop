@@ -10,9 +10,10 @@ import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firesto
 import { db } from '../firebase';
 import { getShareLinkByToken } from '../lib/shareLinks';
 import { JournalEntry, Trade, ShareLink } from '../types';
+import { WeeklyReport } from '../lib/weeklyReports';
 import { Card, Badge, Button } from './Shared';
 import { cn } from '@/src/utils';
-import { Loader2, Zap, Calendar, TrendingUp, TrendingDown, Ban, RotateCcw, WifiOff } from 'lucide-react';
+import { Loader2, Zap, Calendar, TrendingUp, TrendingDown, Ban, RotateCcw, WifiOff, CheckCircle2, XCircle, Target } from 'lucide-react';
 
 type LoadState =
   | { status: 'loading' }
@@ -26,7 +27,8 @@ type LoadState =
   // revoked" is actively misleading, so it gets its own retryable state.
   | { status: 'error' }
   | { status: 'journal'; journal: JournalEntry }
-  | { status: 'trade'; trade: Trade; note: JournalEntry | null };
+  | { status: 'trade'; trade: Trade; note: JournalEntry | null }
+  | { status: 'report'; report: WeeklyReport };
 
 async function loadJournal(resourceId: string): Promise<JournalEntry | null> {
   const snap = await getDoc(doc(db, 'journals', resourceId));
@@ -49,6 +51,12 @@ async function loadTrade(resourceId: string): Promise<{ trade: Trade; note: Jour
   ));
   const note = noteSnap.docs[0] ? { id: noteSnap.docs[0].id, ...(noteSnap.docs[0].data() as Omit<JournalEntry, 'id'>) } : null;
   return { trade, note };
+}
+
+async function loadReport(resourceId: string): Promise<WeeklyReport | null> {
+  const snap = await getDoc(doc(db, 'reports', resourceId));
+  if (!snap.exists() || snap.data().status !== 'shared') return null;
+  return { id: snap.id, ...(snap.data() as Omit<WeeklyReport, 'id'>) };
 }
 
 function BrandHeader() {
@@ -145,6 +153,95 @@ function TradeView({ trade, note }: { trade: Trade; note: JournalEntry | null })
   );
 }
 
+// Standalone, auth-free mirror of WeeklyReportViewer.tsx's visual layout —
+// deliberately not a reuse of that component, since it calls useAuth() (to
+// gate the mentor-comment edit UI), which throws outside AuthProvider, and
+// this page never has one. Read-only: no comment editing here, same as this
+// page never lets a visitor edit a shared note or trade.
+function ReportView({ report }: { report: WeeklyReport }) {
+  const insight = report.insight;
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-3 flex-wrap">
+        <h1 className="text-3xl md:text-4xl font-black tracking-tight text-foreground">Weekly Report — {report.week}</h1>
+      </div>
+      <div className="flex items-center gap-2 text-xs font-bold text-muted-foreground uppercase tracking-widest">
+        <Calendar className="w-3.5 h-3.5" />
+        {report.student}
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <StatTile label="Net P&L" value={`${report.pnl >= 0 ? '+' : ''}$${report.pnl.toFixed(2)}`} tone={report.pnl >= 0 ? 'positive' : 'negative'} />
+        <StatTile label="Win Rate" value={`${report.winRate.toFixed(1)}%`} />
+        <StatTile label="Discipline" value={`${report.disciplineScore}%`} />
+        <StatTile label="Consistency" value={`${report.consistencyScore}%`} />
+      </div>
+
+      {insight.isInsufficientData ? (
+        <Card className="p-8"><p className="text-sm text-muted-foreground italic">{insight.sessionSummary}</p></Card>
+      ) : (
+        <Card className="p-8 md:p-10 space-y-5">
+          <div className="space-y-2">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Summary</p>
+            <p className="text-sm text-foreground leading-relaxed">{insight.sessionSummary}</p>
+          </div>
+
+          {(insight.whatWorked.length > 0 || insight.whatHurt.length > 0) && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="p-4 rounded-2xl bg-emerald-500/5 border border-emerald-500/20 space-y-2">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-600 flex items-center gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5" /> What Worked
+                </p>
+                <ul className="space-y-1.5">
+                  {insight.whatWorked.map((w, i) => <li key={i} className="text-xs text-foreground leading-relaxed">{w}</li>)}
+                </ul>
+              </div>
+              <div className="p-4 rounded-2xl bg-rose-500/5 border border-rose-500/20 space-y-2">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-rose-600 flex items-center gap-1.5">
+                  <XCircle className="w-3.5 h-3.5" /> What Hurt
+                </p>
+                <ul className="space-y-1.5">
+                  {insight.whatHurt.map((w, i) => <li key={i} className="text-xs text-foreground leading-relaxed">{w}</li>)}
+                </ul>
+              </div>
+            </div>
+          )}
+
+          <div className="p-4 rounded-2xl bg-indigo-500/5 border border-indigo-500/20 space-y-2">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-indigo-600 flex items-center gap-1.5">
+              <Target className="w-3.5 h-3.5" /> Core Problem
+            </p>
+            <p className="text-sm text-foreground leading-relaxed">{insight.coreProblem}</p>
+          </div>
+
+          <div className="space-y-2">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Execution vs. Strategy</p>
+            <p className="text-sm text-foreground leading-relaxed">{insight.executionVsStrategy}</p>
+          </div>
+
+          {insight.actionPlan.length > 0 && (
+            <div className="p-4 rounded-2xl bg-primary/5 border border-primary/20 space-y-2">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-primary flex items-center gap-1.5">
+                <Zap className="w-3.5 h-3.5" /> Action Plan
+              </p>
+              <ul className="space-y-1.5">
+                {insight.actionPlan.map((a, i) => <li key={i} className="text-xs text-foreground leading-relaxed">{i + 1}. {a}</li>)}
+              </ul>
+            </div>
+          )}
+        </Card>
+      )}
+
+      {report.mentorComment && (
+        <Card className="p-8 space-y-2">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Mentor's Note</p>
+          <div className="rich-content text-sm leading-relaxed text-foreground" dangerouslySetInnerHTML={{ __html: report.mentorComment }} />
+        </Card>
+      )}
+    </div>
+  );
+}
+
 export function SharePage({ token }: { token: string }) {
   const [state, setState] = useState<LoadState>({ status: 'loading' });
   const [retryKey, setRetryKey] = useState(0);
@@ -162,6 +259,9 @@ export function SharePage({ token }: { token: string }) {
         if (link.resourceType === 'journal') {
           const journal = await loadJournal(link.resourceId);
           if (!cancelled) setState(journal ? { status: 'journal', journal } : { status: 'invalid' });
+        } else if (link.resourceType === 'report') {
+          const report = await loadReport(link.resourceId);
+          if (!cancelled) setState(report ? { status: 'report', report } : { status: 'invalid' });
         } else {
           const result = await loadTrade(link.resourceId);
           if (!cancelled) setState(result ? { status: 'trade', ...result } : { status: 'invalid' });
@@ -204,6 +304,7 @@ export function SharePage({ token }: { token: string }) {
 
         {state.status === 'journal' && <NoteView journal={state.journal} />}
         {state.status === 'trade' && <TradeView trade={state.trade} note={state.note} />}
+        {state.status === 'report' && <ReportView report={state.report} />}
       </div>
     </div>
   );

@@ -92,6 +92,22 @@ const DAY_REVIEW_SCHEMA = {
   additionalProperties: false,
 } as const;
 
+// Mentor Dashboard's "Group Pattern Analysis" — narrates real, already-
+// computed per-student metrics (see buildDashboardModel in
+// analyticsService.ts) across a mentor's group. Like MENTOR_INSIGHT_SCHEMA,
+// Claude only narrates numbers computed client-side; it never invents them.
+const GROUP_PATTERN_SCHEMA = {
+  type: "object",
+  properties: {
+    groupSummary: { type: "string" },
+    commonStrengths: { type: "array", items: { type: "string" } },
+    commonWeaknesses: { type: "array", items: { type: "string" } },
+    recommendedFocus: { type: "string" },
+  },
+  required: ["groupSummary", "commonStrengths", "commonWeaknesses", "recommendedFocus"],
+  additionalProperties: false,
+} as const;
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -153,6 +169,22 @@ async function startServer() {
   // needs TRADOVATE_CLIENT_ID/SECRET/APP_URL set to work.
   app.get("/api/integrations/status", requireAuth, (req, res) => {
     res.json({ tradovateLiveSyncConfigured: tradovate.isConfigured() });
+  });
+
+  // Settings → Security → "Sign out of all devices". Acts only on the
+  // verified caller's own uid (req.uid from requireAuth) — never a
+  // client-supplied id — so no separate ownership check is needed.
+  // Invalidates refresh tokens immediately; an already-issued ID token on
+  // another device stays valid until its natural ~1hr expiry (a Firebase
+  // Auth limit, not something this endpoint can change).
+  app.post("/api/account/revoke-sessions", requireAuth, async (req, res) => {
+    try {
+      await admin.auth().revokeRefreshTokens((req as any).uid);
+      res.json({ status: "ok" });
+    } catch (error) {
+      console.error("Failed to revoke sessions:", error);
+      res.status(500).json({ error: "Failed to revoke sessions." });
+    }
   });
 
   // --- Tradovate OAuth ---
@@ -453,6 +485,70 @@ async function startServer() {
       }
       console.error("Mentor enhancement failed:", error);
       res.json(insight);
+    }
+  });
+
+  // Mentor Dashboard's "Group Pattern Analysis" — client sends each active
+  // student's real, already-computed metrics (buildDashboardModel), server
+  // asks Claude to narrate cross-student patterns. Nothing persisted; a
+  // pure request/response call like /api/mentor/enhance above, so no
+  // resource-ownership check beyond requireAuth is needed.
+  app.post("/api/mentor/group-pattern-analysis", requireAuth, async (req, res) => {
+    const { students } = req.body as {
+      students: {
+        id: string; name: string; discipline: number; consistency: number;
+        payoffRatioScore: number; entryTimingScore: number | null; sessionVerdict?: string;
+        lossPatterns?: string[]; timingInsight?: string[]; keyPatterns?: string[];
+      }[];
+    };
+
+    if (!Array.isArray(students)) {
+      return res.status(400).json({ error: "students is required" });
+    }
+    // A "cross-student pattern" is meaningless with 0-1 students — skip the
+    // Claude call entirely rather than ask it to invent a group trend.
+    if (students.length < 2) {
+      return res.json({ insufficientData: true });
+    }
+
+    const studentSummary = students.map(s =>
+      `- ${s.name}: discipline ${s.discipline}%, consistency ${s.consistency}%, payoff ratio score ${s.payoffRatioScore}${s.entryTimingScore !== null ? `, entry timing ${s.entryTimingScore}%` : ''}${s.sessionVerdict ? `, verdict: ${s.sessionVerdict}` : ''}${s.lossPatterns?.length ? `, loss patterns: ${s.lossPatterns.join('; ')}` : ''}${s.timingInsight?.length ? `, timing: ${s.timingInsight.join('; ')}` : ''}${s.keyPatterns?.length ? `, patterns: ${s.keyPatterns.join('; ')}` : ''}`
+    ).join('\n');
+
+    const prompt = `
+      You are an expert trading performance coach reviewing a group of ${students.length} students for their mentor.
+      Below is each student's real, already-computed performance data. Identify genuine patterns COMMON ACROSS MULTIPLE
+      students — do not just restate one student's individual numbers, and do not invent statistics not present below.
+
+      STUDENT DATA:
+      ${studentSummary}
+
+      INSTRUCTIONS:
+      1. groupSummary: 2-3 sentences on the group's overall state.
+      2. commonStrengths: patterns shared by multiple (not just one) students, doing well.
+      3. commonWeaknesses: patterns shared by multiple students, struggling.
+      4. recommendedFocus: the single highest-leverage thing this mentor should focus the group on this week.
+      5. If the group is too small or too varied for a real common pattern, say so honestly rather than forcing one.
+    `;
+
+    try {
+      const response = await anthropic.messages.create({
+        model: "claude-opus-4-8",
+        max_tokens: 1536,
+        output_config: { format: { type: "json_schema", schema: GROUP_PATTERN_SCHEMA } },
+        messages: [{ role: "user", content: prompt }],
+      });
+
+      const textBlock = response.content.find((b): b is Anthropic.TextBlock => b.type === "text");
+      if (!textBlock) throw new Error("No text response from Claude");
+      res.json(JSON.parse(textBlock.text));
+    } catch (error: any) {
+      if (error?.status === 429) {
+        console.warn("Claude API rate limited.");
+        return res.status(429).json({ error: "Rate limited, try again shortly." });
+      }
+      console.error("Group pattern analysis failed:", error);
+      res.status(500).json({ error: "Failed to generate group pattern analysis." });
     }
   });
 

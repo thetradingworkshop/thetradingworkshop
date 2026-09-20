@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { cn } from '@/src/utils';
-import { SectionHeader, Card, Button } from '../components/Shared';
-import { FileText, Download, Eye, Share2, User } from 'lucide-react';
+import { SectionHeader, Card, Button, Toast } from '../components/Shared';
+import { FileText, Download, Eye, Share2, Link as LinkIcon, User } from 'lucide-react';
 
 import { useDateRange } from '../context/DateContext';
 import { useTrades } from '../context/TradeContext';
@@ -9,8 +9,88 @@ import { isWithinInterval, startOfWeek, endOfWeek } from 'date-fns';
 import { TradePerformanceLog } from '../components/TradePerformanceLog';
 import { useAuth } from '../context/AuthContext';
 import { subscribeReports, downloadReportAsText, WeeklyReport } from '../lib/weeklyReports';
+import { subscribeShareLink, createShareLink, revokeShareLink, shareUrl } from '../lib/shareLinks';
+import { ShareLink } from '../types';
 import { WeeklyReportViewer } from '../components/WeeklyReportViewer';
 import { WeekPicker } from '../components/DateRangePicker';
+
+// Per-report share state/actions — a small local component (not inlined in
+// the row map) since each report needs its own subscribeShareLink, and
+// hooks can't be called inside a loop. Same create/copy/revoke pattern
+// SessionDetailScreen.tsx already uses for journal sharing, just pointed at
+// 'report' instead of 'journal'.
+function ReportShareButton({ userId, reportId }: { userId: string; reportId: string }) {
+  const [activeLink, setActiveLink] = useState<ShareLink | null>(null);
+  const [isBusy, setIsBusy] = useState(false);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+
+  useEffect(() => subscribeShareLink(userId, 'report', reportId, setActiveLink), [userId, reportId]);
+
+  const flashToast = (message: string, type: 'success' | 'error' = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 2500);
+  };
+
+  // Copying to the clipboard can fail on its own (permissions, insecure
+  // context, an automated browser) even when the share itself succeeded —
+  // that's a real state, not a failure of sharing, so it gets its own
+  // catch instead of one try/catch around both steps claiming the whole
+  // thing failed when only the copy did.
+  const handleShare = async () => {
+    setIsBusy(true);
+    try {
+      const token = await createShareLink(userId, 'report', reportId);
+      try {
+        await navigator.clipboard.writeText(shareUrl(token));
+        flashToast('Report shared — link copied');
+      } catch {
+        flashToast('Report shared — copy the link from the share menu');
+      }
+    } catch (error) {
+      console.error('Failed to share report:', error);
+      flashToast('Failed to share report', 'error');
+    } finally {
+      setIsBusy(false);
+    }
+  };
+
+  const handleCopy = async () => {
+    if (!activeLink) return;
+    try {
+      await navigator.clipboard.writeText(shareUrl(activeLink.id));
+      flashToast('Link copied');
+    } catch {
+      flashToast("Couldn't copy — your browser blocked clipboard access", 'error');
+    }
+  };
+
+  const handleRevoke = async () => {
+    setIsBusy(true);
+    try {
+      await revokeShareLink(activeLink!);
+      flashToast('Link revoked — report is private again');
+    } catch (error) {
+      console.error('Failed to revoke share link:', error);
+      flashToast('Failed to revoke link', 'error');
+    } finally {
+      setIsBusy(false);
+    }
+  };
+
+  return (
+    <>
+      {activeLink ? (
+        <div className="flex items-center">
+          <Button variant="ghost" icon={LinkIcon} className="p-2 h-auto" onClick={handleCopy} title="Copy share link" />
+          <Button variant="ghost" icon={Share2} className="p-2 h-auto text-rose-500" onClick={handleRevoke} disabled={isBusy} title="Revoke share link" />
+        </div>
+      ) : (
+        <Button variant="ghost" icon={Share2} className="p-2 h-auto" onClick={handleShare} disabled={isBusy} title="Share this report" />
+      )}
+      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+    </>
+  );
+}
 
 export default function WeeklyReportsScreen() {
   const { user } = useAuth();
@@ -96,7 +176,7 @@ export default function WeeklyReportsScreen() {
                 <div className="flex items-center space-x-2">
                   <Button variant="ghost" icon={Eye} className="p-2 h-auto" onClick={() => setViewingReportId(report.id)} title="View report" />
                   <Button variant="ghost" icon={Download} className="p-2 h-auto" onClick={() => downloadReportAsText(report)} title="Download report" />
-                  <Button variant="ghost" icon={Share2} className="p-2 h-auto" disabled title="A shareable link for reports isn't built yet — notes and trades already have one" />
+                  {user && <ReportShareButton userId={user.uid} reportId={report.id} />}
                 </div>
               </div>
             </div>

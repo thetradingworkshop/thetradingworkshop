@@ -37,6 +37,10 @@ export interface WeeklyReport {
   // word to the student. Set after generation (see GenerateReportModal),
   // editable later from the report viewer.
   mentorComment?: string;
+  // 'shared' once the student has generated a public share link for this
+  // report (see src/lib/shareLinks.ts / share_links in firestore.rules) —
+  // undefined/'private' otherwise. Same convention as Trade/JournalEntry.
+  status?: 'private' | 'shared';
 }
 
 export function subscribeReports(userId: string, onChange: (reports: WeeklyReport[]) => void): () => void {

@@ -113,6 +113,16 @@ service cloud.firestore {
         get(/databases/$(database)/documents/users/$(ownerId)).data.get('mentorId', null) == request.auth.uid;
     }
 
+    // Reverse of isAssignedMentor() — true when the CALLER's own mentorId
+    // points at mentorUid. Used where a Mentor's own content is opt-in
+    // shared with their assigned students (Strategies "Shared with me"),
+    // the mirror-image relationship of isAssignedMentor's mentor-reads-student.
+    function isMyAssignedMentor(mentorUid) {
+      return isAuthenticated() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('mentorId', null) == mentorUid;
+    }
+
     // True when `ownerId` is a Viewer-role account — the one role
     // canWriteOwnData() locks out of writing anything at all, even their
     // own data. Used to keep Admin's write access to trades/trade_reviews/
@@ -329,7 +339,7 @@ service cloud.firestore {
     // next.
     function isValidShareLink(data) {
       return data.userId is string &&
-             data.resourceType in ['journal', 'trade'] &&
+             data.resourceType in ['journal', 'trade', 'report'] &&
              data.resourceId is string &&
              data.createdAt is string &&
              data.revoked is bool;
@@ -510,11 +520,25 @@ service cloud.firestore {
     // src/lib/weeklyReports.ts) so regenerating the same student+week
     // overwrites in place instead of piling up duplicates.
     match /reports/{reportId} {
-      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin() || isAssignedMentor(resource.data.userId));
+      // The `resource.data.status == 'shared'` branch is the same public
+      // (unauthenticated) share-link path as trades/journals — see
+      // share_links below. Reports are authored BY the assigned mentor but
+      // ABOUT the student, and it's the student who shares their own
+      // report from the (student-facing) Weekly Reports screen.
+      allow read: if (isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin() || isAssignedMentor(resource.data.userId))) || resource.data.status == 'shared';
       allow create: if isAuthenticated() && request.resource.data.mentorId == request.auth.uid && canWriteOwnData() &&
         (isAssignedMentor(request.resource.data.userId) || isAdmin()) && isValidWeeklyReport(request.resource.data);
+      // The report's own subject (the student, resource.data.userId) gets
+      // one narrow exception: toggling `status` only, nothing else — same
+      // philosophy as journals' isValidMentorNotificationUpdate() narrow
+      // field-scoped update. Without this, a student could never actually
+      // flip their own report to shared, since content ownership/writes
+      // otherwise stay mentor/Admin-only.
       allow update: if isAuthenticated() &&
-        ((resource.data.mentorId == request.auth.uid && canWriteOwnData() && isAssignedMentor(resource.data.userId)) || isAdmin()) &&
+        ((resource.data.mentorId == request.auth.uid && canWriteOwnData() && isAssignedMentor(resource.data.userId)) ||
+         isAdmin() ||
+         (resource.data.userId == request.auth.uid && canWriteOwnData() &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']))) &&
         isValidWeeklyReport(request.resource.data);
       allow delete: if isAuthenticated() &&
         ((resource.data.mentorId == request.auth.uid && canWriteOwnData() && isAssignedMentor(resource.data.userId)) || isAdmin());
@@ -583,10 +607,31 @@ service cloud.firestore {
       // Dashboard's trade detail Strategy tab looks up a student's
       // strategy (name + rule text) to show alongside strategyChecklist,
       // which lives on the trade doc itself.
-      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin() || isAssignedMentor(resource.data.userId));
+      //
+      // The sharedWithStudents branch is the reverse relationship — a
+      // Mentor opting one of their OWN strategies into "Shared with me"
+      // for their assigned students (Strategies screen), gated by
+      // isMyAssignedMentor() so a student only ever sees their own
+      // mentor's shared strategies, never an arbitrary mentor's.
+      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin() || isAssignedMentor(resource.data.userId) || (resource.data.get('sharedWithStudents', false) == true && isMyAssignedMentor(resource.data.userId)));
       allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid && canWriteOwnData() && isValidStrategy(request.resource.data);
       allow update: if isAuthenticated() && ((resource.data.userId == request.auth.uid && canWriteOwnData()) || isAdmin()) && isValidStrategy(request.resource.data);
       allow delete: if isAuthenticated() && ((resource.data.userId == request.auth.uid && canWriteOwnData()) || isAdmin());
+    }
+
+    // Strategy Templates — Admin-curated playbooks visible to everyone,
+    // the catalog a "Use this template" action clones into the signed-in
+    // user's own strategies (via the same createStrategy() write above).
+    // Deliberately a separate collection from strategies (not an isTemplate
+    // flag on it) — this is admin-authored global content, not user-owned
+    // data, so it shouldn't share that collection's per-user ownership
+    // rules. Same read-open/write-Admin-only shape as groups.
+    // Document ID: auto-generated
+    // Fields: name, icon?, description?, categories (same shape as
+    // Strategy.categories), createdAt.
+    match /strategy_templates/{templateId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
     }
 
     // Manual backtest scenarios — a hypothetical/historical trade logged to

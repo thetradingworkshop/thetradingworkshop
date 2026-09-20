@@ -84,6 +84,7 @@ interface UserData {
   referredByName?: string;
   updatedAt: string; // formatted, or 'Unknown'
   lastLoginAt: string; // formatted, or 'Never' — see AuthContext.tsx's syncUserDoc, the only writer
+  deletionRequested?: boolean; // set by the user themselves from Settings → Security
 }
 
 // invites/{id} — see firestore.rules' isValidInvite() and
@@ -211,6 +212,7 @@ export default function UsersPermissionsScreen() {
           // in yet — or ones that existed before this field started being
           // written — genuinely have no login to report.
           lastLoginAt: fmtTimestamp(data.lastLoginAt, 'Never'),
+          deletionRequested: !!data.deletionRequested,
         };
       });
       setUsers(docs);
@@ -501,6 +503,11 @@ export default function UsersPermissionsScreen() {
               <div className="font-bold flex items-center space-x-2">
                 <span className="text-sm">{user.name}</span>
                 {user.status === 'inactive' && <Badge variant="neutral" className="text-[9px] px-1.5 py-0">Inactive</Badge>}
+                {user.deletionRequested && (
+                  <span title="This user requested account deletion from Settings">
+                    <Badge variant="negative" className="text-[9px] px-1.5 py-0">Deletion requested</Badge>
+                  </span>
+                )}
               </div>
               <div className="text-[11px] text-muted-foreground">{user.email}</div>
             </div>

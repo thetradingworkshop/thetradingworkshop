@@ -234,6 +234,45 @@ async function main() {
     await assertFails(updateDoc(doc(mentor, 'strategies', 'strategy-1'), { name: 'Renamed' }));
   });
 
+  console.log('\nstrategies — sharedWithStudents ("Shared with me")\n');
+
+  await check('a mentor CAN share their own strategy with students (toggle sharedWithStudents)', async () => {
+    await setDoc(doc(mentor, 'strategies', 'mentor-strategy-1'), { userId: MENTOR_UID, name: 'Mentor Playbook', status: 'active', categories: [] });
+    await assertSucceeds(updateDoc(doc(mentor, 'strategies', 'mentor-strategy-1'), { sharedWithStudents: true }));
+  });
+
+  await check('the mentor\'s own assigned student CAN read the shared strategy', async () => {
+    await assertSucceeds(getDoc(doc(student, 'strategies', 'mentor-strategy-1')));
+  });
+
+  await check('a student NOT assigned to this mentor CANNOT read the shared strategy', async () => {
+    await assertFails(getDoc(doc(otherStudent, 'strategies', 'mentor-strategy-1')));
+  });
+
+  await check('the assigned student CANNOT read the mentor\'s strategy while unshared', async () => {
+    await setDoc(doc(mentor, 'strategies', 'mentor-strategy-2'), { userId: MENTOR_UID, name: 'Draft Playbook', status: 'active', categories: [] });
+    await assertFails(getDoc(doc(student, 'strategies', 'mentor-strategy-2')));
+  });
+
+  console.log('\nstrategy_templates — Admin-curated catalog\n');
+
+  await check('any authenticated user CAN read a strategy template', async () => {
+    await setDoc(doc(admin, 'strategy_templates', 'template-1'), { name: 'Opening Range Breakout', categories: [], createdAt: new Date().toISOString() });
+    await assertSucceeds(getDoc(doc(student, 'strategy_templates', 'template-1')));
+  });
+
+  await check('Admin CAN create a strategy template', async () => {
+    await assertSucceeds(setDoc(doc(admin, 'strategy_templates', 'template-2'), { name: 'VWAP Reclaim', categories: [], createdAt: new Date().toISOString() }));
+  });
+
+  await check('a Student CANNOT create a strategy template', async () => {
+    await assertFails(setDoc(doc(student, 'strategy_templates', 'template-bad-1'), { name: 'Sneaky Template', categories: [], createdAt: new Date().toISOString() }));
+  });
+
+  await check('a Mentor CANNOT create a strategy template', async () => {
+    await assertFails(setDoc(doc(mentor, 'strategy_templates', 'template-bad-2'), { name: 'Sneaky Template', categories: [], createdAt: new Date().toISOString() }));
+  });
+
   console.log('\ntrade_reviews — mentor scoping (Mentor Dashboard trade detail, attachments)\n');
 
   await check('assigned mentor CAN read their student\'s trade review', async () => {
@@ -796,6 +835,43 @@ async function main() {
 
   await check('a different mentor CANNOT update someone else\'s student report', async () => {
     await assertFails(updateDoc(doc(otherMentor, 'reports', 'report-1'), reportPayload({ userId: STUDENT_UID, pnl: -50 })));
+  });
+
+  console.log('\nreports — sharing (the report\'s own subject can share their own report)\n');
+
+  await check('the report\'s own subject (student) CAN toggle status to shared, on their own report', async () => {
+    await assertSucceeds(updateDoc(doc(student, 'reports', 'report-1'), { status: 'shared' }));
+  });
+
+  await check('a different student CANNOT toggle status on someone else\'s report', async () => {
+    await assertFails(updateDoc(doc(otherStudent, 'reports', 'report-1'), { status: 'shared' }));
+  });
+
+  await check('the report\'s own subject CANNOT sneak other field changes into a status-only update', async () => {
+    await assertFails(updateDoc(doc(student, 'reports', 'report-1'), { status: 'private', pnl: 999999 }));
+  });
+
+  await check('the report\'s own subject CAN toggle status back to private', async () => {
+    await assertSucceeds(updateDoc(doc(student, 'reports', 'report-1'), { status: 'private' }));
+  });
+
+  await check('an unauthenticated context CANNOT read a private report', async () => {
+    await assertFails(getDoc(doc(unauth, 'reports', 'report-1')));
+  });
+
+  await check('an unauthenticated context CAN read a report once its subject shares it', async () => {
+    await assertSucceeds(updateDoc(doc(student, 'reports', 'report-1'), { status: 'shared' }));
+    await assertSucceeds(getDoc(doc(unauth, 'reports', 'report-1')));
+  });
+
+  await check('the report\'s own subject CAN create a share_links doc for their own report', async () => {
+    await assertSucceeds(setDoc(doc(student, 'share_links', 'report-token-1'), shareLinkPayload({
+      userId: STUDENT_UID, resourceType: 'report', resourceId: 'report-1',
+    })));
+  });
+
+  await check('an unauthenticated context CAN read that share_links doc by token', async () => {
+    await assertSucceeds(getDoc(doc(unauth, 'share_links', 'report-token-1')));
   });
 
   // Destructive — must run last among tests that depend on report-1 existing.
