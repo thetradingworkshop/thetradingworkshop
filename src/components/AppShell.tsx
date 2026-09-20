@@ -37,8 +37,11 @@ import { useUnreadMentorFeedbackCount } from '../hooks/useMentorComments';
 // Viewer isn't supposed to see).
 export const navItems = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: ['Admin', 'Mentor', 'Student', 'Viewer'] },
-  { id: 'connections', label: 'Broker Connections', icon: Zap, roles: ['Admin', 'Student'] },
-  { id: 'import', label: 'Import Orders', icon: Upload, roles: ['Admin', 'Student'] },
+  // Nested inside Settings (as its own sub-tab) instead of living here —
+  // still a real activePage (and still role-gated below), just reached
+  // via Settings rather than its own top-level sidebar entry.
+  { id: 'connections', label: 'Broker Connections', icon: Zap, roles: ['Admin', 'Student'], hidden: true },
+  { id: 'import', label: 'Import Orders', icon: Upload, roles: ['Admin', 'Student'], hidden: true },
   { id: 'sessions', label: 'Sessions', icon: Calendar, roles: ['Admin', 'Mentor', 'Student'] },
   { id: 'dayview', label: 'Day View', icon: CalendarDays, roles: ['Admin', 'Mentor', 'Student'] },
   { id: 'trades', label: 'Trades', icon: BarChart3, roles: ['Admin', 'Mentor', 'Student'] },
@@ -90,7 +93,7 @@ export function AppShell({
   const displayName = user?.displayName || user?.email || 'User';
   const initials = displayName.split(/\s+/).filter(Boolean).map(p => p[0]).join('').slice(0, 2).toUpperCase() || '?';
 
-  const filteredNav = navItems.filter(item => item.roles.includes(userRole));
+  const filteredNav = navItems.filter(item => item.roles.includes(userRole) && !item.hidden);
 
   return (
     <div className="min-h-screen bg-background flex">

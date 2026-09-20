@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { SectionHeader, Card, Button, Toast } from '../components/Shared';
-import { Bell, Shield, User, Database, Wallet, AlertTriangle, Link2, UserCheck } from 'lucide-react';
+import { Bell, Shield, User, Database, Wallet, AlertTriangle, Link2, UserCheck, Zap, Upload } from 'lucide-react';
 import { useTrades } from '../context/TradeContext';
 import { useAuth } from '../context/AuthContext';
 import { db } from '../firebase';
@@ -9,6 +9,8 @@ import { RiskSettings } from '../types';
 import TradingAccountsSettings from './TradingAccountsSettings';
 import ReferralsSettings from './ReferralsSettings';
 import MentorSettings from './MentorSettings';
+import DataConnectionsScreen from './DataConnectionsScreen';
+import ImportOrdersScreen from './ImportOrdersScreen';
 
 const EMPTY_RISK_FORM = {
   maxDailyLossUsd: '',
@@ -21,9 +23,9 @@ const EMPTY_RISK_FORM = {
   monthlyProfitTarget: '',
 };
 
-export default function SettingsScreen() {
+export default function SettingsScreen({ setActivePage }: { setActivePage: (page: string) => void }) {
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
-  const [activeTab, setActiveTab] = useState<'trading-parameters' | 'risk-parameters' | 'accounts' | 'referrals' | 'mentor'>('trading-parameters');
+  const [activeTab, setActiveTab] = useState<'trading-parameters' | 'risk-parameters' | 'accounts' | 'connections' | 'import' | 'referrals' | 'mentor'>('trading-parameters');
   const { clearTrades } = useTrades();
   const { user, role } = useAuth();
   const [isClearingTrades, setIsClearingTrades] = useState(false);
@@ -108,6 +110,30 @@ export default function SettingsScreen() {
             <Wallet className="w-4 h-4" />
             <span>Accounts</span>
           </button>
+          {/* Broker Connections and Import Orders used to be their own
+              top-level sidebar items — moved here since they're account
+              setup/data-ingestion concerns, not something reached daily,
+              same reasoning as Accounts/Referrals/Mentor already living
+              under Settings. Same Admin/Student gating the sidebar used to
+              apply (see the now-hidden entries in AppShell's navItems). */}
+          {(role === 'Admin' || role === 'Student') && (
+            <button
+              onClick={() => setActiveTab('connections')}
+              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-colors ${activeTab === 'connections' ? 'bg-primary text-primary-foreground font-medium' : 'hover:bg-accent text-muted-foreground'}`}
+            >
+              <Zap className="w-4 h-4" />
+              <span>Broker Connections</span>
+            </button>
+          )}
+          {(role === 'Admin' || role === 'Student') && (
+            <button
+              onClick={() => setActiveTab('import')}
+              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-colors ${activeTab === 'import' ? 'bg-primary text-primary-foreground font-medium' : 'hover:bg-accent text-muted-foreground'}`}
+            >
+              <Upload className="w-4 h-4" />
+              <span>Import Orders</span>
+            </button>
+          )}
           <button
             onClick={() => setActiveTab('referrals')}
             className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-colors ${activeTab === 'referrals' ? 'bg-primary text-primary-foreground font-medium' : 'hover:bg-accent text-muted-foreground'}`}
@@ -148,6 +174,8 @@ export default function SettingsScreen() {
         {/* Right: Content */}
         <div className="lg:col-span-9 space-y-6">
           {activeTab === 'accounts' && <TradingAccountsSettings />}
+          {activeTab === 'connections' && <DataConnectionsScreen />}
+          {activeTab === 'import' && <ImportOrdersScreen setActivePage={setActivePage} />}
           {activeTab === 'referrals' && <ReferralsSettings />}
           {activeTab === 'mentor' && role === 'Student' && <MentorSettings />}
 

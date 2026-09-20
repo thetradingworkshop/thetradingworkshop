@@ -167,7 +167,7 @@ function AppContent() {
       case 'reports':
         return <WeeklyReportsScreen />;
       case 'settings':
-        return <SettingsScreen />;
+        return <SettingsScreen setActivePage={setActivePage} />;
       case 'admin':
         return <UsersPermissionsScreen />;
       default:
