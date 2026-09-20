@@ -419,13 +419,66 @@ export default function SessionDetailScreen() {
         </div>
       </div>
 
-      {/* Row 4: PnL by Trade + Hourly */}
+      {/* Row 4: Journal — the same Sessions Recap journal entry the "New
+          Sessions Recap" flow on the Journal page creates for this exact
+          date range + account scope. */}
+      <Card>
+        <div className="flex items-center justify-between mb-8">
+          <div className="flex items-center space-x-3">
+            <div className="p-2 bg-primary/5 rounded-lg">
+              <BookOpen className="w-5 h-5 text-primary" />
+            </div>
+            <h3 className="font-bold text-foreground">Session Journal</h3>
+            <span className="text-xs text-muted-foreground italic">Saved to your Journal (Sessions Recap) — visible to your mentor</span>
+          </div>
+          <Button
+            variant="primary"
+            size="sm"
+            icon={isSavingJournal ? Loader2 : Save}
+            onClick={saveSessionJournal}
+            disabled={isSavingJournal}
+          >
+            {isSavingJournal ? 'Saving...' : 'Save Journal'}
+          </Button>
+        </div>
+        <div className="space-y-6">
+          <div className="space-y-2">
+            <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Session Category</label>
+            <select
+              className="w-full p-3 bg-accent/30 border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+              value={journalDraft.sessionCategory}
+              onChange={(e) => setJournalDraft(prev => ({ ...prev, sessionCategory: e.target.value as SessionCategory | '' }))}
+            >
+              <option value="">No category</option>
+              <option value="NY_AM">NY AM</option>
+              <option value="NY_PM">NY PM</option>
+              <option value="ASIA">Asia</option>
+              <option value="LONDON">London</option>
+              <option value="WEEKLY">Weekly</option>
+            </select>
+          </div>
+          <div className="space-y-2">
+            <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Session Notes</label>
+            <RichTextEditor
+              key={journalDraft.journalId || `${rangeStart}_${rangeEnd}`}
+              initialValue={journalDraft.content}
+              onChange={(html) => setJournalDraft(prev => ({ ...prev, content: html }))}
+              placeholder="General notes about the session..."
+              minHeightClass="min-h-[128px]"
+              userId={user?.uid}
+              onUploadingChange={setIsJournalMediaUploading}
+            />
+          </div>
+        </div>
+      </Card>
+
+      {/* Row 5: PnL by Trade + Hourly */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <PnlByTradeChart data={stats?.pnlByTrade} />
         <HourlyPerformanceChart data={stats?.hourlyData} />
       </div>
 
-      {/* Row 5: Pattern Detection & Analysis */}
+      {/* Row 6: Pattern Detection & Analysis */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         <div className="lg:col-span-4 space-y-6">
           <Card className="border-amber-500/20 bg-amber-500/5">
@@ -461,7 +514,7 @@ export default function SessionDetailScreen() {
         </div>
       </div>
 
-      {/* Row 5: Session Analysis Engine */}
+      {/* Row 7: Session Analysis Engine */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         <div className="lg:col-span-4">
           <Card className="h-full bg-primary/5 border-primary/20">
@@ -616,7 +669,7 @@ export default function SessionDetailScreen() {
         </div>
       </div>
 
-      {/* Row 6: Top Winners + Fast Losers */}
+      {/* Row 8: Top Winners + Fast Losers */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card className="border-emerald-500/20" noPadding>
           <div className="p-6 border-b border-border/60 bg-emerald-500/5 flex items-center justify-between">
@@ -708,7 +761,7 @@ export default function SessionDetailScreen() {
         </Card>
       </div>
 
-      {/* Row 7: Re-entry + Scaling */}
+      {/* Row 9: Re-entry + Scaling */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>
           <button
@@ -779,59 +832,6 @@ export default function SessionDetailScreen() {
           <RuleBasedMentor insight={ruleBasedInsight} />
         )}
       </div>
-
-      {/* Row 9: Journal — the same Sessions Recap journal entry the
-          "New Sessions Recap" flow on the Journal page creates for this
-          exact date range + account scope. */}
-      <Card>
-        <div className="flex items-center justify-between mb-8">
-          <div className="flex items-center space-x-3">
-            <div className="p-2 bg-primary/5 rounded-lg">
-              <BookOpen className="w-5 h-5 text-primary" />
-            </div>
-            <h3 className="font-bold text-foreground">Session Journal</h3>
-            <span className="text-xs text-muted-foreground italic">Saved to your Journal (Sessions Recap) — visible to your mentor</span>
-          </div>
-          <Button
-            variant="primary"
-            size="sm"
-            icon={isSavingJournal ? Loader2 : Save}
-            onClick={saveSessionJournal}
-            disabled={isSavingJournal}
-          >
-            {isSavingJournal ? 'Saving...' : 'Save Journal'}
-          </Button>
-        </div>
-        <div className="space-y-6">
-          <div className="space-y-2">
-            <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Session Category</label>
-            <select
-              className="w-full p-3 bg-accent/30 border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
-              value={journalDraft.sessionCategory}
-              onChange={(e) => setJournalDraft(prev => ({ ...prev, sessionCategory: e.target.value as SessionCategory | '' }))}
-            >
-              <option value="">No category</option>
-              <option value="NY_AM">NY AM</option>
-              <option value="NY_PM">NY PM</option>
-              <option value="ASIA">Asia</option>
-              <option value="LONDON">London</option>
-              <option value="WEEKLY">Weekly</option>
-            </select>
-          </div>
-          <div className="space-y-2">
-            <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Session Notes</label>
-            <RichTextEditor
-              key={journalDraft.journalId || `${rangeStart}_${rangeEnd}`}
-              initialValue={journalDraft.content}
-              onChange={(html) => setJournalDraft(prev => ({ ...prev, content: html }))}
-              placeholder="General notes about the session..."
-              minHeightClass="min-h-[128px]"
-              userId={user?.uid}
-              onUploadingChange={setIsJournalMediaUploading}
-            />
-          </div>
-        </div>
-      </Card>
 
       {/* The "Raw Order Reconstruction" accordion that used to live here was
           purely decorative — it never expanded into anything, and the real
