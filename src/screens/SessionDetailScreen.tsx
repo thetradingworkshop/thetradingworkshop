@@ -790,26 +790,29 @@ export default function SessionDetailScreen() {
         )}
       </div>
 
-      {/* Row 9: Mentor + Journals */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card>
-          <div className="flex items-center justify-between mb-8">
-            <div className="flex items-center space-x-3">
-              <div className="p-2 bg-primary/5 rounded-lg">
-                <BookOpen className="w-5 h-5 text-primary" />
-              </div>
-              <h3 className="font-bold text-foreground">Session Journal</h3>
+      {/* Row 9: Journal — Session Journal and Self Review are the same
+          Sessions Recap journal entry (see journalDraft above), so they're
+          one card, not two side by side. */}
+      <Card>
+        <div className="flex items-center justify-between mb-8">
+          <div className="flex items-center space-x-3">
+            <div className="p-2 bg-primary/5 rounded-lg">
+              <BookOpen className="w-5 h-5 text-primary" />
             </div>
-            <Button 
-              variant="primary" 
-              size="sm" 
-              icon={isSavingJournal ? Loader2 : Save}
-              onClick={saveSessionJournal}
-              disabled={isSavingJournal}
-            >
-              {isSavingJournal ? 'Saving...' : 'Save Journal'}
-            </Button>
+            <h3 className="font-bold text-foreground">Session Journal</h3>
+            <span className="text-xs text-muted-foreground italic">Saved to your Journal (Sessions Recap) — visible to your mentor</span>
           </div>
+          <Button
+            variant="primary"
+            size="sm"
+            icon={isSavingJournal ? Loader2 : Save}
+            onClick={saveSessionJournal}
+            disabled={isSavingJournal}
+          >
+            {isSavingJournal ? 'Saving...' : 'Save Journal'}
+          </Button>
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           <div className="space-y-6">
             <div className="space-y-2">
               <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Session Category</label>
@@ -839,16 +842,11 @@ export default function SessionDetailScreen() {
               />
             </div>
           </div>
-        </Card>
-        <Card>
-          <div className="flex items-center space-x-3 mb-8">
-            <div className="p-2 bg-primary/5 rounded-lg">
-              <MessageSquare className="w-5 h-5 text-primary" />
-            </div>
-            <h3 className="font-bold text-foreground">Self Review</h3>
-            <span className="text-xs text-muted-foreground italic">Saved to your Journal (Sessions Recap) — visible to your mentor</span>
-          </div>
           <div className="space-y-6">
+            <div className="flex items-center space-x-2">
+              <MessageSquare className="w-4 h-4 text-muted-foreground" />
+              <h4 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Self Review</h4>
+            </div>
             <div className="space-y-2">
               <label className="text-[10px] font-bold uppercase tracking-widest text-emerald-600">What went well?</label>
               <DictationTextarea
@@ -877,8 +875,8 @@ export default function SessionDetailScreen() {
               />
             </div>
           </div>
-        </Card>
-      </div>
+        </div>
+      </Card>
 
       {/* The "Raw Order Reconstruction" accordion that used to live here was
           purely decorative — it never expanded into anything, and the real
