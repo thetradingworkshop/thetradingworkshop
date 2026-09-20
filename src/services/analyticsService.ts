@@ -217,7 +217,7 @@ export const buildTradeStats = (trades: Trade[]): TradeStats | null => {
   const biasCategories = chronological.reduce((acc, t, i) => {
     const followedModel = t.isViolation !== undefined
       ? !t.isViolation
-      : ModelValidationEngine.validateTrade(t, i > 0 ? chronological[i - 1] : undefined).followsModel;
+      : ModelValidationEngine.validateTrade(t, chronological, i).followsModel;
     const key = followedModel
       ? (t.isWinner ? 'Aligned Win' : 'Aligned Loss')
       : (t.isWinner ? 'Deviated Win' : 'Deviated Loss');
@@ -444,8 +444,7 @@ export const computeDisciplineScore = (trades: Trade[]): number => {
     // so the number means the same thing regardless of navigation history.
     const validTradesCount = sorted.filter((t, i) => {
       if (t.isViolation !== undefined) return !t.isViolation;
-      const previous = i > 0 ? sorted[i - 1] : undefined;
-      return ModelValidationEngine.validateTrade(t, previous).followsModel;
+      return ModelValidationEngine.validateTrade(t, sorted, i).followsModel;
     }).length;
 
     let score = (validTradesCount / totalTrades) * 100;

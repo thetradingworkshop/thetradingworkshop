@@ -59,10 +59,9 @@ export class SessionBuilder {
 
     for (let i = 0; i < sortedTrades.length; i++) {
       const trade = sortedTrades[i];
-      const previousTrade = i > 0 ? sortedTrades[i - 1] : undefined;
 
       // 2a. Model Validation
-      const modelValidation = ModelValidationEngine.validateTrade(trade, previousTrade);
+      const modelValidation = ModelValidationEngine.validateTrade(trade, sortedTrades, i);
       trade.modelValidation = modelValidation;
       
       // Add Trade Tag
