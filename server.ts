@@ -9,7 +9,7 @@ import { v4 as uuidv4 } from "uuid";
 import crypto from "crypto";
 import Anthropic from "@anthropic-ai/sdk";
 import { TradovateService } from "./tradovate-service.js";
-import { reconstructTrades } from "./src/engine.js";
+import { reconstructTrades, getSessionDate } from "./src/engine.js";
 import { IngestionEvent, Order, Trade, Session } from "./src/types.js";
 import { computeSessionFromTrades, determineSessionWindow } from './src/analytics.js';
 import { getRootSymbol } from './src/contractSpecs.js';
@@ -1155,11 +1155,11 @@ async function startServer() {
                 userId: conn.userId,
                 connectionId,
                 accountId,
-                sessionDate: trade.entryTime.split('T')[0],
+                sessionDate: getSessionDate(trade.entryTime),
                 createdAt: admin.firestore.FieldValue.serverTimestamp(),
                 updatedAt: admin.firestore.FieldValue.serverTimestamp()
               });
-              affectedSessionDates.add(trade.entryTime.split('T')[0]);
+              affectedSessionDates.add(getSessionDate(trade.entryTime));
             }
             await tradeBatch.commit();
           }

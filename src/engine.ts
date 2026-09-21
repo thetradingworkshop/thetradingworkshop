@@ -5,6 +5,28 @@ import { getPointValue, getCommissionPerContract, getTickSize } from './contract
 
 export type { ParseResult };
 
+// A trade's calendar date for journaling/session-grouping purposes must be
+// pinned to the CME trading-day convention (US Eastern), not to whatever
+// timezone happens to run the code computing it. `entryTime.split('T')[0]`
+// silently took the UTC date instead — fine for a daytime trade, but a fill
+// late in the evening Eastern time (e.g. 8:33 PM EDT) crosses into the next
+// UTC calendar day, so a trade the trader made "yesterday" got stamped with
+// "today"'s date. This broke trades taken from the server-side broker-sync
+// path (server.ts runs on Render, whose Node process defaults to UTC) while
+// every date-range filter elsewhere in the app (Trades page, Journal) reads
+// entryTime in the *browser's* local time — which for this app's traders is
+// Eastern anyway, so pinning to America/New_York keeps both sides agreeing.
+const sessionDateFormatter = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'America/New_York',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+});
+
+export function getSessionDate(entryTimeIso: string): string {
+  return sessionDateFormatter.format(new Date(entryTimeIso));
+}
+
 /**
  * Parses a Tradovate CSV export into standardized Order objects.
  */
@@ -582,7 +604,7 @@ function createTradeFromState(state: PositionState, exitTime: string, exitPrice:
   const realizedPnL = Number((grossPnlCurrency - totalCommission).toFixed(2));
   const holdTimeSeconds = state.entryTime ? (new Date(exitTime).getTime() - new Date(state.entryTime).getTime()) / 1000 : 0;
 
-  const sessionDate = state.entryTime ? state.entryTime.split('T')[0] : exitTime.split('T')[0];
+  const sessionDate = getSessionDate(state.entryTime || exitTime);
   const sessionId = userId ? `${userId}_${sessionDate}` : uuidv4();
 
   // Derived instrument economics. `pnlPoints` here is already the total price

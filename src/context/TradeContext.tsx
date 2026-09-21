@@ -4,6 +4,7 @@ import { db, auth } from '../firebase';
 import { collection, query, where, onSnapshot, orderBy, addDoc, setDoc, serverTimestamp, writeBatch, doc, deleteDoc, getDocFromServer } from 'firebase/firestore';
 import { useAuth } from './AuthContext';
 import { weekdayLabel, hourLabel, WEEKDAY_ORDER, HOUR_ORDER } from '../services/reportMetrics';
+import { getSessionDate } from '../engine';
 
 export interface AccountOption {
   connectionId: string;
@@ -459,7 +460,7 @@ export function TradeProvider({ children }: { children: ReactNode }) {
             ...sanitizedData,
             id: trade.dedupeHash,
             userId: user.uid,
-            sessionDate: trade.entryTime.split('T')[0],
+            sessionDate: getSessionDate(trade.entryTime),
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp()
           });
