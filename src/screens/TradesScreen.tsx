@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { formatDistanceToNow } from 'date-fns';
+import { formatDistanceToNow, isWithinInterval } from 'date-fns';
 import { cn } from '@/src/utils';
 import { SectionHeader, Card, Badge, Button, Input, Toast } from '../components/Shared';
 import {
@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { useTrades } from '../context/TradeContext';
 import { useAuth } from '../context/AuthContext';
+import { useDateRange } from '../context/DateContext';
 import { TradePerformanceLog } from '../components/TradePerformanceLog';
 import { AddTradeModal } from '../components/AddTradeModal';
 import { subscribePendingTradeIntents, dismissTradeIntent } from '../lib/tradeIntents';
@@ -88,6 +89,20 @@ function PendingSetups({ intents, onLogResult, onDismiss }: {
 export default function TradesScreen() {
   const { filteredTrades } = useTrades();
   const { user } = useAuth();
+  // The header's date-range picker (Today/Last 30 Days/etc.) rendered on
+  // this page but was never actually wired to anything — TradePerformanceLog
+  // was always fed the full account/symbol/tag-filtered set, unfiltered by
+  // date, regardless of what the picker showed. Confirmed by hand: setting
+  // "Today" here kept showing yesterday's trades untouched. `filteredTrades`
+  // from TradeContext deliberately doesn't include date-range narrowing
+  // itself (every other screen — Dashboard, Session Detail, Range Analysis
+  // — applies its own dateRange filter locally the same way this does).
+  const { getEffectiveRange } = useDateRange();
+  const effectiveRange = getEffectiveRange('trades');
+  const dateFilteredTrades = useMemo(
+    () => filteredTrades.filter(t => isWithinInterval(new Date(t.entryTime), { start: effectiveRange.from, end: effectiveRange.to })),
+    [filteredTrades, effectiveRange]
+  );
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [isAddTradeOpen, setIsAddTradeOpen] = useState(false);
   const [pendingIntents, setPendingIntents] = useState<TradeIntent[]>([]);
@@ -130,7 +145,7 @@ export default function TradesScreen() {
 
       <PendingSetups intents={pendingIntents} onLogResult={openLogResult} onDismiss={handleDismiss} />
 
-      <TradePerformanceLog trades={filteredTrades} />
+      <TradePerformanceLog trades={dateFilteredTrades} />
 
       <AddTradeModal
         isOpen={isAddTradeOpen}
