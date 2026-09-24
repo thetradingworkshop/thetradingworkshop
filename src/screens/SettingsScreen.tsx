@@ -1,12 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { SectionHeader, Card, Button, Toast, Modal } from '../components/Shared';
-import { Bell, Shield, User, Database, Wallet, AlertTriangle, Link2, UserCheck, Zap, Upload, LogOut, Trash2 } from 'lucide-react';
+import { SectionHeader, Card, Button, Toast, Modal, Input } from '../components/Shared';
+import { Bell, Shield, User, Database, Wallet, AlertTriangle, Link2, UserCheck, Zap, Upload, LogOut, Trash2, ShieldCheck } from 'lucide-react';
 import { useTrades } from '../context/TradeContext';
 import { useAuth } from '../context/AuthContext';
 import { db } from '../firebase';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { MultiFactorInfo, TotpSecret } from 'firebase/auth';
+import QRCode from 'qrcode';
 import { RiskSettings, NotificationPrefs } from '../types';
 import { revokeAllSessions } from '../lib/accountSecurity';
+import { beginTotpEnrollment, finishTotpEnrollment, listEnrolledFactors, unenrollFactor } from '../lib/mfa';
 import TradingAccountsSettings from './TradingAccountsSettings';
 import ReferralsSettings from './ReferralsSettings';
 import MentorSettings from './MentorSettings';
@@ -28,7 +31,9 @@ export default function SettingsScreen({ setActivePage }: { setActivePage: (page
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [activeTab, setActiveTab] = useState<'trading-parameters' | 'risk-parameters' | 'accounts' | 'connections' | 'import' | 'referrals' | 'mentor' | 'notifications' | 'security'>('trading-parameters');
   const { clearTrades } = useTrades();
-  const { user, role, logout } = useAuth();
+  const { user, role, logout, resendVerificationEmail } = useAuth();
+  const [isResendingVerification, setIsResendingVerification] = useState(false);
+  const [verificationSent, setVerificationSent] = useState(false);
   const [isClearingTrades, setIsClearingTrades] = useState(false);
 
   const [riskForm, setRiskForm] = useState(EMPTY_RISK_FORM);
@@ -46,6 +51,19 @@ export default function SettingsScreen({ setActivePage }: { setActivePage: (page
   const [deletionRequested, setDeletionRequested] = useState(false);
   const [isRequestingDeletion, setIsRequestingDeletion] = useState(false);
   const [isDeletionConfirmOpen, setIsDeletionConfirmOpen] = useState(false);
+
+  // Two-factor authentication (TOTP) — enroll/unenroll acts on the live
+  // Firebase User object directly (multiFactor()), not Firestore, so
+  // there's nothing to load from a doc; enrolledFactors is re-read off
+  // `user` itself after every change via refreshEnrolledFactors.
+  const [enrolledFactors, setEnrolledFactors] = useState<MultiFactorInfo[]>([]);
+  const [isEnrollTotpOpen, setIsEnrollTotpOpen] = useState(false);
+  const [totpSecret, setTotpSecret] = useState<TotpSecret | null>(null);
+  const [totpQrDataUrl, setTotpQrDataUrl] = useState<string | null>(null);
+  const [totpCode, setTotpCode] = useState('');
+  const [isStartingEnroll, setIsStartingEnroll] = useState(false);
+  const [isFinishingEnroll, setIsFinishingEnroll] = useState(false);
+  const [unenrollingUid, setUnenrollingUid] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -95,6 +113,101 @@ export default function SettingsScreen({ setActivePage }: { setActivePage: (page
       setIsRequestingDeletion(false);
       setIsDeletionConfirmOpen(false);
       setTimeout(() => setToast(null), 3000);
+    }
+  };
+
+  const refreshEnrolledFactors = async () => {
+    if (!user) { setEnrolledFactors([]); return; }
+    try {
+      await user.reload();
+    } catch {
+      // A stale/offline reload still leaves the previously-known factor
+      // list correct often enough not to worry the user over it here.
+    }
+    setEnrolledFactors(listEnrolledFactors(user));
+  };
+
+  useEffect(() => { refreshEnrolledFactors(); }, [user?.uid]);
+
+  const handleResendVerification = async () => {
+    setIsResendingVerification(true);
+    try {
+      await resendVerificationEmail();
+      setVerificationSent(true);
+      setToast({ message: 'Verification email sent — check your inbox.', type: 'success' });
+    } catch (err: any) {
+      setToast({ message: `Failed to send verification email: ${err?.message || 'Unknown error'}`, type: 'error' });
+    } finally {
+      setIsResendingVerification(false);
+      setTimeout(() => setToast(null), 4000);
+    }
+  };
+
+  const handleStartTotpEnroll = async () => {
+    if (!user) return;
+    setIsStartingEnroll(true);
+    try {
+      const secret = await beginTotpEnrollment(user);
+      const uri = secret.generateQrCodeUrl(user.email || user.uid, 'Trading Workshop OS');
+      const dataUrl = await QRCode.toDataURL(uri);
+      setTotpSecret(secret);
+      setTotpQrDataUrl(dataUrl);
+      setTotpCode('');
+      setIsEnrollTotpOpen(true);
+    } catch (err: any) {
+      const message = err?.code === 'auth/requires-recent-login'
+        ? 'For security, please sign out and back in, then try again.'
+        : err?.code === 'auth/unverified-email'
+        ? 'Verify your email address first, then try again.'
+        : `Failed to start 2FA setup: ${err?.message || 'Unknown error'}`;
+      setToast({ message, type: 'error' });
+      setTimeout(() => setToast(null), 4000);
+    } finally {
+      setIsStartingEnroll(false);
+    }
+  };
+
+  const closeTotpEnroll = () => {
+    setIsEnrollTotpOpen(false);
+    setTotpSecret(null);
+    setTotpQrDataUrl(null);
+    setTotpCode('');
+  };
+
+  const handleFinishTotpEnroll = async () => {
+    if (!user || !totpSecret) return;
+    setIsFinishingEnroll(true);
+    try {
+      await finishTotpEnrollment(user, totpSecret, totpCode, 'Authenticator app');
+      closeTotpEnroll();
+      await refreshEnrolledFactors();
+      setToast({ message: 'Two-factor authentication enabled.', type: 'success' });
+    } catch (err: any) {
+      const message = err?.code === 'auth/invalid-verification-code'
+        ? 'Incorrect code. Check your authenticator app and try again.'
+        : `Failed to enable 2FA: ${err?.message || 'Unknown error'}`;
+      setToast({ message, type: 'error' });
+    } finally {
+      setIsFinishingEnroll(false);
+      setTimeout(() => setToast(null), 4000);
+    }
+  };
+
+  const handleUnenroll = async (factor: MultiFactorInfo) => {
+    if (!user) return;
+    setUnenrollingUid(factor.uid);
+    try {
+      await unenrollFactor(user, factor);
+      await refreshEnrolledFactors();
+      setToast({ message: 'Two-factor authentication removed.', type: 'success' });
+    } catch (err: any) {
+      const message = err?.code === 'auth/requires-recent-login'
+        ? 'For security, please sign out and back in, then try again.'
+        : `Failed to remove: ${err?.message || 'Unknown error'}`;
+      setToast({ message, type: 'error' });
+    } finally {
+      setUnenrollingUid(null);
+      setTimeout(() => setToast(null), 4000);
     }
   };
 
@@ -302,6 +415,93 @@ export default function SettingsScreen({ setActivePage }: { setActivePage: (page
                   {isRevokingSessions ? 'Signing out everywhere...' : 'Sign Out of All Devices'}
                 </Button>
               </Card>
+
+              <Card className="p-8">
+                <h3 className="text-lg font-bold mb-2">Two-Factor Authentication</h3>
+                <p className="text-xs text-muted-foreground mb-6">
+                  Adds a 6-digit code from an authenticator app (Google Authenticator, Authy, 1Password, etc.) as a
+                  second step when signing in, on top of your password.
+                </p>
+                {enrolledFactors.length > 0 ? (
+                  <div className="space-y-3">
+                    {enrolledFactors.map(factor => (
+                      <div key={factor.uid} className="flex items-center justify-between p-4 bg-accent/30 rounded-2xl border border-border/40">
+                        <div>
+                          <p className="text-sm font-bold flex items-center gap-2">
+                            <ShieldCheck className="w-4 h-4 text-emerald-500" />
+                            {factor.displayName || 'Authenticator app'}
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            Enrolled {new Date(factor.enrollmentTime).toLocaleDateString()}
+                          </p>
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          icon={Trash2}
+                          onClick={() => handleUnenroll(factor)}
+                          disabled={unenrollingUid === factor.uid}
+                        >
+                          {unenrollingUid === factor.uid ? 'Removing...' : 'Remove'}
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                ) : user && !user.emailVerified ? (
+                  <div className="space-y-3">
+                    <p className="text-sm text-muted-foreground">
+                      Verify your email address before enabling two-factor authentication — Firebase requires it so
+                      you always have a way back into your account.
+                    </p>
+                    <Button variant="outline" onClick={handleResendVerification} disabled={isResendingVerification || verificationSent}>
+                      {isResendingVerification ? 'Sending...' : verificationSent ? 'Verification email sent' : 'Send Verification Email'}
+                    </Button>
+                  </div>
+                ) : (
+                  <Button variant="outline" icon={ShieldCheck} onClick={handleStartTotpEnroll} disabled={isStartingEnroll}>
+                    {isStartingEnroll ? 'Starting...' : 'Enable Two-Factor Authentication'}
+                  </Button>
+                )}
+              </Card>
+
+              <Modal
+                isOpen={isEnrollTotpOpen}
+                onClose={closeTotpEnroll}
+                title="Set up two-factor authentication"
+                maxWidth="sm"
+                footer={
+                  <>
+                    <Button variant="outline" onClick={closeTotpEnroll}>Cancel</Button>
+                    <Button onClick={handleFinishTotpEnroll} disabled={isFinishingEnroll || totpCode.length < 6}>
+                      {isFinishingEnroll ? 'Verifying...' : 'Verify & Enable'}
+                    </Button>
+                  </>
+                }
+              >
+                <div className="space-y-4">
+                  <p className="text-sm text-muted-foreground">
+                    Scan this QR code with your authenticator app, then enter the 6-digit code it shows.
+                  </p>
+                  {totpQrDataUrl && (
+                    <img src={totpQrDataUrl} alt="Two-factor authentication QR code" className="mx-auto rounded-xl border border-border" width={200} height={200} />
+                  )}
+                  {totpSecret && (
+                    <p className="text-xs text-muted-foreground text-center break-all">
+                      Can't scan? Enter this key manually: <span className="font-mono">{totpSecret.secretKey}</span>
+                    </p>
+                  )}
+                  <Input
+                    autoFocus
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    maxLength={6}
+                    placeholder="123456"
+                    value={totpCode}
+                    onChange={e => setTotpCode(e.target.value.replace(/\D/g, ''))}
+                    className="text-center text-lg tracking-[0.3em] font-bold"
+                  />
+                </div>
+              </Modal>
 
               <Card className="p-8 border-rose-500/20 bg-rose-500/5">
                 <h3 className="text-lg font-bold mb-2 text-rose-500">Delete Account</h3>

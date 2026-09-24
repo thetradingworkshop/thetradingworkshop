@@ -1,6 +1,19 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { auth } from '../firebase';
-import { onAuthStateChanged, User, signInWithPopup, GoogleAuthProvider, signOut, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
+import {
+  onAuthStateChanged,
+  User,
+  signInWithPopup,
+  GoogleAuthProvider,
+  signOut,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  updateProfile,
+  sendEmailVerification,
+  getMultiFactorResolver,
+  MultiFactorResolver,
+  TotpMultiFactorGenerator,
+} from 'firebase/auth';
 import { db } from '../firebase';
 import { doc, getDoc, setDoc, updateDoc, increment, onSnapshot, serverTimestamp } from 'firebase/firestore';
 
@@ -42,8 +55,28 @@ interface AuthContextType {
   roleLoading: boolean;
   loading: boolean;
   login: () => Promise<void>;
+  // Real production email/password sign-in — distinct from loginAsTestUser
+  // below, which is hard-guarded to the Auth Emulator only. Both this and
+  // login() (Google) can trigger a second-factor challenge (see
+  // mfaResolver) if the account has TOTP enrolled; neither resolves the
+  // sign-in itself in that case, resolveMfaChallenge() below does.
+  signInWithEmail: (email: string, password: string) => Promise<void>;
+  signUpWithEmail: (email: string, password: string, name: string) => Promise<void>;
+  // Firebase requires a verified email before enrolling a second factor —
+  // lets Settings' Security tab offer a resend for an account that missed
+  // its original verification email or signed up before this existed.
+  resendVerificationEmail: () => Promise<void>;
   loginAsTestUser: () => Promise<void>;
   logout: () => Promise<void>;
+  // Set by login()/signInWithEmail() when the account has a second factor
+  // (TOTP) enrolled and Firebase is asking for it before completing
+  // sign-in — the sign-in itself is paused, not failed. App.tsx renders a
+  // code-entry screen whenever this is non-null and calls
+  // resolveMfaChallenge() with what the user types.
+  mfaResolver: MultiFactorResolver | null;
+  mfaError: string | null;
+  resolveMfaChallenge: (code: string) => Promise<void>;
+  cancelMfaChallenge: () => void;
   // Set by login() when it actually fails — rendered inline on the sign-in
   // screen (see App.tsx) instead of the native alert() this used to throw
   // up, which was both jarring and, for a transient network blip, showed
@@ -75,6 +108,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loginError, setLoginError] = useState<string | null>(null);
   const [roleError, setRoleError] = useState<string | null>(null);
   const [roleRetryKey, setRoleRetryKey] = useState(0);
+  const [mfaResolver, setMfaResolver] = useState<MultiFactorResolver | null>(null);
+  const [mfaError, setMfaError] = useState<string | null>(null);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
@@ -225,6 +260,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (error.code === 'auth/popup-closed-by-user' || error.code === 'auth/cancelled-popup-request') {
         return;
       }
+      // Not a failure either — the account has a second factor enrolled
+      // and Firebase is pausing sign-in to ask for it. See mfaResolver.
+      if (error.code === 'auth/multi-factor-auth-required') {
+        setMfaResolver(getMultiFactorResolver(auth, error));
+        return;
+      }
       console.error("Login failed", error);
       if (error.code === 'auth/popup-blocked') {
         setLoginError("Sign-in popup was blocked by your browser. Please allow popups for this site and try again.");
@@ -240,6 +281,93 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setLoginError("Couldn't sign you in. Please try again.");
       }
     }
+  };
+
+  const signInWithEmail = async (email: string, password: string) => {
+    setLoginError(null);
+    try {
+      const result = await signInWithEmailAndPassword(auth, email, password);
+      await syncUserDoc(result.user, email.split('@')[0]);
+    } catch (error: any) {
+      if (error.code === 'auth/multi-factor-auth-required') {
+        setMfaResolver(getMultiFactorResolver(auth, error));
+        return;
+      }
+      if (error.code === 'auth/invalid-credential' || error.code === 'auth/wrong-password' || error.code === 'auth/user-not-found') {
+        setLoginError('Incorrect email or password.');
+      } else if (error.code === 'auth/too-many-requests') {
+        setLoginError('Too many attempts. Please wait a moment and try again.');
+      } else if (error.code === 'auth/network-request-failed') {
+        setLoginError('You appear to be offline. Check your connection and try again.');
+      } else {
+        console.error('Email sign-in failed', error);
+        setLoginError("Couldn't sign you in. Please try again.");
+      }
+    }
+  };
+
+  const signUpWithEmail = async (email: string, password: string, name: string) => {
+    setLoginError(null);
+    try {
+      const result = await createUserWithEmailAndPassword(auth, email, password);
+      if (name) await updateProfile(result.user, { displayName: name });
+      // Firebase requires a verified email before it'll let an account
+      // enroll a second factor (TOTP) — see Settings' Security tab, which
+      // gates the "Enable 2FA" button on user.emailVerified. Best-effort:
+      // a delivery hiccup here shouldn't block account creation itself.
+      sendEmailVerification(result.user).catch(err => console.error('Failed to send verification email:', err));
+      await syncUserDoc(result.user, name || email.split('@')[0]);
+    } catch (error: any) {
+      if (error.code === 'auth/email-already-in-use') {
+        setLoginError('An account with this email already exists. Try signing in instead.');
+      } else if (error.code === 'auth/weak-password') {
+        setLoginError('Password should be at least 6 characters.');
+      } else if (error.code === 'auth/invalid-email') {
+        setLoginError('Enter a valid email address.');
+      } else if (error.code === 'auth/network-request-failed') {
+        setLoginError('You appear to be offline. Check your connection and try again.');
+      } else {
+        console.error('Sign-up failed', error);
+        setLoginError("Couldn't create your account. Please try again.");
+      }
+    }
+  };
+
+  // Completes whichever sign-in (Google or email/password) most recently
+  // set mfaResolver above. Deliberately provider-agnostic — the second
+  // factor is on the *account*, not tied to how the first factor was
+  // presented.
+  const resolveMfaChallenge = async (code: string) => {
+    if (!mfaResolver) return;
+    setMfaError(null);
+    const totpHint = mfaResolver.hints.find(h => h.factorId === TotpMultiFactorGenerator.FACTOR_ID) ?? mfaResolver.hints[0];
+    if (!totpHint) {
+      setMfaError('No supported second factor found for this account.');
+      return;
+    }
+    try {
+      const assertion = TotpMultiFactorGenerator.assertionForSignIn(totpHint.uid, code);
+      const result = await mfaResolver.resolveSignIn(assertion);
+      setMfaResolver(null);
+      await syncUserDoc(result.user, 'User');
+    } catch (error: any) {
+      if (error.code === 'auth/invalid-verification-code') {
+        setMfaError('Incorrect code. Check your authenticator app and try again.');
+      } else {
+        console.error('MFA sign-in failed', error);
+        setMfaError("Couldn't verify that code. Please try again.");
+      }
+    }
+  };
+
+  const cancelMfaChallenge = () => {
+    setMfaResolver(null);
+    setMfaError(null);
+  };
+
+  const resendVerificationEmail = async () => {
+    if (!auth.currentUser) return;
+    await sendEmailVerification(auth.currentUser);
   };
 
   // Emulator-only test sign-in. signInWithPopup's postMessage relay between
@@ -286,7 +414,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, role, roleLoading, loading, login, loginAsTestUser, logout, loginError, clearLoginError: () => setLoginError(null), roleError, retryRole: () => setRoleRetryKey(k => k + 1) }}>
+    <AuthContext.Provider value={{
+      user, role, roleLoading, loading,
+      login, signInWithEmail, signUpWithEmail, resendVerificationEmail, loginAsTestUser, logout,
+      loginError, clearLoginError: () => setLoginError(null),
+      roleError, retryRole: () => setRoleRetryKey(k => k + 1),
+      mfaResolver, mfaError, resolveMfaChallenge, cancelMfaChallenge,
+    }}>
       {children}
     </AuthContext.Provider>
   );
