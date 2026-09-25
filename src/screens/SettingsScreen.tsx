@@ -5,7 +5,15 @@ import { useTrades } from '../context/TradeContext';
 import { useAuth } from '../context/AuthContext';
 import { db, auth } from '../firebase';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { MultiFactorInfo, RecaptchaVerifier } from 'firebase/auth';
+import {
+  MultiFactorInfo,
+  RecaptchaVerifier,
+  updateProfile as updateAuthProfile,
+  verifyBeforeUpdateEmail,
+  updatePassword,
+  EmailAuthProvider,
+  linkWithCredential,
+} from 'firebase/auth';
 import { RiskSettings, NotificationPrefs } from '../types';
 import { revokeAllSessions } from '../lib/accountSecurity';
 import { sendEnrollmentCode, finishPhoneEnrollment, listEnrolledFactors, unenrollFactor } from '../lib/mfa';
@@ -28,12 +36,28 @@ const EMPTY_RISK_FORM = {
 
 export default function SettingsScreen({ setActivePage }: { setActivePage: (page: string) => void }) {
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
-  const [activeTab, setActiveTab] = useState<'trading-parameters' | 'risk-parameters' | 'accounts' | 'connections' | 'import' | 'referrals' | 'mentor' | 'notifications' | 'security'>('trading-parameters');
+  const [activeTab, setActiveTab] = useState<'profile' | 'trading-parameters' | 'risk-parameters' | 'accounts' | 'connections' | 'import' | 'referrals' | 'mentor' | 'notifications' | 'security'>('trading-parameters');
   const { clearTrades } = useTrades();
   const { user, role, logout, resendVerificationEmail } = useAuth();
   const [isResendingVerification, setIsResendingVerification] = useState(false);
   const [verificationSent, setVerificationSent] = useState(false);
   const [isClearingTrades, setIsClearingTrades] = useState(false);
+
+  // Profile — firstName/lastName/address live only in Firestore; name stays
+  // in sync (derived as "first last") so every existing screen that reads
+  // users/{uid}.name as a single string (Users & Permissions, mentor
+  // assignment, audit logs, initials avatars, etc.) keeps working
+  // unchanged. Email/password are real Firebase Auth account attributes,
+  // not Firestore fields, so each gets its own save action and its own
+  // Auth-specific error handling (recent-login, weak-password, etc.).
+  const [profileForm, setProfileForm] = useState({ firstName: '', lastName: '', address: '' });
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [newEmail, setNewEmail] = useState('');
+  const [isSavingEmail, setIsSavingEmail] = useState(false);
+  const [emailChangePending, setEmailChangePending] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [isSavingPassword, setIsSavingPassword] = useState(false);
+  const hasPasswordProvider = user?.providerData.some(p => p.providerId === 'password') ?? false;
 
   const [riskForm, setRiskForm] = useState(EMPTY_RISK_FORM);
   const [isLoadingRisk, setIsLoadingRisk] = useState(true);
@@ -68,9 +92,22 @@ export default function SettingsScreen({ setActivePage }: { setActivePage: (page
   useEffect(() => {
     if (!user) return;
     getDoc(doc(db, 'users', user.uid)).then(snap => {
-      setNotificationPrefs(snap.data()?.notificationPrefs || {});
-      setDeletionRequested(!!snap.data()?.deletionRequested);
+      const data = snap.data();
+      setNotificationPrefs(data?.notificationPrefs || {});
+      setDeletionRequested(!!data?.deletionRequested);
+      // Older accounts only ever had a single combined `name` field —
+      // split it as a starting guess so the form isn't blank the first
+      // time someone visits, without ever writing that guess back until
+      // they actually hit Save.
+      const existingName: string = data?.name || user.displayName || '';
+      const [firstGuess, ...restGuess] = existingName.split(' ').filter(Boolean);
+      setProfileForm({
+        firstName: data?.firstName ?? firstGuess ?? '',
+        lastName: data?.lastName ?? restGuess.join(' '),
+        address: data?.address ?? '',
+      });
     });
+    setNewEmail(user.email || '');
   }, [user?.uid]);
 
   const saveNotificationPrefs = async (patch: Partial<NotificationPrefs>) => {
@@ -85,6 +122,86 @@ export default function SettingsScreen({ setActivePage }: { setActivePage: (page
       setTimeout(() => setToast(null), 3000);
     } finally {
       setIsSavingNotificationPrefs(false);
+    }
+  };
+
+  const handleSaveProfile = async () => {
+    if (!user) return;
+    setIsSavingProfile(true);
+    try {
+      const fullName = `${profileForm.firstName} ${profileForm.lastName}`.trim();
+      await setDoc(doc(db, 'users', user.uid), {
+        firstName: profileForm.firstName,
+        lastName: profileForm.lastName,
+        address: profileForm.address,
+        ...(fullName ? { name: fullName } : {}),
+      }, { merge: true });
+      if (fullName && fullName !== user.displayName) {
+        await updateAuthProfile(user, { displayName: fullName });
+      }
+      setToast({ message: 'Profile updated.', type: 'success' });
+    } catch (err: any) {
+      setToast({ message: `Failed to update profile: ${err?.message || 'Unknown error'}`, type: 'error' });
+    } finally {
+      setIsSavingProfile(false);
+      setTimeout(() => setToast(null), 3000);
+    }
+  };
+
+  const handleChangeEmail = async () => {
+    if (!user || !newEmail.trim()) return;
+    setIsSavingEmail(true);
+    try {
+      // Sends a confirmation link to the NEW address rather than swapping
+      // it immediately — the safer of the two SDK options, since an
+      // instant swap would let anyone who briefly gets hold of a signed-in
+      // session redirect account recovery to an address they control.
+      await verifyBeforeUpdateEmail(user, newEmail.trim());
+      setEmailChangePending(true);
+      setToast({ message: `Verification link sent to ${newEmail.trim()} — click it to finish changing your email.`, type: 'success' });
+    } catch (err: any) {
+      const message = err?.code === 'auth/requires-recent-login'
+        ? 'For security, please sign out and back in, then try again.'
+        : err?.code === 'auth/email-already-in-use'
+        ? 'That email is already in use by another account.'
+        : err?.code === 'auth/invalid-email'
+        ? 'Enter a valid email address.'
+        : `Failed to update email: ${err?.message || 'Unknown error'}`;
+      setToast({ message, type: 'error' });
+    } finally {
+      setIsSavingEmail(false);
+      setTimeout(() => setToast(null), 5000);
+    }
+  };
+
+  const handleSavePassword = async () => {
+    if (!user || !user.email || newPassword.length < 6) return;
+    setIsSavingPassword(true);
+    try {
+      if (hasPasswordProvider) {
+        await updatePassword(user, newPassword);
+      } else {
+        // No password provider linked yet (e.g. a Google-only account) —
+        // this adds one rather than changing one, so they gain email/
+        // password as an additional way in without losing Google sign-in.
+        await linkWithCredential(user, EmailAuthProvider.credential(user.email, newPassword));
+      }
+      setNewPassword('');
+      await refreshEnrolledFactors(); // also reloads `user`, so hasPasswordProvider reflects the change
+      setToast({
+        message: hasPasswordProvider ? 'Password updated.' : 'Password set — you can now also sign in with email and password.',
+        type: 'success',
+      });
+    } catch (err: any) {
+      const message = err?.code === 'auth/requires-recent-login'
+        ? 'For security, please sign out and back in, then try again.'
+        : err?.code === 'auth/weak-password'
+        ? 'Password should be at least 6 characters.'
+        : `Failed to update password: ${err?.message || 'Unknown error'}`;
+      setToast({ message, type: 'error' });
+    } finally {
+      setIsSavingPassword(false);
+      setTimeout(() => setToast(null), 4000);
     }
   };
 
@@ -268,9 +385,8 @@ export default function SettingsScreen({ setActivePage }: { setActivePage: (page
         {/* Left: Navigation */}
         <div className="lg:col-span-3 space-y-2">
           <button
-            disabled
-            title="Profile settings aren't built yet"
-            className="w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-muted-foreground/40 cursor-not-allowed"
+            onClick={() => setActiveTab('profile')}
+            className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-colors ${activeTab === 'profile' ? 'bg-primary text-primary-foreground font-medium' : 'hover:bg-accent text-muted-foreground'}`}
           >
             <User className="w-4 h-4" />
             <span>Profile</span>
@@ -357,6 +473,89 @@ export default function SettingsScreen({ setActivePage }: { setActivePage: (page
 
         {/* Right: Content */}
         <div className="lg:col-span-9 space-y-6">
+          {activeTab === 'profile' && (
+            <div className="space-y-6">
+              <Card className="p-8">
+                <h3 className="text-lg font-bold mb-2">Profile</h3>
+                <p className="text-xs text-muted-foreground mb-6">Your name and address, shown wherever your account is referenced across the app.</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold uppercase text-muted-foreground">First Name</label>
+                    <Input
+                      value={profileForm.firstName}
+                      onChange={e => setProfileForm(f => ({ ...f, firstName: e.target.value }))}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold uppercase text-muted-foreground">Last Name</label>
+                    <Input
+                      value={profileForm.lastName}
+                      onChange={e => setProfileForm(f => ({ ...f, lastName: e.target.value }))}
+                    />
+                  </div>
+                  <div className="space-y-2 md:col-span-2">
+                    <label className="text-xs font-bold uppercase text-muted-foreground">Address <span className="text-muted-foreground/50 font-normal">(optional)</span></label>
+                    <Input
+                      value={profileForm.address}
+                      onChange={e => setProfileForm(f => ({ ...f, address: e.target.value }))}
+                    />
+                  </div>
+                </div>
+                <Button
+                  className="mt-6"
+                  onClick={handleSaveProfile}
+                  disabled={isSavingProfile || !profileForm.firstName.trim() || !profileForm.lastName.trim()}
+                >
+                  {isSavingProfile ? 'Saving...' : 'Save Profile'}
+                </Button>
+              </Card>
+
+              <Card className="p-8">
+                <h3 className="text-lg font-bold mb-2">Email</h3>
+                <p className="text-xs text-muted-foreground mb-6">
+                  The email address you sign in with. Changing it sends a confirmation link to the new address —
+                  nothing changes until you click it.
+                </p>
+                <div className="max-w-sm space-y-2">
+                  <label className="text-xs font-bold uppercase text-muted-foreground">Email</label>
+                  <Input
+                    type="email"
+                    value={newEmail}
+                    onChange={e => { setNewEmail(e.target.value); setEmailChangePending(false); }}
+                  />
+                </div>
+                <Button
+                  className="mt-6"
+                  onClick={handleChangeEmail}
+                  disabled={isSavingEmail || !newEmail.trim() || newEmail.trim() === user?.email || emailChangePending}
+                >
+                  {isSavingEmail ? 'Sending...' : emailChangePending ? 'Verification link sent' : 'Update Email'}
+                </Button>
+              </Card>
+
+              <Card className="p-8">
+                <h3 className="text-lg font-bold mb-2">Password</h3>
+                <p className="text-xs text-muted-foreground mb-6">
+                  {hasPasswordProvider
+                    ? 'Change the password you sign in with.'
+                    : "You currently sign in another way (e.g. Google) — set a password to also sign in with email and password."}
+                </p>
+                <div className="max-w-sm space-y-2">
+                  <label className="text-xs font-bold uppercase text-muted-foreground">New Password</label>
+                  <Input
+                    type="password"
+                    placeholder="At least 6 characters"
+                    value={newPassword}
+                    onChange={e => setNewPassword(e.target.value)}
+                  />
+                </div>
+                <Button className="mt-6" onClick={handleSavePassword} disabled={isSavingPassword || newPassword.length < 6}>
+                  {isSavingPassword ? 'Saving...' : hasPasswordProvider ? 'Change Password' : 'Set Password'}
+                </Button>
+              </Card>
+            </div>
+          )}
+
           {activeTab === 'accounts' && <TradingAccountsSettings />}
           {activeTab === 'connections' && <DataConnectionsScreen />}
           {activeTab === 'import' && <ImportOrdersScreen setActivePage={setActivePage} />}

@@ -48,19 +48,23 @@ function AppContent() {
   const [isSigningIn, setIsSigningIn] = useState(false);
   const {
     user, role, roleLoading, loading, login, loginAsTestUser, loginError, clearLoginError, roleError, retryRole,
-    signInWithEmail, signUpWithEmail,
+    signInWithEmail, signUpWithEmail, sendPasswordReset,
     mfaResolver, mfaCodeSent, mfaError, sendMfaCode, resolveMfaChallenge, cancelMfaChallenge,
   } = useAuth();
 
   // 'google' shows just the Google button (the original, still-default
   // entry point); 'email-signin'/'email-signup' reveal the email/password
-  // form in its two modes. Kept as one piece of state so switching modes
-  // always starts from a clean form instead of leaking a half-filled one.
-  const [emailAuthMode, setEmailAuthMode] = useState<'google' | 'email-signin' | 'email-signup'>('google');
+  // form in its two modes; 'forgot-password' reuses the same email field
+  // for the reset-link request. Kept as one piece of state so switching
+  // modes always starts from a clean form instead of leaking a
+  // half-filled one.
+  const [emailAuthMode, setEmailAuthMode] = useState<'google' | 'email-signin' | 'email-signup' | 'forgot-password'>('google');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [isSubmittingEmail, setIsSubmittingEmail] = useState(false);
+  const [isSendingReset, setIsSendingReset] = useState(false);
+  const [resetEmailSent, setResetEmailSent] = useState(false);
   const [mfaCode, setMfaCode] = useState('');
   const [isSubmittingMfa, setIsSubmittingMfa] = useState(false);
   const [isSendingMfaCode, setIsSendingMfaCode] = useState(false);
@@ -87,6 +91,19 @@ function AppContent() {
       }
     } finally {
       setIsSubmittingEmail(false);
+    }
+  };
+
+  const handleForgotPasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSendingReset(true);
+    try {
+      await sendPasswordReset(email);
+      setResetEmailSent(true);
+    } catch {
+      // loginError is already set by sendPasswordReset and rendered inline below.
+    } finally {
+      setIsSendingReset(false);
     }
   };
 
@@ -228,10 +245,12 @@ function AppContent() {
     // (reading it requires being authenticated at all, see firestore.rules),
     // so this is just a "you have one" indicator, not invite details.
     const hasPendingInvite = typeof window !== 'undefined' && !!sessionStorage.getItem('pendingInviteCode');
-    const isEmailMode = emailAuthMode !== 'google';
+    const isEmailMode = emailAuthMode === 'email-signin' || emailAuthMode === 'email-signup';
+    const isForgotPasswordMode = emailAuthMode === 'forgot-password';
     const switchMode = (mode: typeof emailAuthMode) => {
       setEmailAuthMode(mode);
       clearLoginError();
+      setResetEmailSent(false);
     };
     return (
       <div className="h-screen w-screen flex flex-col items-center justify-center bg-slate-950 p-4">
@@ -249,7 +268,7 @@ function AppContent() {
             <p className="text-sm text-rose-400 font-medium -mt-2">{loginError}</p>
           )}
 
-          {!isEmailMode && (
+          {emailAuthMode === 'google' && (
             <>
               <Button
                 className="w-full h-14 text-lg font-bold rounded-2xl shadow-lg shadow-indigo-500/20"
@@ -267,6 +286,45 @@ function AppContent() {
                 <Mail className="w-4 h-4" /> Sign in with email and password instead
               </button>
             </>
+          )}
+
+          {isForgotPasswordMode && (
+            resetEmailSent ? (
+              <div className="space-y-4 text-center">
+                <p className="text-sm text-slate-300">
+                  If an account exists for <span className="font-semibold text-white">{email}</span>, a reset link
+                  is on its way — check your inbox.
+                </p>
+                <button type="button" onClick={() => switchMode('email-signin')} className="text-xs text-slate-500 hover:text-slate-300 transition-colors">
+                  Back to sign in
+                </button>
+              </div>
+            ) : (
+              <form onSubmit={handleForgotPasswordSubmit} className="space-y-4 text-left">
+                <p className="text-sm text-slate-400 text-center -mt-2">
+                  Enter your account email and we'll send you a link to reset your password.
+                </p>
+                <Input
+                  type="email"
+                  placeholder="Email"
+                  autoComplete="email"
+                  required
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  className="bg-slate-900 border-slate-700 text-white"
+                />
+                <Button
+                  className="w-full h-12 text-sm font-bold rounded-2xl"
+                  icon={isSendingReset ? Loader2 : Mail}
+                  disabled={isSendingReset || !email.trim()}
+                >
+                  {isSendingReset ? 'Sending...' : 'Send Reset Link'}
+                </Button>
+                <button type="button" onClick={() => switchMode('email-signin')} className="block w-full text-center text-xs text-slate-500 hover:text-slate-300 transition-colors">
+                  Back to sign in
+                </button>
+              </form>
+            )
           )}
 
           {isEmailMode && (
@@ -315,6 +373,11 @@ function AppContent() {
                 >
                   {emailAuthMode === 'email-signup' ? 'Already have an account? Sign in' : "Don't have an account? Create one"}
                 </button>
+                {emailAuthMode === 'email-signin' && (
+                  <button type="button" onClick={() => switchMode('forgot-password')} className="hover:text-slate-300 transition-colors">
+                    Forgot password?
+                  </button>
+                )}
                 <button type="button" onClick={() => switchMode('google')} className="hover:text-slate-300 transition-colors">
                   Back
                 </button>

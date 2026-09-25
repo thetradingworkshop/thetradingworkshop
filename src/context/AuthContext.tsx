@@ -10,6 +10,7 @@ import {
   createUserWithEmailAndPassword,
   updateProfile,
   sendEmailVerification,
+  sendPasswordResetEmail,
   getMultiFactorResolver,
   MultiFactorResolver,
   PhoneAuthProvider,
@@ -68,6 +69,12 @@ interface AuthContextType {
   // lets Settings' Security tab offer a resend for an account that missed
   // its original verification email or signed up before this existed.
   resendVerificationEmail: () => Promise<void>;
+  // Unauthenticated by design — this is the "I can't sign in" recovery
+  // path on the login screen itself, not a Settings action. Sets
+  // loginError on the same field the sign-in form already renders,
+  // rather than a separate error slot, since only one of the two forms is
+  // ever visible at once.
+  sendPasswordReset: (email: string) => Promise<void>;
   loginAsTestUser: () => Promise<void>;
   logout: () => Promise<void>;
   // Set by login()/signInWithEmail() when the account has a second factor
@@ -408,6 +415,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await sendEmailVerification(auth.currentUser);
   };
 
+  const sendPasswordReset = async (email: string) => {
+    setLoginError(null);
+    try {
+      await sendPasswordResetEmail(auth, email);
+    } catch (error: any) {
+      if (error.code === 'auth/user-not-found') {
+        // This project has Identity Platform's email-enumeration
+        // protection on, so Firebase normally reports success either way
+        // regardless of whether the account exists. If this ever
+        // surfaces anyway, still treat it as success rather than
+        // confirming/denying the account exists to the caller.
+        return;
+      }
+      const message = error.code === 'auth/invalid-email'
+        ? 'Enter a valid email address.'
+        : error.code === 'auth/network-request-failed'
+        ? 'You appear to be offline. Check your connection and try again.'
+        : "Couldn't send the reset email. Please try again.";
+      if (error.code !== 'auth/invalid-email' && error.code !== 'auth/network-request-failed') {
+        console.error('Failed to send password reset email', error);
+      }
+      setLoginError(message);
+      throw error;
+    }
+  };
+
   // Emulator-only test sign-in. signInWithPopup's postMessage relay between
   // the popup and opener doesn't work in every automated browser context, and
   // email/password auth sidesteps that entirely — useful for local/CI testing
@@ -454,7 +487,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   return (
     <AuthContext.Provider value={{
       user, role, roleLoading, loading,
-      login, signInWithEmail, signUpWithEmail, resendVerificationEmail, loginAsTestUser, logout,
+      login, signInWithEmail, signUpWithEmail, resendVerificationEmail, sendPasswordReset, loginAsTestUser, logout,
       loginError, clearLoginError: () => setLoginError(null),
       roleError, retryRole: () => setRoleRetryKey(k => k + 1),
       mfaResolver, mfaCodeSent, mfaError, sendMfaCode, resolveMfaChallenge, cancelMfaChallenge,
