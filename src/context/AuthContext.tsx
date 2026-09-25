@@ -12,7 +12,9 @@ import {
   sendEmailVerification,
   getMultiFactorResolver,
   MultiFactorResolver,
-  TotpMultiFactorGenerator,
+  PhoneAuthProvider,
+  PhoneMultiFactorGenerator,
+  ApplicationVerifier,
 } from 'firebase/auth';
 import { db } from '../firebase';
 import { doc, getDoc, setDoc, updateDoc, increment, onSnapshot, serverTimestamp } from 'firebase/firestore';
@@ -69,12 +71,16 @@ interface AuthContextType {
   loginAsTestUser: () => Promise<void>;
   logout: () => Promise<void>;
   // Set by login()/signInWithEmail() when the account has a second factor
-  // (TOTP) enrolled and Firebase is asking for it before completing
-  // sign-in — the sign-in itself is paused, not failed. App.tsx renders a
-  // code-entry screen whenever this is non-null and calls
-  // resolveMfaChallenge() with what the user types.
+  // (phone/SMS) enrolled and Firebase is asking for it before completing
+  // sign-in — the sign-in itself is paused, not failed. Unlike an
+  // authenticator app, a phone code isn't already sitting on the user's
+  // device, so App.tsx's challenge screen has two steps: sendMfaCode()
+  // (send the SMS, needs a reCAPTCHA verifier tied to a DOM node it owns),
+  // then resolveMfaChallenge() once they type what arrived.
   mfaResolver: MultiFactorResolver | null;
+  mfaCodeSent: boolean;
   mfaError: string | null;
+  sendMfaCode: (verifier: ApplicationVerifier) => Promise<void>;
   resolveMfaChallenge: (code: string) => Promise<void>;
   cancelMfaChallenge: () => void;
   // Set by login() when it actually fails — rendered inline on the sign-in
@@ -109,6 +115,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [roleError, setRoleError] = useState<string | null>(null);
   const [roleRetryKey, setRoleRetryKey] = useState(0);
   const [mfaResolver, setMfaResolver] = useState<MultiFactorResolver | null>(null);
+  const [mfaVerificationId, setMfaVerificationId] = useState<string | null>(null);
+  const [mfaCodeSent, setMfaCodeSent] = useState(false);
   const [mfaError, setMfaError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -333,26 +341,54 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  // Completes whichever sign-in (Google or email/password) most recently
-  // set mfaResolver above. Deliberately provider-agnostic — the second
-  // factor is on the *account*, not tied to how the first factor was
-  // presented.
-  const resolveMfaChallenge = async (code: string) => {
+  // First step of the challenge: sends the SMS to whichever phone number
+  // is enrolled on this account, using the resolver's own session (not the
+  // user's — sign-in isn't complete yet, there is no current user). The
+  // caller (App.tsx) owns the reCAPTCHA verifier's DOM node and lifecycle;
+  // this just needs a verifier instance to hand to Firebase.
+  const sendMfaCode = async (verifier: ApplicationVerifier) => {
     if (!mfaResolver) return;
     setMfaError(null);
-    const totpHint = mfaResolver.hints.find(h => h.factorId === TotpMultiFactorGenerator.FACTOR_ID) ?? mfaResolver.hints[0];
-    if (!totpHint) {
+    const phoneHint = mfaResolver.hints.find(h => h.factorId === PhoneMultiFactorGenerator.FACTOR_ID) ?? mfaResolver.hints[0];
+    if (!phoneHint) {
       setMfaError('No supported second factor found for this account.');
       return;
     }
     try {
-      const assertion = TotpMultiFactorGenerator.assertionForSignIn(totpHint.uid, code);
+      const provider = new PhoneAuthProvider(auth);
+      const verificationId = await provider.verifyPhoneNumber(
+        { multiFactorHint: phoneHint, session: mfaResolver.session },
+        verifier
+      );
+      setMfaVerificationId(verificationId);
+      setMfaCodeSent(true);
+    } catch (error: any) {
+      console.error('Failed to send MFA code', error);
+      setMfaError("Couldn't send a verification code. Please try again.");
+    }
+  };
+
+  // Second step: completes whichever sign-in (Google or email/password)
+  // most recently set mfaResolver above, using the code that arrived by
+  // SMS from sendMfaCode(). Deliberately provider-agnostic — the second
+  // factor is on the *account*, not tied to how the first factor was
+  // presented.
+  const resolveMfaChallenge = async (code: string) => {
+    if (!mfaResolver || !mfaVerificationId) return;
+    setMfaError(null);
+    try {
+      const credential = PhoneAuthProvider.credential(mfaVerificationId, code);
+      const assertion = PhoneMultiFactorGenerator.assertion(credential);
       const result = await mfaResolver.resolveSignIn(assertion);
       setMfaResolver(null);
+      setMfaVerificationId(null);
+      setMfaCodeSent(false);
       await syncUserDoc(result.user, 'User');
     } catch (error: any) {
       if (error.code === 'auth/invalid-verification-code') {
-        setMfaError('Incorrect code. Check your authenticator app and try again.');
+        setMfaError('Incorrect code. Please try again.');
+      } else if (error.code === 'auth/code-expired') {
+        setMfaError('That code expired — request a new one.');
       } else {
         console.error('MFA sign-in failed', error);
         setMfaError("Couldn't verify that code. Please try again.");
@@ -362,6 +398,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const cancelMfaChallenge = () => {
     setMfaResolver(null);
+    setMfaVerificationId(null);
+    setMfaCodeSent(false);
     setMfaError(null);
   };
 
@@ -419,7 +457,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       login, signInWithEmail, signUpWithEmail, resendVerificationEmail, loginAsTestUser, logout,
       loginError, clearLoginError: () => setLoginError(null),
       roleError, retryRole: () => setRoleRetryKey(k => k + 1),
-      mfaResolver, mfaError, resolveMfaChallenge, cancelMfaChallenge,
+      mfaResolver, mfaCodeSent, mfaError, sendMfaCode, resolveMfaChallenge, cancelMfaChallenge,
     }}>
       {children}
     </AuthContext.Provider>

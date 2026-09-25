@@ -1,4 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { RecaptchaVerifier, PhoneMultiFactorGenerator } from 'firebase/auth';
+import { auth } from './firebase';
 import { ThemeProvider } from './components/ThemeProvider';
 import { TradeProvider } from './context/TradeContext';
 import { AppShell, navItems } from './components/AppShell';
@@ -46,7 +48,8 @@ function AppContent() {
   const [isSigningIn, setIsSigningIn] = useState(false);
   const {
     user, role, roleLoading, loading, login, loginAsTestUser, loginError, clearLoginError, roleError, retryRole,
-    signInWithEmail, signUpWithEmail, mfaResolver, mfaError, resolveMfaChallenge, cancelMfaChallenge,
+    signInWithEmail, signUpWithEmail,
+    mfaResolver, mfaCodeSent, mfaError, sendMfaCode, resolveMfaChallenge, cancelMfaChallenge,
   } = useAuth();
 
   // 'google' shows just the Google button (the original, still-default
@@ -60,6 +63,9 @@ function AppContent() {
   const [isSubmittingEmail, setIsSubmittingEmail] = useState(false);
   const [mfaCode, setMfaCode] = useState('');
   const [isSubmittingMfa, setIsSubmittingMfa] = useState(false);
+  const [isSendingMfaCode, setIsSendingMfaCode] = useState(false);
+  const mfaRecaptchaRef = useRef<HTMLDivElement>(null);
+  const hasAutoSentMfaCode = useRef(false);
 
   const handleLogin = async () => {
     setIsSigningIn(true);
@@ -95,6 +101,31 @@ function AppContent() {
     }
   };
 
+  // A phone code isn't already sitting on the user's device like a TOTP
+  // one would be — Firebase has to actually send it, which needs a fresh
+  // reCAPTCHA verifier each time. Auto-fires once as soon as the challenge
+  // screen mounts (see the effect below); "Resend code" calls this same
+  // function again directly.
+  const triggerSendMfaCode = async () => {
+    if (!mfaRecaptchaRef.current) return;
+    setIsSendingMfaCode(true);
+    const verifier = new RecaptchaVerifier(auth, mfaRecaptchaRef.current, { size: 'invisible' });
+    try {
+      await sendMfaCode(verifier);
+    } finally {
+      verifier.clear();
+      setIsSendingMfaCode(false);
+    }
+  };
+
+  useEffect(() => {
+    if (mfaResolver && !hasAutoSentMfaCode.current) {
+      hasAutoSentMfaCode.current = true;
+      triggerSendMfaCode();
+    }
+    if (!mfaResolver) hasAutoSentMfaCode.current = false;
+  }, [mfaResolver]);
+
   if (loading || (user && roleLoading)) {
     return (
       <div className="h-screen w-screen flex items-center justify-center bg-slate-950">
@@ -127,39 +158,62 @@ function AppContent() {
   const userRole = role || 'Student';
 
   // Set the moment either sign-in path (Google or email/password) finds
-  // the account has a TOTP factor enrolled — `user` is still null here,
-  // sign-in is paused mid-flow waiting on this code, not finished yet.
+  // the account has a phone/SMS factor enrolled — `user` is still null
+  // here, sign-in is paused mid-flow waiting on this code, not finished
+  // yet. The reCAPTCHA container has to be in the DOM even while the code
+  // is still sending (triggerSendMfaCode's effect runs before the "code
+  // sent" branch below would otherwise render it).
   if (mfaResolver) {
+    const phoneHint = mfaResolver.hints.find(h => h.factorId === PhoneMultiFactorGenerator.FACTOR_ID) as
+      | { phoneNumber?: string }
+      | undefined;
     return (
       <div className="h-screen w-screen flex flex-col items-center justify-center bg-slate-950 p-4">
+        <div ref={mfaRecaptchaRef} />
         <form onSubmit={handleMfaSubmit} className="max-w-sm w-full space-y-6 text-center">
           <ShieldCheck className="w-10 h-10 text-indigo-400 mx-auto" />
           <div className="space-y-2">
             <h1 className="text-2xl font-bold tracking-tight text-white">Two-factor verification</h1>
-            <p className="text-slate-400 text-sm">Enter the 6-digit code from your authenticator app.</p>
+            <p className="text-slate-400 text-sm">
+              {mfaCodeSent
+                ? `Enter the code we texted to ${phoneHint?.phoneNumber || 'your phone'}.`
+                : `Sending a code to ${phoneHint?.phoneNumber || 'your phone'}...`}
+            </p>
           </div>
           {mfaError && <p className="text-sm text-rose-400 font-medium -mt-2">{mfaError}</p>}
-          <Input
-            autoFocus
-            inputMode="numeric"
-            pattern="[0-9]*"
-            maxLength={6}
-            placeholder="123456"
-            value={mfaCode}
-            onChange={e => setMfaCode(e.target.value.replace(/\D/g, ''))}
-            className="text-center text-lg tracking-[0.3em] font-bold bg-slate-900 border-slate-700 text-white"
-          />
-          <Button
-            className="w-full h-12 text-sm font-bold rounded-2xl"
-            icon={isSubmittingMfa ? Loader2 : ShieldCheck}
-            disabled={isSubmittingMfa || mfaCode.length < 6}
-          >
-            {isSubmittingMfa ? 'Verifying...' : 'Verify'}
-          </Button>
+          {mfaCodeSent && (
+            <>
+              <Input
+                autoFocus
+                inputMode="numeric"
+                pattern="[0-9]*"
+                maxLength={6}
+                placeholder="123456"
+                value={mfaCode}
+                onChange={e => setMfaCode(e.target.value.replace(/\D/g, ''))}
+                className="text-center text-lg tracking-[0.3em] font-bold bg-slate-900 border-slate-700 text-white"
+              />
+              <Button
+                className="w-full h-12 text-sm font-bold rounded-2xl"
+                icon={isSubmittingMfa ? Loader2 : ShieldCheck}
+                disabled={isSubmittingMfa || mfaCode.length < 6}
+              >
+                {isSubmittingMfa ? 'Verifying...' : 'Verify'}
+              </Button>
+              <button
+                type="button"
+                onClick={triggerSendMfaCode}
+                disabled={isSendingMfaCode}
+                className="text-xs text-slate-500 hover:text-slate-300 transition-colors disabled:opacity-50"
+              >
+                {isSendingMfaCode ? 'Resending...' : "Didn't get a code? Resend it"}
+              </button>
+            </>
+          )}
           <button
             type="button"
             onClick={() => { cancelMfaChallenge(); setMfaCode(''); }}
-            className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
+            className="text-xs text-slate-500 hover:text-slate-300 transition-colors block w-full"
           >
             Cancel and use a different account
           </button>

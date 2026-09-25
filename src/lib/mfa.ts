@@ -1,23 +1,36 @@
 import {
+  Auth,
   User,
   multiFactor,
-  TotpMultiFactorGenerator,
-  TotpSecret,
+  PhoneAuthProvider,
+  PhoneMultiFactorGenerator,
+  ApplicationVerifier,
   MultiFactorInfo,
 } from 'firebase/auth';
 
-export async function beginTotpEnrollment(user: User): Promise<TotpSecret> {
+// Phone-based enrollment: send a code to the given number, tied to this
+// user's own enrollment session (distinct from the sign-in challenge flow
+// in AuthContext.tsx, which uses a MultiFactorResolver's session instead —
+// same PhoneAuthProvider, different session source).
+export async function sendEnrollmentCode(
+  auth: Auth,
+  user: User,
+  phoneNumber: string,
+  verifier: ApplicationVerifier
+): Promise<string> {
   const session = await multiFactor(user).getSession();
-  return TotpMultiFactorGenerator.generateSecret(session);
+  const provider = new PhoneAuthProvider(auth);
+  return provider.verifyPhoneNumber({ phoneNumber, session }, verifier);
 }
 
-export async function finishTotpEnrollment(
+export async function finishPhoneEnrollment(
   user: User,
-  secret: TotpSecret,
-  oneTimeCode: string,
+  verificationId: string,
+  code: string,
   displayName: string
 ): Promise<void> {
-  const assertion = TotpMultiFactorGenerator.assertionForEnrollment(secret, oneTimeCode);
+  const credential = PhoneAuthProvider.credential(verificationId, code);
+  const assertion = PhoneMultiFactorGenerator.assertion(credential);
   await multiFactor(user).enroll(assertion, displayName);
 }
 

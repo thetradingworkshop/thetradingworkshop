@@ -1,15 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { SectionHeader, Card, Button, Toast, Modal, Input } from '../components/Shared';
 import { Bell, Shield, User, Database, Wallet, AlertTriangle, Link2, UserCheck, Zap, Upload, LogOut, Trash2, ShieldCheck } from 'lucide-react';
 import { useTrades } from '../context/TradeContext';
 import { useAuth } from '../context/AuthContext';
-import { db } from '../firebase';
+import { db, auth } from '../firebase';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { MultiFactorInfo, TotpSecret } from 'firebase/auth';
-import QRCode from 'qrcode';
+import { MultiFactorInfo, RecaptchaVerifier } from 'firebase/auth';
 import { RiskSettings, NotificationPrefs } from '../types';
 import { revokeAllSessions } from '../lib/accountSecurity';
-import { beginTotpEnrollment, finishTotpEnrollment, listEnrolledFactors, unenrollFactor } from '../lib/mfa';
+import { sendEnrollmentCode, finishPhoneEnrollment, listEnrolledFactors, unenrollFactor } from '../lib/mfa';
 import TradingAccountsSettings from './TradingAccountsSettings';
 import ReferralsSettings from './ReferralsSettings';
 import MentorSettings from './MentorSettings';
@@ -52,18 +51,19 @@ export default function SettingsScreen({ setActivePage }: { setActivePage: (page
   const [isRequestingDeletion, setIsRequestingDeletion] = useState(false);
   const [isDeletionConfirmOpen, setIsDeletionConfirmOpen] = useState(false);
 
-  // Two-factor authentication (TOTP) — enroll/unenroll acts on the live
-  // Firebase User object directly (multiFactor()), not Firestore, so
+  // Two-factor authentication (phone/SMS) — enroll/unenroll acts on the
+  // live Firebase User object directly (multiFactor()), not Firestore, so
   // there's nothing to load from a doc; enrolledFactors is re-read off
   // `user` itself after every change via refreshEnrolledFactors.
   const [enrolledFactors, setEnrolledFactors] = useState<MultiFactorInfo[]>([]);
-  const [isEnrollTotpOpen, setIsEnrollTotpOpen] = useState(false);
-  const [totpSecret, setTotpSecret] = useState<TotpSecret | null>(null);
-  const [totpQrDataUrl, setTotpQrDataUrl] = useState<string | null>(null);
-  const [totpCode, setTotpCode] = useState('');
-  const [isStartingEnroll, setIsStartingEnroll] = useState(false);
+  const [isEnrollOpen, setIsEnrollOpen] = useState(false);
+  const [enrollPhoneNumber, setEnrollPhoneNumber] = useState('');
+  const [enrollVerificationId, setEnrollVerificationId] = useState<string | null>(null);
+  const [enrollCode, setEnrollCode] = useState('');
+  const [isSendingEnrollCode, setIsSendingEnrollCode] = useState(false);
   const [isFinishingEnroll, setIsFinishingEnroll] = useState(false);
   const [unenrollingUid, setUnenrollingUid] = useState<string | null>(null);
+  const enrollRecaptchaRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -143,48 +143,57 @@ export default function SettingsScreen({ setActivePage }: { setActivePage: (page
     }
   };
 
-  const handleStartTotpEnroll = async () => {
-    if (!user) return;
-    setIsStartingEnroll(true);
+  const handleOpenEnroll = () => {
+    setEnrollPhoneNumber('');
+    setEnrollVerificationId(null);
+    setEnrollCode('');
+    setIsEnrollOpen(true);
+  };
+
+  const closeEnroll = () => {
+    setIsEnrollOpen(false);
+    setEnrollPhoneNumber('');
+    setEnrollVerificationId(null);
+    setEnrollCode('');
+  };
+
+  const handleSendEnrollCode = async () => {
+    if (!user || !enrollRecaptchaRef.current) return;
+    setIsSendingEnrollCode(true);
+    const verifier = new RecaptchaVerifier(auth, enrollRecaptchaRef.current, { size: 'invisible' });
     try {
-      const secret = await beginTotpEnrollment(user);
-      const uri = secret.generateQrCodeUrl(user.email || user.uid, 'Trading Workshop OS');
-      const dataUrl = await QRCode.toDataURL(uri);
-      setTotpSecret(secret);
-      setTotpQrDataUrl(dataUrl);
-      setTotpCode('');
-      setIsEnrollTotpOpen(true);
+      const verificationId = await sendEnrollmentCode(auth, user, enrollPhoneNumber, verifier);
+      setEnrollVerificationId(verificationId);
+      setEnrollCode('');
     } catch (err: any) {
       const message = err?.code === 'auth/requires-recent-login'
         ? 'For security, please sign out and back in, then try again.'
         : err?.code === 'auth/unverified-email'
         ? 'Verify your email address first, then try again.'
-        : `Failed to start 2FA setup: ${err?.message || 'Unknown error'}`;
+        : err?.code === 'auth/invalid-phone-number'
+        ? 'Enter a valid phone number in international format, e.g. +1 555 123 4567.'
+        : `Failed to send verification code: ${err?.message || 'Unknown error'}`;
       setToast({ message, type: 'error' });
       setTimeout(() => setToast(null), 4000);
     } finally {
-      setIsStartingEnroll(false);
+      verifier.clear();
+      setIsSendingEnrollCode(false);
     }
   };
 
-  const closeTotpEnroll = () => {
-    setIsEnrollTotpOpen(false);
-    setTotpSecret(null);
-    setTotpQrDataUrl(null);
-    setTotpCode('');
-  };
-
-  const handleFinishTotpEnroll = async () => {
-    if (!user || !totpSecret) return;
+  const handleFinishEnroll = async () => {
+    if (!user || !enrollVerificationId) return;
     setIsFinishingEnroll(true);
     try {
-      await finishTotpEnrollment(user, totpSecret, totpCode, 'Authenticator app');
-      closeTotpEnroll();
+      await finishPhoneEnrollment(user, enrollVerificationId, enrollCode, `Phone ending in ${enrollPhoneNumber.slice(-4)}`);
+      closeEnroll();
       await refreshEnrolledFactors();
       setToast({ message: 'Two-factor authentication enabled.', type: 'success' });
     } catch (err: any) {
       const message = err?.code === 'auth/invalid-verification-code'
-        ? 'Incorrect code. Check your authenticator app and try again.'
+        ? 'Incorrect code. Please try again.'
+        : err?.code === 'auth/code-expired'
+        ? 'That code expired — request a new one.'
         : `Failed to enable 2FA: ${err?.message || 'Unknown error'}`;
       setToast({ message, type: 'error' });
     } finally {
@@ -419,8 +428,7 @@ export default function SettingsScreen({ setActivePage }: { setActivePage: (page
               <Card className="p-8">
                 <h3 className="text-lg font-bold mb-2">Two-Factor Authentication</h3>
                 <p className="text-xs text-muted-foreground mb-6">
-                  Adds a 6-digit code from an authenticator app (Google Authenticator, Authy, 1Password, etc.) as a
-                  second step when signing in, on top of your password.
+                  Adds a 6-digit code texted to your phone as a second step when signing in, on top of your password.
                 </p>
                 {enrolledFactors.length > 0 ? (
                   <div className="space-y-3">
@@ -429,7 +437,7 @@ export default function SettingsScreen({ setActivePage }: { setActivePage: (page
                         <div>
                           <p className="text-sm font-bold flex items-center gap-2">
                             <ShieldCheck className="w-4 h-4 text-emerald-500" />
-                            {factor.displayName || 'Authenticator app'}
+                            {(factor as { phoneNumber?: string }).phoneNumber || factor.displayName || 'Phone'}
                           </p>
                           <p className="text-xs text-muted-foreground mt-0.5">
                             Enrolled {new Date(factor.enrollmentTime).toLocaleDateString()}
@@ -458,49 +466,66 @@ export default function SettingsScreen({ setActivePage }: { setActivePage: (page
                     </Button>
                   </div>
                 ) : (
-                  <Button variant="outline" icon={ShieldCheck} onClick={handleStartTotpEnroll} disabled={isStartingEnroll}>
-                    {isStartingEnroll ? 'Starting...' : 'Enable Two-Factor Authentication'}
+                  <Button variant="outline" icon={ShieldCheck} onClick={handleOpenEnroll}>
+                    Enable Two-Factor Authentication
                   </Button>
                 )}
               </Card>
 
               <Modal
-                isOpen={isEnrollTotpOpen}
-                onClose={closeTotpEnroll}
+                isOpen={isEnrollOpen}
+                onClose={closeEnroll}
                 title="Set up two-factor authentication"
                 maxWidth="sm"
                 footer={
-                  <>
-                    <Button variant="outline" onClick={closeTotpEnroll}>Cancel</Button>
-                    <Button onClick={handleFinishTotpEnroll} disabled={isFinishingEnroll || totpCode.length < 6}>
-                      {isFinishingEnroll ? 'Verifying...' : 'Verify & Enable'}
-                    </Button>
-                  </>
+                  enrollVerificationId ? (
+                    <>
+                      <Button variant="outline" onClick={closeEnroll}>Cancel</Button>
+                      <Button onClick={handleFinishEnroll} disabled={isFinishingEnroll || enrollCode.length < 6}>
+                        {isFinishingEnroll ? 'Verifying...' : 'Verify & Enable'}
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <Button variant="outline" onClick={closeEnroll}>Cancel</Button>
+                      <Button onClick={handleSendEnrollCode} disabled={isSendingEnrollCode || enrollPhoneNumber.trim().length < 8}>
+                        {isSendingEnrollCode ? 'Sending...' : 'Send Code'}
+                      </Button>
+                    </>
+                  )
                 }
               >
-                <div className="space-y-4">
-                  <p className="text-sm text-muted-foreground">
-                    Scan this QR code with your authenticator app, then enter the 6-digit code it shows.
-                  </p>
-                  {totpQrDataUrl && (
-                    <img src={totpQrDataUrl} alt="Two-factor authentication QR code" className="mx-auto rounded-xl border border-border" width={200} height={200} />
-                  )}
-                  {totpSecret && (
-                    <p className="text-xs text-muted-foreground text-center break-all">
-                      Can't scan? Enter this key manually: <span className="font-mono">{totpSecret.secretKey}</span>
+                <div ref={enrollRecaptchaRef} />
+                {!enrollVerificationId ? (
+                  <div className="space-y-3">
+                    <p className="text-sm text-muted-foreground">
+                      Enter your phone number in international format (e.g. +1 555 123 4567). We'll text you a
+                      verification code.
                     </p>
-                  )}
-                  <Input
-                    autoFocus
-                    inputMode="numeric"
-                    pattern="[0-9]*"
-                    maxLength={6}
-                    placeholder="123456"
-                    value={totpCode}
-                    onChange={e => setTotpCode(e.target.value.replace(/\D/g, ''))}
-                    className="text-center text-lg tracking-[0.3em] font-bold"
-                  />
-                </div>
+                    <Input
+                      type="tel"
+                      placeholder="+1 555 123 4567"
+                      value={enrollPhoneNumber}
+                      onChange={e => setEnrollPhoneNumber(e.target.value)}
+                    />
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <p className="text-sm text-muted-foreground">
+                      Enter the 6-digit code we texted to {enrollPhoneNumber}.
+                    </p>
+                    <Input
+                      autoFocus
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      maxLength={6}
+                      placeholder="123456"
+                      value={enrollCode}
+                      onChange={e => setEnrollCode(e.target.value.replace(/\D/g, ''))}
+                      className="text-center text-lg tracking-[0.3em] font-bold"
+                    />
+                  </div>
+                )}
               </Modal>
 
               <Card className="p-8 border-rose-500/20 bg-rose-500/5">
